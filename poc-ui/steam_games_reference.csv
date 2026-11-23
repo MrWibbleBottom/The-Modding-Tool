@@ -1,0 +1,673 @@
+Game Title,MCP Category,Engine / Tech,Recommended MCP Stack
+Stellaris,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Store Page,Utility / Demo / Artifact,Scraping Artifact,None (or Demo-Specific MCP)
+Enshrouded,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Path of Exile 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+The Witcher 3: Wild Hunt — Remastered,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Elder Scrolls V: Skyrim,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Crimson Desert Enhanced,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Fallout 4,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Borderlands 2,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+S.T.A.L.K.E.R. 2: Heart of Chornobyl,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+3DMark,Utility / Demo / Artifact,Benchmark Utility,None (or Demo-Specific MCP)
+Sid Meier's Civilization V,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Pillars of Eternity,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+XCOM 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sid Meier's Civilization VI,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Grand Theft Auto V Legacy,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Baldur's Gate: Enhanced Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Prey,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Path of Exile,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Battlefield™ 6,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Titan Quest: Immortal Throne,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Battlefield: Bad Company™ 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Divinity: Original Sin (Classic),Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Divinity: Original Sin 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Company of Heroes 3,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+ARC Raiders,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Galactic Civilizations IV,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+"Warhammer 40,000: Rogue Trader",Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Marvel's Midnight Suns,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Dune: Awakening,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Batman™: Arkham Knight,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dyson Sphere Program,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Assassin's Creed Origins,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Legend of Grimrock 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Elder Scrolls V: Skyrim Special Edition,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Legend of Grimrock,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sid Meier's Civilization VII,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Last Epoch,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Tainted Grail: The Fall of Avalon,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+MechWarrior 5: Mercenaries,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Space Pirates and Zombies,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Borderlands 3,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Mass Effect 2 (2010),Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Palworld,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+ELDEN RING,Custom / Legacy C++,FromSoftware (Mod Engine),GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: Mankind Divided™,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Divinity: Original Sin Enhanced Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+XCOM: Enemy Unknown,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Wildermyth,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Wasteland 2,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Last Caretaker,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Borderlands: The Pre-Sequel,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Assassin's Creed Black Flag Resynced,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+S.T.A.L.K.E.R.: Call of Pripyat,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+FINAL FANTASY VII REBIRTH,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Homeworld Remastered Collection,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Borderlands GOTY,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Middle-earth™: Shadow of Mordor™,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grim Dawn,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Deus Ex: Human Revolution,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+STAR WARS™ Empire at War: Gold Pack,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Divinity II - The Dragon Knight Saga,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Starcom: Unknown Space,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Black Mesa,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+EVERSPACE™ 2,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Torchlight II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Portal 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Balatro,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Dragon's Dogma 2,Custom / Legacy C++,RE Engine (REFramework),GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Supreme Commander 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+X3: Albion Prelude,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+EVERSPACE™,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Magic 2014,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Vampire Survivors,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+FINAL FANTASY RESONANCE,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Unexplored,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Elder Scrolls IV: Oblivion Game of the Year Edition (2009),Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Terra Invicta,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Elite Dangerous,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Warlock - Master of the Arcane,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+HELLDIVERS™ 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Tom Clancy's The Division Trial,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+"Warhammer 40,000: Space Marine 2",Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+OCTOPATH TRAVELER II,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+"Warhammer 40,000: Dawn of War II - Chaos Rising",Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+BioShock Infinite,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Terraria,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Company of Heroes - Legacy Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Nightingale,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Company of Heroes 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DOOM,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dead Space,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+"Warhammer 40,000: Dawn of War II - Retribution",Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Satisfactory,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+King's Bounty: Crossworlds,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sins of a Solar Empire: Rebellion,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+AirMech,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+The Lord of the Rings: War in the North,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Middle-earth™: Shadow of War™,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Half-Life 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Torment: Tides of Numenera,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Dark Messiah of Might & Magic Single Player,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Invincible,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Subnautica,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Planet Crafter,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Metro: Last Light Redux,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Shadowrun Returns,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+RimWorld,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Transformers: Fall of Cybertron,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Half-Life: Alyx,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Slay the Spire 2,Godot,Godot Engine,Godot-MCP + Filesystem MCP
+Age of Wonders 4,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Days Gone,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+X4: Foundations,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Total War: WARHAMMER III,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Subnautica 2,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Underkeep,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+V Rising,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+SpellForce: Conquest of Eo,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Dying Light,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+ENDLESS Space™ - Definitive Edition,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Galactic Civilizations III,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Farthest Frontier,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Fall of the Dungeon Guardians,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Space Pirates and Zombies 2,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Titan Quest II,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+King's Bounty: The Legend,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The King is Watching,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Metaphor: ReFantazio,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Mewgenics,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dragon Age™: The Veilguard,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Master Bladesmith,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Dispatch,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Sins of a Solar Empire: Trinity,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Total War: WARHAMMER II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+"Warhammer 40,000: Gladius - Relics of War",Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Metro 2033 Redux,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Fallen Enchantress: Legendary Heroes,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+STAR WARS™ Battlefront™ II,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Tropico 4,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Chaos Reborn,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Warframe,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Cargo Hunters,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Tiny Tina's Wonderlands,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Wayfinder,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+SOMA,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Homeworld 3,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Satellite Reign,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Gothic 1 Remake,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Against the Storm,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Room 4: Old Sins,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Empyrion - Galactic Survival,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+New World: Aeternum,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Cosmoteer: Starship Architect & Commander,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Room Three,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Fallout: New Vegas,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Starcom: Nexus,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Just Cause 3,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Team Fortress 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+X3: Terran Conflict,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Red Dead Redemption 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+ARK: Survival Evolved,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Baldur's Gate II: Enhanced Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Tower of Time,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Bloodline,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Starpoint Gemini 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Drova - Forsaken Kin,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Machinarium,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+ENDLESS Legend™,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Black Myth: Wukong,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Oxygen Not Included,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Neverwinter Nights 2: Platinum,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Planet Zoo,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Burnout Paradise: The Ultimate Box,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Star Trek Online,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Crysis Warhead,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Fort Solis,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Metro 2033,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+STAR WARS™: The Force Unleashed™ II,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Heroes of Hammerwatch II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Carrier Command: Gaea Mission,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Resident Evil 2,Custom / Legacy C++,RE Engine (REFramework),GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Valheim,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Star Control: Origins,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Hades II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+"Warhammer 40,000: Chaos Gate - Daemonhunters",Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Sons Of The Forest,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Dishonored,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Last Starship,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Blade & Sorcery,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+"Star Wars: Battlefront 2 (Classic, 2005)",Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Anno 2070,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Risk of Rain 2,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Batman: Arkham City™,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The First Descendant,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Wallpaper Engine,Utility / Demo / Artifact,Desktop Utility,None (or Demo-Specific MCP)
+Wasteland 2: Director's Cut,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Portal,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+StarDrive,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+StarRupture,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Planetary Annihilation: TITANS,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DARK SOULS™ III,Custom / Legacy C++,FromSoftware (Mod Engine),GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Hardspace: Shipbreaker,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Evolve Stage 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+IXION,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Defense Grid: The Awakening,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Crysis 2 Maximum Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Wolfenstein: The New Order,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Alien: Isolation,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+FTL: Faster Than Light,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DOOM Eternal,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Monster Hunter: World,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Remnant II,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Tabletop Simulator,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+X Rebirth,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Retrovirus,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Osiris: New Dawn,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Split Fiction,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Red Faction: Guerrilla Steam Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+"Warhammer 40,000: Dawn of War III",Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Battleborn,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Tomb Raider,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+NieR:Automata™,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Supreme Commander: Forged Alliance,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+ERA ONE,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Train Simulator Classic,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Crust,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+METAL GEAR SOLID V: THE PHANTOM PAIN,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dungeons of Sundaria,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Kingdoms Reborn,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Shadowrun: Dragonfall - Director's Cut,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Wytchwood,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Solus Project,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Life is Strange™,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dragon's Dogma: Dark Arisen,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Left 4 Dead 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Thrive,Godot,Godot Engine,Godot-MCP + Filesystem MCP
+South Park The Fractured But Whole,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Fallen Enchantress,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Portal Knights,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Destiny 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Remnant: From the Ashes,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Roboquest,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Torchlight,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quern - Undying Thoughts,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Bloons TD 6,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Just Cause 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Citadel: Forged With Fire,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+DREDGE,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Batman™: Arkham Origins,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Throne and Liberty,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Planet Coaster,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Talos Principle,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Magicka,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Space Engineers,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Spacebase DF-9,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Talisman: Digital Classic Edition,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Dungeons of Dredmor,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+RoboCop: Rogue City,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Coral Island,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+The Lord of the Rings: Return to Moria™,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Global Agenda,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Defense Grid 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Homeworld: Deserts of Kharak,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Swapper,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Strange Antiquities,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Stranded: Alien Dawn,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Battlefield™ 6 Open Beta,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Dungeon Defenders,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Incredible Adventures of Van Helsing,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Saints Row: The Third,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Red Faction: Armageddon,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+STAR WARS™: Squadrons,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+BioShock 2,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Drox Operative,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Banishers: Ghosts of New Eden,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Mad Max,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+PUBG: BATTLEGROUNDS,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Dorfromantik,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Evil Genius,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Shadowrun: Hong Kong - Extended Edition,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+This War of Mine,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Chrono Odyssey Playtest,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Shadows of Doubt,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Druidstone: The Secret of the Menhir Forest,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Where Winds Meet,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+The Crust Demo,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Borderlands GOTY Enhanced,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+X-COM: UFO Defense,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+AI War: Fleet Command,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Defect,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+METAL GEAR SOLID V: GROUND ZEROES,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Operation Lovecraft: Fallen Doll Closed Beta,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Foundation,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Warhammer: End Times - Vermintide,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Fallout 76,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Dota 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Rodina,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deadlock,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Main Sequence Demo,Utility / Demo / Artifact,Demo,None (or Demo-Specific MCP)
+Planetary Annihilation,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Don't Starve Together,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Enderal: Forgotten Stories (Special Edition),Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+DAVE THE DIVER,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+South Park™: The Stick of Truth™,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Old World,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Cities XL 2011,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Lost Ark,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Card Survival: Tropical Island - The First Days,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+ENDLESS Space™ 2,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Into the Stars,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Old School RPG,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Overload Playable Teaser,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+XCOM: Chimera Squad,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sword Coast Legends,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Google Earth VR,Utility / Demo / Artifact,VR Utility,None (or Demo-Specific MCP)
+The Last of Us™ Part I,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+System Shock 2: 25th Anniversary Remaster,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Dungeons & Dragons: Krynn Series,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Tales from the Borderlands,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Sword of the Stars Complete Collection,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DARK SOULS™: Prepare To Die Edition,Custom / Legacy C++,FromSoftware (Mod Engine),GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dungeon Siege III,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Tacoma,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Fractured Space,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+The Secret of Monkey Island: Special Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Idle Champions of the Forgotten Realms,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Just Cause™ 3: Multiplayer Mod,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Sunless Sea,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+FINAL FANTASY XV WINDOWS EDITION,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+X-COM: Enforcer,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Age of Empires® III (2007),Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Darksiders,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Kerbal Space Program,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Moonring,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Mortal Sin,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Void,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+3030 Deathwar Redux - A Space Odyssey,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+RAGE,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+"Warhammer 40,000: Dawn of War II - Anniversary Edition",Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+S.T.A.L.K.E.R.: Shadow of Chernobyl,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+"Warhammer 40,000: Space Marine - Anniversary Edition",Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Assassin's Creed IV Black Flag,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Fantasy Grounds VTT,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Heat Signature,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Toy Soldiers,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+"Warhammer 40,000: Eternal Crusade",Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Dragon Age: Origins - Ultimate Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Marathon,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Sid Meier's Civilization: Beyond Earth,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Jagged Alliance 3,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Lethal Company,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Ziggurat,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Freedom Force,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life 2 RTX,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Kingdom Come: Deliverance II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Serious Sam 3: BFE,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Deep Rock Galactic,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Dungeons & Dragons: Ravenloft Series,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Overload,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Verse Project Playtest,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+X-COM: Apocalypse,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+BattleGroupVR,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+In The Black,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+King's Bounty: Armored Princess,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Vanishing of Ethan Carter,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Warface: Clutch,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+ATOM RPG,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Forgotten Realms: The Archives - Collection One,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Awesomenauts,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Bully: Scholarship Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Forest,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+inZOI,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Sleeping Dogs: Definitive Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Aniimo,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+The King is Watching Demo,Utility / Demo / Artifact,Demo (Unity),None (or Demo-Specific MCP)
+Orcs Must Die!,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Crysis,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Project Zomboid,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+BRINK,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+GRAV,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Hearts of Iron IV,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake II RTX,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+War Thunder,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+BioShock,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Cities XL - Limited Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dungeons & Dragons: Dark Sun Series,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Alpha Protocol,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Demeo - PC Edition,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Marvel Rivals,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+The Elder Scrolls III: Morrowind,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+DogFighter,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Fantasy Empires,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Liar's Bar,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Mount & Blade,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Portal with RTX,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Prototype,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Aliens vs. Predator,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dungeon of the ENDLESS™,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Grand Theft Auto IV: The Complete Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Half-Life 2: VR Mod,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Mass Effect (2007),Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+"Sir, You Are Being Hunted",Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+"Warhammer 40,000: Darktide",Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+DOOM 3: Resurrection of Evil,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+FINAL FANTASY VII (2013),Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Long Dark,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Superbrothers: Sword & Sworcery EP,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: Game of the Year Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+GRID,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Guardians of Graxia,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Metro: Last Light Complete Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Northgard: Definitive Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Star Traders: Frontiers,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+BONEWORKS,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Bureau: XCOM Declassified,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Divinity II: Developer's Cut,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Elder Scrolls V: Skyrim VR,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Friday the 13th: The Game,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+HeXen II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+STAR WARS™ Knights of the Old Republic™,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Predecessor,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Two Worlds II HD,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Jettatura,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Osmos,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Waltz of the Wizard (Legacy demo),Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Divine Divinity,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+FINAL FANTASY VII REMAKE INTERGRADE,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Forgotten Realms: The Archives - Collection Three,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+S.T.A.L.K.E.R.: Shadow of Chornobyl - Enhanced Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+X3: Reunion,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Dark and Darker Playtest,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Epic Manager,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Jade Empire: Special Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Space Rangers HD: A War Apart,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Titan Quest,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Dead Space 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: Invisible War,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: Revision,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Age of Wonders III,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Crysis Wars,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Forbidden Art,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Lab,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+PAYDAY 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Planet Coaster 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Quake 4,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Robocraft,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+RollerCoaster Tycoon 3: Platinum!,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Sid Meier's Starships,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Silver Box Classics,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Underworld Ascendant,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+X-COM: Interceptor,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Art Plunge,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Company of Heroes: Opposing Fronts,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DYSMANTLE,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+PROTOTYPE 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Serious Sam Classic: The First Encounter,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+STAR WARS™ Knights of the Old Republic™ II: The Sith Lords™,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Tales of Maj'Eyal,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Cities: Skylines,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Company of Heroes: Tales of Valor,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+D&D Stronghold: Kingdom Simulator,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Dune: Spice Wars,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Fallout 2,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+FINAL FANTASY VIII,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Hellblade: Senua's Sacrifice,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Monaco,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Okami HD,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Quake II: Ground Zero,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake II: The Reckoning,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Titan Quest Anniversary Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Warlock of Firetop Mountain,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Wasteland 1 - The Original Classic,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+007 First Light Free Starter Pack,Utility / Demo / Artifact,Demo (Glacier),None (or Demo-Specific MCP)
+Al-Qadim: The Genie's Curse,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Alan Wake,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Alan Wake's American Nightmare,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Aloft Demo,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Amnesia: The Dark Descent,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Another World,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+ARK: Survival Of The Fittest,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Bastion,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Batman: Arkham Asylum GOTY Edition,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Batman: Arkham City GOTY,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Batman™: Arkham Origins Blackgate - Deluxe Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Batman™: Arkham VR,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+"Ben There, Dan That!",Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Beyond Divinity,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+BioShock Remastered,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+BioShock 2 Remastered,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Blockland,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Borderlands 2 VR,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Broken Sword 2 - the Smoking Mirror: Remastered (2010),Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Broken Sword 3 - the Sleeping Dragon (2003),Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Burn Zombie Burn,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Call of Cthulhu: Dark Corners of the Earth,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Call of Duty: Advanced Warfare,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Call of Duty: Advanced Warfare - Multiplayer,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Call of Juarez Gunslinger,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Cat Lady,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Command & Conquer™ Red Alert™ 3 - Uprising,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Commander Keen Complete Pack,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Company of Heroes,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Counter-Strike,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Counter-Strike 2,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Counter-Strike: Condition Zero,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Counter-Strike: Condition Zero Deleted Scenes,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Counter-Strike: Source,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Cubemen 2,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Dark and Darker,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Dark Messiah of Might & Magic Multi-Player,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Darksiders II,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Darksiders Warmastered Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Day of Defeat,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Day of Defeat: Source,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Dead Space (2008),Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+DEATH STRANDING,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+DeathKeep,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deathmatch Classic,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Defense Grid 2: A Matter of Endurance,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Demeo,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Detached,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Detroit: Become Human,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: Human Revolution - Director's Cut,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: Human Revolution - The Missing Link,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Deus Ex: The Fall,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+DOOM + DOOM II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DOOM II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DOOM 3,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DOOM 3: BFG Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+DOOM 64,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Door Kickers,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Dragon's Dogma 2 Character Creator & Storage,Utility / Demo / Artifact,Demo (RE Engine),None (or Demo-Specific MCP)
+DragonStrike,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+DRONE The Game,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Duke Nukem Forever,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Elder Scrolls II: Daggerfall,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Elite Dangerous: Arena,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Endless Sky,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Eryi's Action,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Escape Simulator,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Espire 1: VR Operative,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+The Expanse: A Telltale Series,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Fallout,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Fallout 3 - Game of the Year Edition,Creation Engine,Creation / Gamebryo,SkyrimCK-MCP / creation-kit-mcp + Filesystem MCP
+Fallout 76 Public Test Server,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Fallout Tactics,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Final DOOM,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+FINAL FANTASY VII,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Forgotten Realms: The Archives - Collection Two,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Freedom Force vs. the 3rd Reich,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Frozen Synapse,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+God of War,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grand Theft Auto,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grand Theft Auto 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grand Theft Auto III,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grand Theft Auto V Enhanced,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grand Theft Auto: San Andreas,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Grand Theft Auto: Vice City,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Half-Life,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life 2: Deathmatch,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life 2: Update,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life 2: VR Mod - Episode One,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life 2: VR Mod - Episode Two,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life Deathmatch: Source,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life: Blue Shift,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life: Opposing Force,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Half-Life: Source,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Hellblade: Senua's Sacrifice VR Edition,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Heretic + Hexen,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Heretic: Shadow of the Serpent Riders,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Hexen: Beyond Heretic,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Hexen: Deathkings of the Dark Citadel,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Hitman: Blood Money,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+HITMAN™,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Homefront,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Horizon Zero Dawn™ Complete Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Hunted: The Demon's Forge,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+IronWolf VR,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Kingdom Come: Deliverance,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+The Last of Us™ Part II Remastered,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Left 4 Dead,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+LIMBO,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Luxor Evolved,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Mass Effect 2 (2010) Edition,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Master Levels for DOOM II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Medal of Honor(TM) Multiplayer,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Medal of Honor(TM) Single Player,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Mirror's Edge,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Monkey Island 2: Special Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+MURDERED: SOUL SUSPECT™,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+New Tales from the Borderlands,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+Outlast 2,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Party Hard,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Path,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Phasmophobia,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Portal: Revolution,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Pressure,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Psychonauts,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Quake,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake Champions,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+Quake III Arena,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake III: Team Arena,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake Mission Pack 1: Scourge of Armagon,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quake Mission Pack 2: Dissolution of Eternity,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Quantum Break,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Realms of Arkania: Blade of Destiny,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Red Faction Guerrilla Re-Mars-tered,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Resident Evil 7 Teaser: Beginning Hour,Utility / Demo / Artifact,Demo (RE Engine),None (or Demo-Specific MCP)
+Return to Castle Wolfenstein,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Ricochet,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Rogue Warrior,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+S.T.A.L.K.E.R.: Call of Prypiat - Enhanced Edition,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sairento VR,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+The Scourge Project: Episode 1 and 2,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Scourge: Outbreak,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Secret of the Magic Crystal,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Serious Sam Classic: The Second Encounter,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Serious Sam Classics: Revolution,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Serious Sam Fusion,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Shadow Warrior,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Sid Meier's Civilization IV,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sid Meier's Civilization IV: Beyond the Sword,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sid Meier's Civilization IV: Colonization,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Sid Meier's Civilization IV: Warlords,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+SiN Episodes: Emergence,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+SiN Gold,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+SiN Multiplayer,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Slay the Spire,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Spec Ops: The Line,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Spelljammer: Pirates of Realmspace,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Spiritfarer®: Farewell Edition,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Star Trek: Bridge Crew,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Star Trek: Resurgence,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+STAR WARS™ Jedi Knight: Dark Forces II,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+STAR WARS™ Jedi Knight II: Jedi Outcast™,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Star Wars Outlaws Demo,Utility / Demo / Artifact,Demo,None (or Demo-Specific MCP)
+STAR WARS™: The Force Unleashed™ Ultimate Sith Edition,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+StarMade,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Starpoint Gemini,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+A Story About My Uncle,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Subnautica: Below Zero,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Supreme Commander,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Surgeon Simulator: Experience Reality,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Swords of Gurrah,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+System Shock® 2 (1999),Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Team Fortress Classic,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Thunder Wolves,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+"Time Gentlemen, Please!",Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Tom Clancy's Ghost Recon,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Tom Clancy's Ghost Recon: Desert Siege,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Tom Clancy's Ghost Recon: Island Thunder,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Tom Clancy's Ghost Recon: Advanced Warfighter,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Tom Clancy's Ghost Recon: Advanced Warfighter 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Total War: WARHAMMER,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Tower Wars,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Trine 2,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+The Vanishing of Ethan Carter Redux,Unreal Engine 4/5,Unreal Engine 4/5,ue4ss-bridge / UE4SS-mcp + Filesystem MCP
+VeeR VR,Utility / Demo / Artifact,VR Utility,None (or Demo-Specific MCP)
+Vertigo Remastered,Unity,Unity (Mono/IL2CPP),bepinex-mcp + il2cpp-dump-analyzer + GhidraMCP
+Viscera Cleanup Detail,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Viscera Cleanup Detail: Santa's Rampage,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Viscera Cleanup Detail: Shadow Warrior,Custom / Legacy C++,Unreal Engine 3,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Wildgate - Open Beta,Online / Anti-Cheat,Live-Service / Anti-Cheat,None (Server-Side / Anti-Cheat)
+The Wolf Among Us,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+Wolfenstein 3D,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Wolfenstein 3D: Spear of Destiny,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Wolfenstein: Youngblood,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)
+X-COM: Terror from the Deep,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Zero-K,Data-Driven / Scriptable,Scriptable / Open Data,Filesystem MCP + Terminal MCP
+Zombie Driver,Custom / Legacy C++,Custom / Proprietary C++,GhidraMCP + Cheat-Engine-Mcp (+ Filesystem MCP)

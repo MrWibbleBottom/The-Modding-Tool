@@ -1,0 +1,258 @@
+{
+  "major": 0,
+  "minor": 1,
+  "patch": 40,
+  "prerelease": "",
+  "version": "0.1.40",
+  "channel": "pre-launch",
+  "launched": false,
+  "updated_at": "2026-11-24T09:38:19",
+  "history": [
+    {
+      "version": "0.1.0",
+      "bump": "init",
+      "note": "Initial semantic version (pre-launch; 1.0.0 reserved for full launch)",
+      "timestamp": "2026-11-24T08:09:37"
+    },
+    {
+      "version": "0.1.1",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~3 -43: package_windows.py, poc-ui/controller.py, poc-ui/index.html, dist/ModToolPoC-Win64.zip, dist/ModToolPoC-Win64/Launch_ModToolPoC.bat)",
+      "timestamp": "2026-11-24T08:12:02"
+    },
+    {
+      "version": "0.1.2",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:15:17"
+    },
+    {
+      "version": "0.1.3",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:16:02"
+    },
+    {
+      "version": "0.1.4",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:16:24"
+    },
+    {
+      "version": "0.1.5",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:17:28"
+    },
+    {
+      "version": "0.1.6",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:18:26"
+    },
+    {
+      "version": "0.1.7",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+1 ~1 -0: tests/test_app_smoke.py, package_windows.py)",
+      "timestamp": "2026-11-24T08:19:04"
+    },
+    {
+      "version": "0.1.8",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:22:57"
+    },
+    {
+      "version": "0.1.9",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:23:27"
+    },
+    {
+      "version": "0.1.10",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:26:20"
+    },
+    {
+      "version": "0.1.11",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~2 -0: poc-ui/controller.py, poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:27:14"
+    },
+    {
+      "version": "0.1.12",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:29:53"
+    },
+    {
+      "version": "0.1.13",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:30:27"
+    },
+    {
+      "version": "0.1.14",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~2 -0: poc-ui/controller.py, poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:33:40"
+    },
+    {
+      "version": "0.1.15",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:45:44"
+    },
+    {
+      "version": "0.1.16",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~2 -0: poc-ui/controller.py, poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:48:04"
+    },
+    {
+      "version": "0.1.17",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T08:57:01"
+    },
+    {
+      "version": "0.1.18",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T08:57:35"
+    },
+    {
+      "version": "0.1.19",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:02:21"
+    },
+    {
+      "version": "0.1.20",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:02:38"
+    },
+    {
+      "version": "0.1.21",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:04:10"
+    },
+    {
+      "version": "0.1.22",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:04:27"
+    },
+    {
+      "version": "0.1.23",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:04:53"
+    },
+    {
+      "version": "0.1.24",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:06:20"
+    },
+    {
+      "version": "0.1.25",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:08:24"
+    },
+    {
+      "version": "0.1.26",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:09:34"
+    },
+    {
+      "version": "0.1.27",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:09:45"
+    },
+    {
+      "version": "0.1.28",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:10:04"
+    },
+    {
+      "version": "0.1.29",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:10:25"
+    },
+    {
+      "version": "0.1.30",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:21:46"
+    },
+    {
+      "version": "0.1.31",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:22:20"
+    },
+    {
+      "version": "0.1.32",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:24:43"
+    },
+    {
+      "version": "0.1.33",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:27:06"
+    },
+    {
+      "version": "0.1.34",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:27:44"
+    },
+    {
+      "version": "0.1.35",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:28:27"
+    },
+    {
+      "version": "0.1.36",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:32:22"
+    },
+    {
+      "version": "0.1.37",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:33:07"
+    },
+    {
+      "version": "0.1.38",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:33:48"
+    },
+    {
+      "version": "0.1.39",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/controller.py)",
+      "timestamp": "2026-11-24T09:37:48"
+    },
+    {
+      "version": "0.1.40",
+      "bump": "patch",
+      "note": "automatic incremental backup on file change (+0 ~1 -0: poc-ui/index.html)",
+      "timestamp": "2026-11-24T09:38:19"
+    }
+  ]
+}

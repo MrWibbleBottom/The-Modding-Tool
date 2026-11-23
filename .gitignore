@@ -1,0 +1,30 @@
+# Python virtual environments & bytecode
+.venv/
+venv/
+bepinex-mcp/.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*$py.class
+
+# Environment variables, secrets & logs
+.env
+.env.*
+*.log
+
+# Local databases, caches & backup snapshots
+*.db
+*.sqlite
+*.sqlite3
+backups/
+app_backups/
+dist/
+*.tmp
+.cache/
+repo_config.json
+ui_settings.json
+library_cache.json
+managed_games.json
+pc_specs.json
+audit.jsonl
+custom_banner.*
