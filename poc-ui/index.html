@@ -1641,6 +1641,30 @@
       <pre id="mcp-output">Persistent MCP stdio session ready. Use the controls above to query or mutate the live Unity IL2CPP bridge.</pre>
     </div>
 
+    <!-- ASSET & MODDABILITY ANALYZER (GREEN / AMBER / RED) -->
+    <div class="card full" id="card-asset-moddability-analyzer">
+      <h2>
+        <span>Asset &amp; Moddability Analyzer</span>
+        <div class="btn-group">
+          <span class="pill na" id="asset-analyzer-summary-pill">Not Scanned</span>
+          <button class="secondary btn-sm" onclick="toggleModdabilityGuide()">Info: Why Some Parts Can't Be Modded</button>
+          <button class="success btn-sm" id="btn-scan-assets" onclick="runAssetModdabilityScan()">Scan Game Assets</button>
+        </div>
+      </h2>
+      <div id="asset-traffic-light-matrix" class="crucial-steps-grid" style="grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));">
+        <div class="step-card pending">
+          <div class="step-card-title">Ready to Audit Game Assets</div>
+          <div class="step-card-detail">Click <strong>Scan Game Assets</strong> to classify open configs, packed containers, runtime hooks, and anti-cheat/encryption gates into Green, Amber, and Red layers.</div>
+        </div>
+      </div>
+      <div id="asset-moddability-guide-panel" style="display:none; margin-top:12px; padding:12px; border:1px solid #2b3c56; border-radius:6px; background:rgba(13,17,23,0.82);">
+        <div style="font-weight:700; font-size:0.86rem; color:#93c5fd; margin-bottom:8px;">
+          Technical Boundaries Guide: Why Some Game Layers Are Amber or Red
+        </div>
+        <div id="asset-moddability-guide-grid" class="crucial-steps-grid" style="grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));"></div>
+      </div>
+    </div>
+
     <!-- TECHNICAL GAME METADATA & ADVISED MCP TOOLS (COLLAPSIBLE AT BOTTOM OF PAGE) -->
     <div class="card full" id="card-game-technical-details">
       <details id="game-technical-details-collapse">
@@ -1732,6 +1756,10 @@
         </h2>
         <div class="hint" id="mb-compat-hint">
           Compiles a standalone, ABI-compatible mod directly against the active game's detected engine and assemblies (BepInEx 6 IL2CPP C# plugin + <code>.zip</code> for Unity IL2CPP, RE-UE4SS Lua + INI override for Unreal Engine 4/5, or Data Patch for scriptable titles).
+        </div>
+        <div id="mb-asset-audit-banner" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.65); font-size:0.78rem;">
+          <span id="mb-asset-audit-text">Asset &amp; Moddability Audit: Run a scan in Active Game to verify Green/Amber/Red layers before building.</span>
+          <button class="secondary btn-sm" onclick="switchTab('game')">View Asset Analyzer</button>
         </div>
 
         <div class="row">
@@ -6313,6 +6341,150 @@
       }
     }
 
+    let SERVER_WAS_DISCONNECTED = false;
+    let INITIAL_LOAD_FAILED = false;
+
+    function _setServerPillState(connected) {
+      const badge = document.getElementById("server-badge");
+      if (!badge) return;
+      if (connected) {
+        badge.textContent = "127.0.0.1:8765";
+        badge.style.background = "rgba(22, 163, 74, 0.2)";
+        badge.style.borderColor = "#16a34a";
+        badge.style.color = "#86efac";
+      } else {
+        badge.textContent = "Reconnecting...";
+        badge.style.background = "rgba(217, 119, 6, 0.22)";
+        badge.style.borderColor = "#d97706";
+        badge.style.color = "#fcd34d";
+      }
+    }
+
+    async function pollServerHealth() {
+      try {
+        const resp = await fetch("/api/health", { cache: "no-store" });
+        if (!resp.ok) throw new Error("Health check failed");
+        _setServerPillState(true);
+        if (SERVER_WAS_DISCONNECTED || INITIAL_LOAD_FAILED) {
+          SERVER_WAS_DISCONNECTED = false;
+          INITIAL_LOAD_FAILED = false;
+          Promise.all([
+            loadAppVersion(),
+            loadGitHubRepoConfig(),
+            refreshGamesList(false),
+            loadLogs(),
+          ]).catch(() => {});
+        }
+      } catch {
+        SERVER_WAS_DISCONNECTED = true;
+        _setServerPillState(false);
+      }
+    }
+
+    let LAST_ASSET_AUDIT = null;
+
+    function toggleModdabilityGuide() {
+      const panel = document.getElementById("asset-moddability-guide-panel");
+      if (!panel) return;
+      const opening = panel.style.display === "none";
+      panel.style.display = opening ? "block" : "none";
+      if (opening && !document.getElementById("asset-moddability-guide-grid")?.children.length) {
+        loadModdabilityGuide();
+      }
+    }
+
+    async function loadModdabilityGuide(triggeredKeys = []) {
+      const grid = document.getElementById("asset-moddability-guide-grid");
+      if (!grid) return;
+      const res = await apiGet("/api/game/moddability-guide");
+      if (!res.ok || !res.data) return;
+      const guide = Array.isArray(res.data.guide) ? res.data.guide : [];
+      renderModdabilityGuideGrid(guide, triggeredKeys);
+    }
+
+    function renderModdabilityGuideGrid(guide, triggeredKeys = []) {
+      const grid = document.getElementById("asset-moddability-guide-grid");
+      if (!grid || !Array.isArray(guide)) return;
+      const trigSet = new Set(triggeredKeys || []);
+      const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      grid.innerHTML = guide.map(item => {
+        const isTrig = trigSet.has(item.key);
+        const sevCls = item.severity === "red" ? "no" : "warn";
+        const cardBorder = isTrig ? "border: 1px solid #f59e0b; box-shadow: 0 0 0 1px rgba(245,158,11,0.35);" : "";
+        const trigTag = isTrig ? '<span class="pill warn">Detected in Active Game</span>' : "";
+        return `<div class="step-card ${item.severity === "red" ? "missing" : "pending"}" style="${cardBorder}">
+          <div class="step-card-top">
+            <span class="step-card-title">${esc(item.title)}</span>
+            <span class="pill ${sevCls}">${esc((item.severity || "red").toUpperCase())}</span>
+          </div>
+          ${trigTag ? `<div style="margin:3px 0;">${trigTag}</div>` : ""}
+          <div style="font-size:0.75rem; color:#e2e8f0; margin-top:4px;">${esc(item.summary)}</div>
+          <div style="font-size:0.73rem; color:#fca5a5; margin-top:4px;"><strong>Why:</strong> ${esc(item.why_it_blocks)}</div>
+          <div style="font-size:0.73rem; color:#86efac; margin-top:3px;"><strong>Alternative:</strong> ${esc(item.what_you_can_do_instead)}</div>
+        </div>`;
+      }).join("");
+    }
+
+    async function runAssetModdabilityScan() {
+      const btn = document.getElementById("btn-scan-assets");
+      const pill = document.getElementById("asset-analyzer-summary-pill");
+      const matrix = document.getElementById("asset-traffic-light-matrix");
+      const rootPath = (document.getElementById("fp-game-dir")?.value || "").trim();
+      if (btn) { btn.disabled = true; btn.textContent = "Scanning..."; }
+      try {
+        const res = await apiPost("/api/game/analyze-assets", {
+          game_id: ACTIVE_GAME_ID || "",
+          root_path: rootPath
+        });
+        if (!res.ok || !res.data) {
+          if (matrix) matrix.innerHTML = `<div class="step-card missing"><div class="step-card-title">Asset Scan Failed</div><div class="step-card-detail">${res.data?.detail || "Could not analyze game directory."}</div></div>`;
+          return;
+        }
+        const r = res.data;
+        LAST_ASSET_AUDIT = r;
+        const s = r.summary || { green: 0, amber: 0, red: 0 };
+        if (pill) {
+          pill.className = s.green > 0 ? "pill yes" : (s.amber > 0 ? "pill warn" : "pill no");
+          pill.textContent = `${r.engine} | ${s.green} Green · ${s.amber} Amber · ${s.red} Red`;
+        }
+        const mbText = document.getElementById("mb-asset-audit-text");
+        if (mbText) {
+          mbText.innerHTML = `Asset Audit (<strong>${r.title}</strong> · <code>${r.engine}</code>): <span style="color:#4ade80;">${s.green} Green</span> · <span style="color:#fbbf24;">${s.amber} Amber</span> · <span style="color:#f87171;">${s.red} Red</span>`;
+        }
+        const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const colorMap = {
+          green: { bg: "#16a34a", cls: "ok", label: "GREEN" },
+          amber: { bg: "#d97706", cls: "pending", label: "AMBER" },
+          red: { bg: "#dc2626", cls: "missing", label: "RED" }
+        };
+        const layers = Array.isArray(r.layers) ? r.layers : [];
+        if (matrix) {
+          matrix.innerHTML = layers.map(l => {
+            const cm = colorMap[l.status] || colorMap.amber;
+            const sampleTxt = Array.isArray(l.detected_items) && l.detected_items.length
+              ? l.detected_items.slice(0, 5).map(x => `<code>${esc(x)}</code>`).join(", ")
+              : "None";
+            const reqTools = Array.isArray(l.required_tools) ? l.required_tools.join(", ") : "";
+            return `<div class="step-card ${cm.cls}">
+              <div class="step-card-top">
+                <span class="step-card-title">${esc(l.layer_name)}</span>
+                <span class="pill" style="background:${cm.bg}; color:#fff; border-color:${cm.bg};">${cm.label} (${l.file_count || 0})</span>
+              </div>
+              <div style="font-size:0.74rem; color:#93c5fd; margin-top:3px;"><strong>Tools:</strong> ${esc(reqTools)} — ${esc(l.tool_status)}</div>
+              <div style="font-size:0.74rem; color:#e2e8f0; margin-top:3px;">${esc(l.what_can_change)}</div>
+              <div class="step-card-detail" style="margin-top:4px;">Samples: ${sampleTxt}</div>
+            </div>`;
+          }).join("");
+        }
+        if (r.guide) {
+          renderModdabilityGuideGrid(Object.values(r.guide), r.triggered_blockers || []);
+        }
+        loadLogs();
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Scan Game Assets"; }
+      }
+    }
+
     window.addEventListener("DOMContentLoaded", async () => {
       applyResponsiveResolutionLayout();
       const loadingOverlay = document.getElementById("app-loading-overlay");
@@ -6330,8 +6502,13 @@
           loadWatcherStatus(),
         ]);
         applyResponsiveResolutionLayout();
+        _setServerPillState(true);
+      } catch {
+        INITIAL_LOAD_FAILED = true;
+        _setServerPillState(false);
       } finally {
         if (loadingOverlay) loadingOverlay.style.display = "none";
+        setInterval(pollServerHealth, 5000);
       }
     });
   </script>

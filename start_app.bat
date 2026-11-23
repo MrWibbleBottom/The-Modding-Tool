@@ -34,7 +34,7 @@ if not exist ".venv\Scripts\python.exe" (
 echo [INFO] Opening http://127.0.0.1:8765 in your default browser...
 start "" "http://127.0.0.1:8765"
 
-echo [INFO] Starting FastAPI server on http://127.0.0.1:8765 ...
-".venv\Scripts\python.exe" -m uvicorn controller:app --app-dir poc-ui --host 127.0.0.1 --port 8765 --reload
+echo [INFO] Starting supervised server on http://127.0.0.1:8765 ...
+".venv\Scripts\python.exe" run_server.py
 
 pause
