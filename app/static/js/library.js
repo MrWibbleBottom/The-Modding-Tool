@@ -1261,7 +1261,7 @@ export function renderGamesTable() {
   document.getElementById("manager-count-badge").textContent = `${filtered.length} / ${state.managedGames.length}`;
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7">No managed games match the current filter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6">No managed games match the current filter.</td></tr>';
     return;
   }
 
@@ -1297,14 +1297,13 @@ export function renderGamesTable() {
     const pinLabel = g.favorite ? "Pinned" : "Pin";
     const pinCls = g.favorite ? "btn-sm" : "secondary btn-sm";
     return `<tr style="${isAct ? 'background: rgba(59, 130, 246, 0.14);' : (isMissing ? 'background: rgba(239, 68, 68, 0.07);' : '')}">
-      <td class="col-id"><strong>${g.id}</strong> ${isAct ? '<span class="badge">Loaded</span>' : ''}</td>
       <td>
         <div style="display:flex; align-items:center; gap:10px; min-width:0;">
           <img src="/api/games/${encodeURIComponent(g.id)}/icon" alt="" width="24" height="24" loading="lazy"
                style="width:24px; height:24px; border-radius:4px; object-fit:contain; flex-shrink:0; background:#0b0f17; border:1px solid var(--border);"
                onerror="this.style.display='none'" />
           <div style="min-width:0;">
-            <div style="font-weight:600; color:#fff;">${g.favorite ? '<span class="badge" style="margin-right:6px; color:#fbbf24;">Pinned</span>' : ''}${g.name}${missingTag}</div>
+            <div style="font-weight:600; color:#fff;">${isAct ? '<span class="badge" style="margin-right:6px;">Loaded</span>' : ''}${g.favorite ? '<span class="badge" style="margin-right:6px; color:#fbbf24;">Pinned</span>' : ''}${g.name}${missingTag}</div>
             <div style="font-size:0.72rem; color:var(--muted);">${g.game_dir}</div>
           </div>
         </div>

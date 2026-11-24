@@ -254,8 +254,7 @@
         <div class="log-wrap">
           <table>
             <colgroup>
-              <col class="col-id" style="width:14%;" />
-              <col style="width:27%;" />
+              <col style="width:41%;" />
               <col class="col-cat" style="width:11%;" />
               <col class="col-eng" style="width:13%;" />
               <col class="col-stack" style="width:13%;" />
@@ -264,7 +263,6 @@
             </colgroup>
             <thead>
               <tr>
-                <th class="sortable col-id" onclick="setSortColumn('id')">ID <span id="sort-ind-id"></span></th>
                 <th class="sortable" onclick="setSortColumn('name')">Game Name <span id="sort-ind-name">▲</span></th>
                 <th class="sortable col-cat" onclick="setSortColumn('category')">MCP Category <span id="sort-ind-category"></span></th>
                 <th class="sortable col-eng" onclick="setSortColumn('unity_version')">Engine / Build Ver <span id="sort-ind-unity_version"></span></th>
@@ -274,7 +272,7 @@
               </tr>
             </thead>
             <tbody id="games-tbody">
-              <tr><td colspan="7">Loading managed games...</td></tr>
+              <tr><td colspan="6">Loading managed games...</td></tr>
             </tbody>
           </table>
         </div>
