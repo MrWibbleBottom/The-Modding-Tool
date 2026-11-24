@@ -23,9 +23,9 @@ if not exist ".venv\Scripts\python.exe" (
         pause
         exit /b 1
     )
-    echo [INFO] Installing dependencies from poc-ui\requirements.txt ...
+    echo [INFO] Installing dependencies from requirements.txt ...
     ".venv\Scripts\python.exe" -m pip install --upgrade pip
-    ".venv\Scripts\python.exe" -m pip install -r "poc-ui\requirements.txt"
+    ".venv\Scripts\python.exe" -m pip install -r "requirements.txt"
     if exist "bepinex-mcp\mcp\requirements.txt" (
         ".venv\Scripts\python.exe" -m pip install -r "bepinex-mcp\mcp\requirements.txt"
     )

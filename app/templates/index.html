@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="modtool-session-token" content="__SESSION_TOKEN__" />
+  <title>Unity IL2CPP Modding Manager &amp; Live MCP Console (bepinex-mcp)</title>
+  <link id="app-favicon" rel="icon" href="/api/app-ui-config/asset/favicon" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div id="app-loading-overlay" class="app-splash-overlay">
+    <div class="app-splash-card">
+      <h2 style="margin:0 0 6px 0; font-size:1.15rem; color:#f8fafc;">Loading Application</h2>
+      <div id="app-loading-status" style="font-size:0.84rem; color:var(--muted);">Initializing UI, PC specs, and game library...</div>
+      <div class="app-splash-bar-wrap">
+        <div id="app-loading-bar" class="app-splash-bar indeterminate"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-restarting-overlay" class="app-splash-overlay" style="display:none;">
+    <div class="app-splash-card">
+      <h2 style="margin:0 0 6px 0; font-size:1.15rem; color:#fde68a;">Restarting Application</h2>
+      <div id="app-restarting-status" style="font-size:0.84rem; color:var(--muted);">Stopping server and waiting for http://127.0.0.1:8765 to come back online...</div>
+      <div class="app-splash-bar-wrap">
+        <div class="app-splash-bar indeterminate" style="background:#f59e0b;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="cmd-palette-overlay" class="app-splash-overlay" style="display:none; background:rgba(11,15,23,0.78); align-items:flex-start; padding-top:10vh;" onclick="if(event.target===this) closeCommandPalette()">
+    <div class="app-splash-card" style="max-width:620px; text-align:left; padding:16px 18px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong style="color:#93c5fd; font-size:0.9rem;">Command Palette (Ctrl+K)</strong>
+        <button class="secondary btn-sm" onclick="closeCommandPalette()">Esc</button>
+      </div>
+      <input id="cmd-palette-input" type="text" placeholder="Type a game name, tab, or action (e.g. Days Gone, Fingerprint, Export)..." oninput="renderCommandPalette()" />
+      <div id="cmd-palette-list" style="margin-top:10px; max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+    </div>
+  </div>
+  <header>
+    <div class="header-inner">
+      <!-- HEADER ROW 1: BRAND & MENU OPTIONS -->
+      <div class="header-row-1">
+        <div class="header-brand">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex-shrink:0;">
+            <rect x="2" y="2" width="20" height="20" rx="5" fill="#1e293b" stroke="#3b82f6" stroke-width="1.6"/>
+            <path d="M8 12h8M12 8v8" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <h1 id="app-main-title">The Modding Tool</h1>
+          <span class="badge" id="app-version-badge">v0.1.29</span>
+          <span id="app-subtitle" style="font-size: 0.76rem; color: var(--muted); white-space: nowrap;">
+            Platform- &amp; Engine-Agnostic Modding Console
+          </span>
+        </div>
+        <div class="header-controls">
+          <button class="secondary btn-sm" onclick="openCommandPalette()" title="Open Command Palette (Ctrl+K)">Search / Actions (Ctrl+K)</button>
+          <div class="banner-menu-wrap" id="banner-menu-wrap">
+            <button class="secondary btn-sm" id="btn-banner-menu" onclick="toggleBannerMenu(event)">Banner</button>
+            <div class="banner-dropdown" id="banner-dropdown">
+              <button onclick="triggerBannerUpload()">Load Banner Image...</button>
+              <button id="btn-banner-fit-toggle" onclick="toggleBannerFit()">Fit: Full (Contain)</button>
+              <button id="btn-banner-vis-toggle" onclick="toggleBannerVisibility()">Show / Hide Banner</button>
+            </div>
+          </div>
+          <span class="badge" id="active-game-badge">Loaded: Battleground</span>
+          <span class="badge" id="resolution-badge" style="display:none;">Display</span>
+          <span class="badge" id="server-badge">127.0.0.1:8765</span>
+        </div>
+      </div>
+
+      <!-- HEADER ROW 2: UNIFIED TAB BAR -->
+      <div class="tabs-bar">
+        <button class="tab-btn active" id="tab-btn-manager" onclick="switchTab('manager')">
+          <span id="tab-label-manager">Game Manager</span>
+          <span class="badge" id="manager-count-badge">0</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-library" onclick="switchTab('library')">
+          <span id="tab-label-library">Game Library</span>
+          <span class="badge" id="library-count-badge">0</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-game" onclick="switchTab('game')">
+          <span id="tab-label-game">Active Game</span>
+          <span class="badge" id="game-tab-title-badge">Battleground (Battlemarked)</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-modbuilder" onclick="switchTab('modbuilder')">
+          <span id="tab-label-modbuilder">Build a Mod</span>
+          <span class="badge" id="modbuilder-rules-badge">1</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-specs" onclick="switchTab('specs')">
+          <span id="tab-label-specs">PC Specs</span>
+          <span class="badge" id="specs-tab-badge">Hardware</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-logs" onclick="switchTab('logs')">
+          <span id="tab-label-logs">Audit Log</span>
+          <span class="badge" id="audit-tab-count-badge">0</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-appmgmt" onclick="switchTab('appmgmt')">
+          <span>App Management</span>
+          <span class="badge">Tools</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-help" onclick="switchTab('help')">
+          <span>Help</span>
+          <span class="badge">Guide</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <input type="file" id="app-banner-file-input" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*" style="display:none;" onchange="uploadCustomBannerFile(this)" />
+
+  <!-- RESPONSIVE PERSISTENT BANNER SLOT (SCROLLS WITH PAGE FLOW) -->
+  <div id="app-banner-slot">
+    <img id="app-banner-img" alt="Custom App Banner" />
+    <div id="app-banner-overlay-actions">
+      <button class="secondary btn-sm" onclick="triggerBannerUpload()">Change Banner</button>
+      <button class="secondary btn-sm" onclick="toggleBannerVisibility(false)">Hide</button>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 1 (STARTUP TAB): GAME MANAGER                                     -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane active" id="tab-pane-manager">
+    <div class="wip-section-banner" id="wip-banner-manager">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Game Manager (<code id="games-store-path">%LOCALAPPDATA%\ModToolPoC\managed_games.json</code>)</span>
+          <div class="btn-group">
+            <button class="success" id="btn-game-scan" onclick="scanPlatforms('')">Game scan</button>
+            <button id="btn-scan-game-info" onclick="scanAllGamesInfo()">Game info</button>
+            <button class="secondary" id="btn-prewarm-icons" onclick="prewarmAllGameIcons()">Pre-warm Icons</button>
+            <button class="secondary" onclick="pruneNonGames()">Prune Non-Games</button>
+            <button class="secondary" onclick="browseAndScan()">Browse</button>
+            <button class="secondary" onclick="toggleGameEditor()">Add/Edit Game</button>
+          </div>
+        </h2>
+        <div class="hint">
+          <strong>Startup View:</strong> Search, filter, or sort your managed games below (click any column header to sort). Click <strong>Load Game</strong> on any row (or choose from the top <em>Quick Load Game</em> dropdown) to load its settings and automatically open it in the <strong>Active Game</strong> tab.
+        </div>
+
+        <!-- PC PLATFORM SCANNER BAR -->
+        <div class="row" style="align-items: end;">
+          <div>
+            <label>Custom Library or Game Folder Path (Optional — leave blank to scan all installed PC platforms)</label>
+            <div style="display:flex; gap:8px;">
+              <input id="scan-custom-path" type="text" placeholder="e.g. C:\Program Files (x86)\Steam\steamapps\common or D:\Games" />
+              <button class="secondary" onclick="browseIntoInput('scan-custom-path')">Browse</button>
+              <button onclick="scanCustomPathInput()">Scan Path</button>
+            </div>
+          </div>
+          <div>
+            <label>Platform Scan Discovery Scope</label>
+            <select id="scan-unity-only">
+              <optgroup label="1. General &amp; Moddability Scopes">
+                <option value="all" selected>All Installed PC Games (Unity + Unreal + Creation + Godot + Data-Driven + Native C++)</option>
+                <option value="moddable_only">All Moddable Games Only (Excludes Online / Anti-Cheat &amp; Utilities / Demos)</option>
+                <option value="provisioned_only">Already Provisioned / Modded Games Only (BepInEx / Doorstop / Loader Present)</option>
+                <option value="sheet_matched">Reference Sheet Matched Games Only (Matches Known Steam Reference Sheet)</option>
+              </optgroup>
+              <optgroup label="2. Unity Engine Variations (BepInEx &amp; MCP Bridge)">
+                <option value="unity_all">All Unity Games (Unity IL2CPP &amp; Unity Mono — Recommended for BepInEx)</option>
+                <option value="unity_il2cpp">Unity IL2CPP Only (GameAssembly.dll + global-metadata.dat — BepInEx 6 IL2CPP)</option>
+                <option value="unity_mono">Unity Mono Only (Managed/Assembly-CSharp.dll — BepInEx 5/6 Mono + gamecode-rag)</option>
+                <option value="unity_vr">Unity XR / VR Capable Games Only (UnitySubsystems / OpenXR / OculusXR)</option>
+              </optgroup>
+              <optgroup label="3. Other Game Engines &amp; MCP Categories">
+                <option value="unreal_all">All Unreal Engine Games (Unreal Engine 4/5 + Unreal Engine 3)</option>
+                <option value="unreal_4_5">Unreal Engine 4/5 Only (*.pak / Shipping — ue4ss-bridge / UE4SS-mcp)</option>
+                <option value="unreal_3">Unreal Engine 3 Only (CookedPC / UPK — GhidraMCP + Cheat-Engine-Mcp)</option>
+                <option value="creation_engine">Creation / Gamebryo Engine (*.esm / *.esp — SkyrimCK-MCP / creation-kit-mcp)</option>
+                <option value="godot">Godot Engine (*.pck — Godot-MCP + Filesystem MCP)</option>
+                <option value="re_engine">Capcom RE Engine (re_chunk_000.pak — REFramework + GhidraMCP)</option>
+                <option value="fromsoftware">FromSoftware Engine (regulation.bin — Mod Engine + GhidraMCP)</option>
+                <option value="data_driven">Data-Driven / Scriptable (Lua / XML / JSON / Open Data — Filesystem + Terminal MCP)</option>
+                <option value="custom_cpp">Custom / Proprietary / Legacy C++ (GhidraMCP + Cheat-Engine-Mcp)</option>
+                <option value="online_anticheat">Online / Anti-Cheat Protected Games (EAC / BattlEye / Vanguard / GameGuard)</option>
+                <option value="utility_demo">Utilities / Benchmarks / Demos (3DMark, VR Utilities, Game Demos)</option>
+              </optgroup>
+              <optgroup label="4. Platform / Storefront Specific Scopes">
+                <option value="platform_steam">Steam Libraries Only</option>
+                <option value="platform_epic">Epic Games Store Libraries Only</option>
+                <option value="platform_gog">GOG Galaxy Libraries Only</option>
+                <option value="platform_xbox">Xbox / PC Game Pass (XboxGames) Only</option>
+                <option value="platform_ubisoft">Ubisoft Connect Libraries Only</option>
+                <option value="platform_ea">EA App / Origin Libraries Only</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+        <div id="scan-progress-wrap" style="display:none; margin:10px 0; padding:10px 12px; background:var(--panel-alt); border:1px solid var(--border); border-radius:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.82rem; margin-bottom:6px;">
+            <span id="scan-progress-label" style="color:var(--text); font-weight:600;">Scanning...</span>
+            <span id="scan-progress-pct" style="color:#93c5fd; font-family:Consolas, monospace;">0% (0 / 0)</span>
+          </div>
+          <div style="width:100%; height:10px; background:#0b0f17; border:1px solid var(--border); border-radius:999px; overflow:hidden;">
+            <div id="scan-progress-bar" style="width:0%; height:100%; background:var(--accent); transition:width 0.18s ease;"></div>
+          </div>
+        </div>
+        <pre id="scan-output" style="display:none; max-height:160px;"></pre>
+
+        <!-- FILTER & SORT CONTROLS FOR MANAGED GAMES LIST -->
+        <div class="filter-bar">
+          <div>
+            <label>Filter by Game Name, Path, or Stack</label>
+            <input id="gm-filter-text" type="text" placeholder="Type to filter games (e.g. Battlemarked, Unity, Steam, GOG)..." oninput="renderGamesTable()" />
+          </div>
+          <div>
+            <label>Filter by MCP Category / Engine</label>
+            <select id="gm-filter-category" onchange="renderGamesTable()">
+              <option value="ALL">All Categories &amp; Engines</option>
+              <option value="Unity">Unity (All: Mono + IL2CPP)</option>
+              <option value="Unity_IL2CPP">Unity IL2CPP Only</option>
+              <option value="Unity_Mono">Unity Mono Only</option>
+              <option value="Unreal Engine 4/5">Unreal Engine 4/5</option>
+              <option value="Unreal Engine 3">Unreal Engine 3</option>
+              <option value="Data-Driven / Scriptable">Data-Driven / Scriptable</option>
+              <option value="Custom / Legacy C++">Custom / Legacy C++</option>
+              <option value="Creation Engine">Creation Engine (Skyrim / Fallout / Starfield)</option>
+              <option value="Godot">Godot Engine</option>
+              <option value="RE Engine">Capcom RE Engine</option>
+              <option value="FromSoftware">FromSoftware Engine</option>
+              <option value="Online / Anti-Cheat">Online / Anti-Cheat</option>
+              <option value="Utility / Demo / Artifact">Utility / Demo / Artifact</option>
+            </select>
+          </div>
+          <div>
+            <label>Filter by Readiness</label>
+            <select id="gm-filter-readiness" onchange="renderGamesTable()">
+              <option value="ALL">All States</option>
+              <option value="READY">Ready (BepInEx + Interop + Plugin)</option>
+              <option value="UNSCRAPED">Not Scraped Yet (Scrapes on First Load)</option>
+              <option value="MISSING">Cannot Be Found on Disk</option>
+              <option value="UNITY">Unity Moddable (IL2CPP / Mono)</option>
+              <option value="BLOCKED">Blocked (Anti-Cheat)</option>
+            </select>
+          </div>
+          <div>
+            <label>Sort By Column</label>
+            <select id="gm-sort-select" onchange="onSortSelectChanged()">
+              <option value="name:asc">Game Name (A → Z)</option>
+              <option value="name:desc">Game Name (Z → A)</option>
+              <option value="category:asc">MCP Category (A → Z)</option>
+              <option value="unity_version:desc">Unity Version (Newest First)</option>
+              <option value="stack:asc">Recommended MCP Stack (A → Z)</option>
+              <option value="readiness:asc">Modding Readiness</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="log-wrap">
+          <table>
+            <colgroup>
+              <col class="col-id" style="width:14%;" />
+              <col style="width:27%;" />
+              <col class="col-cat" style="width:11%;" />
+              <col class="col-eng" style="width:13%;" />
+              <col class="col-stack" style="width:13%;" />
+              <col style="width:10%;" />
+              <col style="width:12%;" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th class="sortable col-id" onclick="setSortColumn('id')">ID <span id="sort-ind-id"></span></th>
+                <th class="sortable" onclick="setSortColumn('name')">Game Name <span id="sort-ind-name">▲</span></th>
+                <th class="sortable col-cat" onclick="setSortColumn('category')">MCP Category <span id="sort-ind-category"></span></th>
+                <th class="sortable col-eng" onclick="setSortColumn('unity_version')">Engine / Build Ver <span id="sort-ind-unity_version"></span></th>
+                <th class="sortable col-stack" onclick="setSortColumn('stack')">Recommended MCP Stack <span id="sort-ind-stack"></span></th>
+                <th class="sortable" onclick="setSortColumn('readiness')">Status <span id="sort-ind-readiness"></span></th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="games-tbody">
+              <tr><td colspan="7">Loading managed games...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details id="game-editor-details" style="margin-top: 6px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.86rem;">
+            Configure / Register Managed Game Settings Manually (POST /api/games)
+          </summary>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+            <div class="row">
+              <div>
+                <label>Game ID (unique slug, e.g. <code>battleground</code>)</label>
+                <input id="gm-id" type="text" value="battleground" />
+              </div>
+              <div>
+                <label>Display Name</label>
+                <input id="gm-name" type="text" value="Battleground (Battlemarked)" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Target Game Directory</label>
+                <div style="display:flex; gap:8px;">
+                  <input id="gm-game-dir" type="text" value="C:\Program Files (x86)\Steam\steamapps\common\Battlemarked" />
+                  <button class="secondary" style="white-space:nowrap;" onclick="browseIntoInput('gm-game-dir')">Browse...</button>
+                </div>
+              </div>
+              <div>
+                <label>Runtime Type</label>
+                <select id="gm-runtime">
+                  <option value="Unity_IL2CPP" selected>Unity_IL2CPP (BepInEx 6)</option>
+                  <option value="Unity_Mono">Unity_Mono (BepInEx 5)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Local BepInEx Zip Path</label>
+                <input id="gm-zip-path" type="text" value="D:\Downloads\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip" />
+              </div>
+              <div>
+                <label>Expected BepInEx Zip SHA-256</label>
+                <input id="gm-sha256" type="text" value="5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Compiled Plugin Build Output Directory</label>
+                <input id="gm-plugin-dir" type="text" value="d:\Downloads\Battleground\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+              </div>
+              <div>
+                <label>Notes</label>
+                <input id="gm-notes" type="text" value="Demeo Battlemarked — Unity 6000.3.7f1 IL2CPP (BepInEx 6.0.0-be.793)" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Default Component Name</label>
+                <input id="gm-def-comp" type="text" value="Jade.GameView.CameraTargetCharacter" />
+              </div>
+              <div class="row">
+                <div>
+                  <label>Default Member Path</label>
+                  <input id="gm-def-member" type="text" value="targetPiece.stats.Health.maxValue" />
+                </div>
+                <div>
+                  <label>Default Value</label>
+                  <input id="gm-def-val" type="text" value="23" />
+                </div>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button class="success" onclick="saveManagedGame()">Save &amp; Load Game Into Workspace</button>
+              <button class="secondary" onclick="fillNewGameTemplate()">Fill New Game Template</button>
+            </div>
+            <pre id="gm-output">Ready to save or update managed game settings.</pre>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 1B: PLATFORM- & ENGINE-AGNOSTIC GAME LIBRARY                      -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-library">
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Game Library (Platform- &amp; Engine-Agnostic Discovery)</span>
+          <div class="btn-group">
+            <button class="success" id="btn-lib-scan-installed" onclick="scanLibraryInstalled()">Scan Installed</button>
+            <button id="btn-lib-import-owned" onclick="toggleLibrarySubpanel('lib-owned-bar')">Import Owned</button>
+            <button class="secondary" onclick="toggleLibrarySubpanel('lib-folder-bar')">Add Folder</button>
+            <button class="secondary" onclick="toggleLibrarySubpanel('lib-file-bar')">Import JSON / CSV</button>
+          </div>
+        </h2>
+        <div class="hint" id="lib-status-bar">
+          Normalized <code>GameEntry</code> catalog persisted in <code>%LOCALAPPDATA%\ModToolPoC\library_cache.json</code>. Click <strong>Scan Installed</strong> to discover Steam, Epic, GOG, and manual folders.
+        </div>
+
+        <!-- ADD FOLDER SUBPANEL -->
+        <div id="lib-folder-bar" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.75);">
+          <label for="lib-custom-folder">Add Custom Root or Standalone Game Folder (e.g. D:\Games or itch.io folder)</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <input id="lib-custom-folder" type="text" placeholder="D:\Games" style="flex:1; min-width:260px;" />
+            <button class="secondary" onclick="browseIntoInput('lib-custom-folder')">Browse</button>
+            <button class="success" onclick="addCustomLibraryFolder()">Scan &amp; Save Folder</button>
+          </div>
+        </div>
+
+        <!-- IMPORT OWNED SUBPANEL -->
+        <div id="lib-owned-bar" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.75);">
+          <div class="row">
+            <div>
+              <label for="lib-steam-id">SteamID64 Override (Optional — auto-reads loginusers.vdf MostRecent)</label>
+              <input id="lib-steam-id" type="text" placeholder="Leave blank to auto-detect from Steam loginusers.vdf" />
+            </div>
+            <div>
+              <label for="lib-steam-key">Steam Web API Key Override (Optional — uses public XML if blank)</label>
+              <input id="lib-steam-key" type="password" placeholder="Optional Steam Web API Key" />
+            </div>
+          </div>
+          <div class="btn-group" style="margin-top:8px;">
+            <button class="success" id="btn-lib-run-owned" onclick="importLibraryOwned()">Fetch Owned Libraries (Steam + GOG) &amp; Enrich PCGamingWiki</button>
+          </div>
+        </div>
+
+        <!-- IMPORT JSON / CSV SUBPANEL -->
+        <div id="lib-file-bar" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.75);">
+          <label for="lib-import-text">Import Generic JSON or CSV (<code>title,platform,external_id</code>) — Playnite, Xbox, EA, or Wishlist</label>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+            <input id="lib-import-file-picker" type="file" accept=".json,.csv,.txt" onchange="loadLibraryImportFile(this)" style="width:auto;" />
+            <button class="success" onclick="importLibraryFileText()">Import &amp; Enrich Metadata</button>
+          </div>
+          <textarea id="lib-import-text" rows="3" placeholder='[{"title":"Starfield","platform":"import","external_id":""}]'></textarea>
+        </div>
+
+        <!-- FILTERS -->
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
+          <div style="min-width:140px;">
+            <label for="lib-filter-platform">Platform</label>
+            <select id="lib-filter-platform" onchange="renderGameLibraryCards()">
+              <option value="all" selected>All Platforms</option>
+              <option value="steam">Steam</option>
+              <option value="epic">Epic</option>
+              <option value="gog">GOG</option>
+              <option value="manual_import">Manual / Import</option>
+            </select>
+          </div>
+          <div style="min-width:140px;">
+            <label for="lib-filter-status">Status</label>
+            <select id="lib-filter-status" onchange="renderGameLibraryCards()">
+              <option value="all" selected>All Statuses</option>
+              <option value="installed">Installed</option>
+              <option value="owned_uninstalled">Not Installed</option>
+            </select>
+          </div>
+          <div style="min-width:160px;">
+            <label for="lib-filter-engine">Engine</label>
+            <select id="lib-filter-engine" onchange="renderGameLibraryCards()">
+              <option value="all" selected>All Engines</option>
+              <option value="Unity">Unity (IL2CPP / Mono)</option>
+              <option value="Unreal_4_5">Unreal 4 / 5</option>
+              <option value="Creation_Engine">Creation Engine</option>
+              <option value="Godot">Godot</option>
+              <option value="Data_Driven">Data-Driven</option>
+              <option value="Restricted">Restricted (Anti-Cheat)</option>
+            </select>
+          </div>
+          <div style="flex:1; min-width:200px;">
+            <label for="lib-filter-search">Search Library</label>
+            <input id="lib-filter-search" type="text" placeholder="Filter by title, path, or adapter..." oninput="renderGameLibraryCards()" />
+          </div>
+        </div>
+
+        <!-- NORMALIZED GAME ENTRY CARDS -->
+        <div class="crucial-steps-grid" id="lib-cards-grid" style="grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));">
+          <div class="step-card pending">
+            <div class="step-card-title">Library Not Scanned Yet</div>
+            <div class="step-card-detail">Click <strong>Scan Installed</strong> to discover installed games and fingerprint engines.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 2: ACTIVE GAME WORKSPACE (AUTO-OPENED ON LOAD GAME)               -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-game">
+    <div class="wip-section-banner" id="wip-banner-game">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <!-- TOP GAME MODDING INFO PANEL (DETERMINED DIRECTLY FROM GAME FILES) -->
+    <section class="info-panel" id="top-game-info-panel">
+      <div id="game-steam-banner" style="display:none; position:relative; border-radius:8px; overflow:hidden; margin-bottom:14px; border:1px solid var(--border); min-height:170px; background:#0b0f17;">
+        <img id="game-steam-hero-img" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center;" />
+        <div style="position:absolute; inset:0; background:linear-gradient(90deg, rgba(11,15,23,0.92) 0%, rgba(11,15,23,0.68) 55%, rgba(11,15,23,0.88) 100%);"></div>
+        <div style="position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; min-height:170px; flex-wrap:wrap;">
+          <div style="display:flex; flex-direction:column; gap:8px; max-width:58%;">
+            <img id="game-steam-logo-img" alt="" style="display:none; max-height:82px; max-width:340px; width:auto; object-fit:contain; object-position:left center;" />
+            <div id="game-steam-title-row" style="display:flex; align-items:center; gap:10px;">
+              <img id="game-steam-exe-icon" alt="" style="display:none; width:36px; height:36px; border-radius:6px; border:1px solid var(--border-strong); background:#0b0f17; object-fit:contain;" />
+              <div id="game-steam-banner-title" style="font-size:1.3rem; font-weight:700; color:#fff;"></div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span class="badge" id="game-steam-appid-badge">Game Assets</span>
+              <span class="badge" id="game-steam-exe-badge" style="display:none;">Executable</span>
+              <button class="success btn-sm" onclick="launchActiveGame()">Launch Game</button>
+              <button class="secondary btn-sm" onclick="checkActiveGameConflicts()">Check Mod Conflicts</button>
+              <button class="secondary btn-sm" onclick="openToolFolder(document.getElementById('fp-game-dir')?.value || '')">Open Game Folder</button>
+            </div>
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:12px;">
+            <img id="game-steam-header-img" alt="" style="display:none; height:108px; width:auto; border-radius:6px; border:1px solid var(--border-strong); box-shadow:0 6px 18px rgba(0,0,0,0.45); object-fit:cover;" />
+            <img id="game-steam-capsule-img" alt="" style="display:none; height:136px; width:auto; border-radius:6px; border:1px solid var(--border-strong); box-shadow:0 6px 18px rgba(0,0,0,0.45); object-fit:cover;" />
+          </div>
+        </div>
+      </div>
+      <div class="info-panel-header">
+        <h2>
+          <span>Game Info &amp; Modding Requirements:</span>
+          <span id="info-title" style="color:#fff;">Battleground (Battlemarked)</span>
+        </h2>
+        <div class="btn-group">
+          <span class="pill no" id="info-missing-badge" style="display:none;">Missing on Disk (Showing Cached Info)</span>
+          <button class="btn-sm" id="btn-fp-rescan" onclick="runFingerprintAndRescan()">Fingerprint &amp; Rescan</button>
+        </div>
+      </div>
+
+      <!-- AGGREGATED TARGET PATH BAR -->
+      <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:280px;">
+          <label for="fp-game-dir">Target Game Directory (Used by Fingerprint &amp; Rescan, Conflict Check &amp; Mod Deployment)</label>
+          <input id="fp-game-dir" type="text" value="C:\Program Files (x86)\Steam\steamapps\common\Battlemarked" />
+        </div>
+        <div class="btn-group">
+          <button class="secondary" onclick="browseIntoInput('fp-game-dir')">Browse</button>
+        </div>
+      </div>
+      <pre id="fp-output" style="display:none; margin-bottom:12px; max-height:150px;"></pre>
+      <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;">
+          <label for="game-user-tags">Game Tags (comma-separated)</label>
+          <input id="game-user-tags" type="text" placeholder="e.g. Modded, Favorite, Testing" />
+        </div>
+        <div style="flex:2; min-width:260px;">
+          <label for="game-user-notes">Custom Notes for Active Game</label>
+          <input id="game-user-notes" type="text" placeholder="Personal modding notes, tested versions, or load order notes..." />
+        </div>
+        <button class="secondary btn-sm" onclick="saveActiveGameNotes()">Save Notes</button>
+      </div>
+
+      <!-- PIPELINE STATUS BAR (5 CONSOLIDATED SECTIONS) -->
+      <div class="quick-indicators-bar" id="info-quick-indicators">
+        <span class="quick-indicators-label">Pipeline Status:</span>
+        <span class="pill warn" id="ind-game-installed">Game Installed: Checking...</span>
+        <span class="pill warn" id="ind-modding-tools">Modding Tools: Checking...</span>
+        <span class="pill na" id="ind-mods-installed">Mods Installed: Checking...</span>
+        <span class="pill na" id="ind-reshade-installed">ReShade: Checking...</span>
+        <span class="pill na" id="ind-settings-optimised">PC Spec Settings: Checking...</span>
+      </div>
+
+      <!-- INSTALLED MODS DETECTED IN GAME FOLDERS -->
+      <details id="installed-mods-details" style="margin-top:10px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+        <summary id="installed-mods-summary" style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
+          Installed Mods Detected (0)
+        </summary>
+        <div id="installed-mods-meta" style="font-size:0.72rem; color:var(--muted); margin:6px 0 8px 0;">
+          Scanned game mod folders: —
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:6px;">
+          <span>Game Mods (Pak, Script &amp; Plugin Mods)</span>
+          <span class="badge" id="game-mods-count-badge">0</span>
+        </div>
+        <div class="log-wrap" style="max-height:220px; margin-bottom:10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Mod Name</th>
+                <th>Category</th>
+                <th>File / Folder</th>
+                <th>Size</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody id="info-installed-mods-tbody">
+              <tr><td colspan="5">No game mods detected yet. Click Fingerprint &amp; Rescan to inspect game folders.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:8px;">
+          <span>Graphics, Upscaler &amp; Overlay Mods (ReShade, OptiScaler, DLSS Enabler, Addons)</span>
+          <span class="badge" id="injector-mods-count-badge">0</span>
+        </div>
+        <div class="log-wrap" style="max-height:200px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Mod Name</th>
+                <th>Category</th>
+                <th>File / Folder</th>
+                <th>Size</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody id="info-injector-mods-tbody">
+              <tr><td colspan="5">No graphics, upscaler, or overlay mods detected.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- RELEVANT MODDING APPS & ONE-CLICK INSTALLERS -->
+      <div class="crucial-steps-header" style="margin-top: 16px;">
+        <span>Relevant Modding Apps &amp; Installers (<code id="tools-root-label">%LOCALAPPDATA%\ModToolPoC\tools</code> &amp; Game Folder)</span>
+        <div class="btn-group" style="text-transform:none; font-weight:400;">
+          <select id="tools-filter-mode" style="padding:4px 10px; font-size:0.76rem; width:auto;" onchange="renderCurrentGameModdingApps()">
+            <option value="recommended" selected>Recommended Apps for This Game</option>
+            <option value="all">All Modding Apps (All 14 Engine Tools)</option>
+          </select>
+          <button class="success btn-sm" id="btn-install-all-rec" onclick="installAllRecommendedTools()">Install Recommended Apps</button>
+        </div>
+      </div>
+      <div class="crucial-steps-grid" id="info-modding-apps"></div>
+      <pre id="tools-install-output" style="display:none; margin-top:8px; max-height:140px;"></pre>
+
+      <!-- UNREAL ENGINE SETTINGS (PERFORMANCE & FIDELITY) + PC SPECS COMPARISON -->
+      <div id="unreal-settings-section" style="display:none; margin-top:18px; padding-top:14px; border-top:1px solid #2b3c56;">
+        <div class="crucial-steps-header" style="margin-top:0;">
+          <span>Unreal Engine Game Settings &amp; Traffic-Light Hardware Optimality Advisor</span>
+          <div class="btn-group" style="text-transform:none; font-weight:400;">
+            <label style="margin:0; font-size:0.74rem; color:#93c5fd;">Compare Against Tier:</label>
+            <select id="ue-ref-tier-select" style="padding:4px 10px; font-size:0.75rem; width:auto; max-width:300px;" onchange="onUnrealReferenceTierChanged()">
+              <option value="auto" selected>Auto-Match My Scraped PC Specs</option>
+              <option value="tier_flagship_24gb_4090">Flagship 24GB+ (RTX 4090 / 5090 / 7900 XTX)</option>
+              <option value="tier_high_16gb_4080">High-End 16GB (RTX 4080 / 4070 TiS / 7900 XT)</option>
+              <option value="tier_upper_mid_12gb_4070_3080">Upper-Mid 12GB (RTX 4070 / RTX 3080 12GB)</option>
+              <option value="tier_mid_8gb_3000_4060">Mainstream 8GB RTX 3000 Gen (RTX 3070 / 3060 Ti / 4060)</option>
+              <option value="tier_entry_6gb_2060_1660">Entry 6GB (RTX 2060 / GTX 1660S / 3050)</option>
+              <option value="tier_budget_4gb_1650_igpu">Budget 4GB / Handheld (GTX 1650 / Steam Deck)</option>
+            </select>
+            <select id="ue-local-profile-select" style="padding:4px 10px; font-size:0.75rem; width:auto; max-width:290px;" title="Discovered game configuration / INI profiles" onchange="onConfigProfileSelected()"></select>
+            <button class="btn-sm" onclick="importUnrealSettings('')">Rescan Config</button>
+            <button class="success btn-sm" onclick="applyOptimalUnrealIni()">Apply Optimal INI</button>
+            <button class="secondary btn-sm" onclick="restoreUnrealIniBackup()">Restore INI Backup</button>
+          </div>
+        </div>
+        <div class="hint" id="ue-ini-source-banner" style="margin-bottom:10px;">
+          Checking Unreal Engine configuration files (<code>GameUserSettings.ini</code> / <code>Engine.ini</code>)...
+        </div>
+
+        <!-- CONSOLIDATED TRAFFIC LIGHT SUMMARY BAR -->
+        <div class="quick-indicators-bar" id="ue-traffic-light-bar" style="margin-bottom:10px;">
+          <span class="quick-indicators-label">Traffic Lights:</span>
+          <span class="pill yes" id="ue-overall-verdict-pill">Evaluating...</span>
+          <span class="pill yes" id="ue-tl-hw-pill">Hardware: —</span>
+          <span class="pill yes" id="ue-tl-perf-pill">Performance: —</span>
+          <span class="pill yes" id="ue-tl-fid-pill">Fidelity: —</span>
+          <span class="pill yes" id="ue-tl-green-count">0 Optimal</span>
+          <span class="pill warn" id="ue-tl-amber-count">0 Sub-Optimal</span>
+          <span class="pill no" id="ue-tl-red-count">0 Bottleneck</span>
+          <span class="badge" id="ue-matched-tier-badge" style="margin-left:auto;">Matched Tier: —</span>
+        </div>
+
+        <!-- FOLDED DETAILED TRAFFIC LIGHT PANELS -->
+        <details id="ue-detailed-traffic-lights" style="margin-bottom:10px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
+            View Detailed Traffic-Light Breakdown (Hardware Match, Performance &amp; Visual Fidelity)
+          </summary>
+
+          <!-- 1. PC SPECS VS CURRENT UNREAL SETTINGS COMPARISON -->
+          <div class="crucial-steps-header" style="margin-top:10px;">
+            <span>Traffic-Light Hardware vs. Current Unreal Settings Breakdown</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Green = Optimal for Tier | Amber = Sub-Optimal / Headroom Unused | Red = Over-Budget / Bottleneck</span>
+          </div>
+          <div class="crucial-steps-grid" id="ue-comparison-grid" style="grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); margin-bottom:12px;"></div>
+
+          <!-- 2. KEY PERFORMANCE SETTINGS -->
+          <div class="crucial-steps-header" style="margin-top:12px;">
+            <span>Key Performance Settings (Traffic-Light Evaluated Against Reference Array)</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Directly impacts FPS, frame pacing, GPU fillrate, and CPU main-thread latency</span>
+          </div>
+          <div class="crucial-steps-grid" id="ue-performance-grid"></div>
+
+          <!-- 3. KEY VISUAL FIDELITY SETTINGS -->
+          <div class="crucial-steps-header" style="margin-top:12px;">
+            <span>Key Visual Fidelity Settings (Traffic-Light Evaluated Against Reference Array)</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Controls ray-traced/Lumen lighting, shader complexity, anisotropic filtering, and HDR</span>
+          </div>
+          <div class="crucial-steps-grid" id="ue-fidelity-grid"></div>
+        </details>
+
+        <!-- COLLAPSIBLE PC SPECS VS CONFIGURATION REFERENCE ARRAY MATRIX -->
+        <details id="ue-reference-array-details" style="margin-bottom:8px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
+            View PC Hardware Specs vs. Unreal Engine Configuration Reference Array (8GB RTX 3000 Series vs. RTX 4090 &amp; All Tiers)
+          </summary>
+          <div class="log-wrap" style="max-height:290px; margin-top:8px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hardware Reference Tier</th>
+                  <th>Example GPU / CPU / RAM</th>
+                  <th>Target Res &amp; 3D Scale</th>
+                  <th>Textures</th>
+                  <th>Lumen GI</th>
+                  <th>VSM Shadows</th>
+                  <th>Reflections</th>
+                  <th>View Dist &amp; Foliage</th>
+                  <th>Safe VRAM Ceiling</th>
+                </tr>
+              </thead>
+              <tbody id="ue-reference-array-tbody"></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <div class="grid">
+
+    <!-- ADAPTER STATUS NOTICE (FOR ENGINE-AGNOSTIC LIBRARY SELECTION) -->
+    <div class="card full" id="adapter-status-notice" style="display:none; border-color:#3b82f6; background:rgba(30,58,138,0.2);">
+      <h2 style="margin-bottom:6px;"><span id="adapter-notice-title">Engine Adapter Status</span> <span class="badge" id="adapter-notice-badge">—</span></h2>
+      <div id="adapter-notice-body" style="font-size:0.84rem; color:#cbd5e1;"></div>
+    </div>
+
+    <!-- 1 & 2. PROVISION & CLEAN RESTORE -->
+    <div class="card full" id="card-provision-restore">
+      <h2>Provision &amp; Clean Restore <span class="badge">POST /api/provision &amp; /api/restore</span></h2>
+      <div class="row">
+        <div>
+          <label>Local BepInEx 6 IL2CPP Zip Path</label>
+          <input id="prov-zip-path" type="text" value="D:\Downloads\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip" />
+        </div>
+        <div>
+          <label>Expected Zip SHA-256 Hash</label>
+          <input id="prov-sha256" type="text" value="5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" />
+        </div>
+      </div>
+      <div>
+        <label>Compiled BepInExMCP.IL2CPP Build Output Directory</label>
+        <input id="prov-plugin-dir" type="text" value="d:\Downloads\Battleground\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+      </div>
+      <div class="btn-row">
+        <button class="success" onclick="runProvision()">Provision &amp; Backup</button>
+        <button class="danger" onclick="runRestore()">Clean Restore</button>
+      </div>
+      <pre id="prov-output">Ready to validate SHA-256, back up collisions, extract BepInEx + BepInExMCP.IL2CPP.dll, or restore cleanly.</pre>
+    </div>
+
+    <!-- 4. LIVE MCP PANEL -->
+    <div class="card full" id="card-live-mcp">
+      <h2>4. Live MCP Panel (Persistent Stdio Session) <span class="badge">POST /api/mcp/call</span></h2>
+      <div class="hint">
+        Requires the selected game to be running with the provisioned plugin loaded. Keeps a single persistent <code>ModdersHelperApp.py --transport=stdio --headless</code> process alive across clicks.
+        Use the <strong>Target Hero / GameObject Entity</strong> and <strong>Categorised Game Variable</strong> dropdowns below to inspect or modify live game state.
+      </div>
+      <div class="row">
+        <div>
+          <label>bepinex-mcp .venv Python Executable</label>
+          <input id="mcp-python" type="text" value="d:\Downloads\Battleground\bepinex-mcp\.venv\Scripts\python.exe" />
+        </div>
+        <div>
+          <label>ModdersHelperApp.py Path</label>
+          <input id="mcp-app" type="text" value="d:\Downloads\Battleground\bepinex-mcp\mcp\ModdersHelperApp.py" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Target Hero / GameObject Entity</label>
+          <select id="mcp-target-entity" onchange="applyTargetEntity()">
+            <optgroup label="Party Heroes (3D Board Pieces)">
+              <option value="paladin_piece" selected>Dragonborn Paladin (Piece_DragonbornPaladin(Clone) | id=-269924)</option>
+              <option value="ranger_piece">Human Ranger (Piece_HumanRanger(Clone) | id=-270568)</option>
+              <option value="rogue_piece">Tiefling Rogue (Piece_TieflingRogue(Clone) | id=-271206)</option>
+              <option value="bard_piece">Elf Bard (Piece_ElfBard(Clone) | id=-271750)</option>
+            </optgroup>
+            <optgroup label="Enemies &amp; NPCs (3D Board Pieces)">
+              <option value="goblin_archer">Goblin Archer (Piece_GoblinArcher(Clone) | id=-272266)</option>
+              <option value="babris_npc">Babris (Piece_Babris(Clone) | id=-275866)</option>
+            </optgroup>
+            <optgroup label="Player Rig, Camera &amp; Input">
+              <option value="avatar_nonvr">StandaloneAvatarNonVR(Clone) (Camera &amp; Card Hand Rig | id=-1582)</option>
+              <option value="network_avatar">NetworkedXRAvatar(Clone) (Network Avatar | id=-147658)</option>
+              <option value="player_input">PlayerInputNonVR (Input Provider | id=-1544)</option>
+            </optgroup>
+            <optgroup label="2D Party HUD Elements">
+              <option value="hud_hp_text_1">PartyPieceView1 HealthText (Paladin HUD HP Text | id=-64174)</option>
+              <option value="hud_hp_bar_1">PartyPieceView1 PieceHealthBar2D (Paladin HUD HP Bar | id=-64144)</option>
+              <option value="hud_party_turn_1">PartyPieceView1 Turn Portrait (PartyTurnView | id=-64094)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div>
+          <label>Categorised Game Variable to Inspect / Change</label>
+          <select id="mcp-variable-select" onchange="applyVariableSelection()">
+            <optgroup label="1. Hero Combat Stats — Health &amp; Survivability (CameraTargetCharacter)">
+              <option value="stat_hp_max" selected>Hit Point Maximum (targetPiece.stats.Health.maxValue) [Default: 22 → 23]</option>
+              <option value="stat_hp_cur">Current Hit Points (targetPiece.stats.Health.value) [Default: 22 → 23]</option>
+              <option value="stat_phys_armor">Physical Armor Current (targetPiece.stats.PhysicalArmor.value)</option>
+              <option value="stat_phys_armor_max">Physical Armor Max (targetPiece.stats.PhysicalArmor.maxValue)</option>
+              <option value="stat_magic_armor">Magic Armor Current (targetPiece.stats.MagicArmor.value)</option>
+              <option value="stat_magic_armor_max">Magic Armor Max (targetPiece.stats.MagicArmor.maxValue)</option>
+              <option value="stat_downed_counter">Downed Counter (targetPiece.stats.DownedCounter.value)</option>
+              <option value="stat_downed_max">Max Downed Counter (targetPiece.stats.DownedCounter.maxValue)</option>
+            </optgroup>
+            <optgroup label="2. Hero Combat Stats — Offence, Action Points &amp; Mobility (CameraTargetCharacter)">
+              <option value="stat_ap_cur">Current Action Points Stat (targetPiece.stats.ActionPoints.value)</option>
+              <option value="stat_ap_max">Max Action Points Stat (targetPiece.stats.ActionPoints.maxValue)</option>
+              <option value="piece_ap_per_turn">Action Points Per Turn (targetPiece.actionPointsPerTurn)</option>
+              <option value="stat_move_range">Move Range (Tiles) (targetPiece.stats.MoveRange.value)</option>
+              <option value="stat_move_range_max">Max Move Range (Tiles) (targetPiece.stats.MoveRange.maxValue)</option>
+              <option value="stat_attack_dmg">Base Attack Damage (targetPiece.stats.AttackDamage.value)</option>
+              <option value="stat_crit_chance">Critical Hit Chance (targetPiece.stats.CritChance.value)</option>
+              <option value="stat_hit_chance">Hit Chance / Accuracy (targetPiece.stats.HitChance.value)</option>
+              <option value="stat_vision_range">Vision Range (targetPiece.stats.VisionRange.value)</option>
+              <option value="stat_inv_capacity">Card Inventory Capacity (targetPiece.stats.InventoryCapacity.value)</option>
+            </optgroup>
+            <optgroup label="3. Turn State, Flags, Loot &amp; XP (CameraTargetCharacter.targetPiece)">
+              <option value="piece_cards_played">Cards Played This Turn (targetPiece.cardsPlayedThisTurn)</option>
+              <option value="piece_xp_award">XP Awarded When Killed (targetPiece.awardedExperienceWhenKilled)</option>
+              <option value="piece_loot_chance">Loot Chance Override (targetPiece.lootChanceOverride)</option>
+              <option value="piece_always_visible">Always Visible Through Fog (targetPiece.alwaysVisible)</option>
+              <option value="piece_is_downable">Can Be Downed (targetPiece.isDownable)</option>
+              <option value="piece_is_shovable">Can Be Shoved / Knocked Back (targetPiece.isShovable)</option>
+              <option value="piece_is_player_ctrl">Is Player Controlled (targetPiece.isPlayerControlled)</option>
+              <option value="piece_is_elite">Is Elite Unit (targetPiece.isElite)</option>
+              <option value="piece_uses_health">Uses Health System (targetPiece.usesHealth)</option>
+              <option value="piece_blocks_vision">Blocks Line of Sight (targetPiece.blocksVision)</option>
+              <option value="piece_orientation">Board Orientation Angle (targetPiece.orientation)</option>
+            </optgroup>
+            <optgroup label="4. 3D Piece Visuals, Physics &amp; Board Grabbing (PieceView / Rigidbody / JadeGrabbable)">
+              <option value="view_model_index">Active 3D Pose/Model Index (PieceComponents.ActiveModelIndex)</option>
+              <option value="view_notif_margin">Notification Anchor Height Margin (PieceComponents.notificationAnchorMarginAboveCharacter)</option>
+              <option value="view_drag_mask">Preferred Drag Layer Mask (PieceView.PreferredDragLayerMask)</option>
+              <option value="view_rot_y">Previous Non-Grabbed Rotation Y (PieceView.previousNonGrabbedRotationY)</option>
+              <option value="phys_position">3D World Position Vector3 (UnityEngine.Rigidbody.position)</option>
+              <option value="phys_mass">Rigidbody Mass (UnityEngine.Rigidbody.mass)</option>
+              <option value="grab_throw_vel">Grab Throw Velocity Scale (Jade.GameView.JadeGrabbable.throwVelocityScale)</option>
+              <option value="grab_smooth_pos">Grab Smooth Position Speed (Jade.GameView.JadeGrabbable.smoothPositionAmount)</option>
+              <option value="grab_max_scale">Max Two-Handed Scale Ratio (XRGeneralGrabTransformer.maximumScaleRatio)</option>
+              <option value="grab_min_scale">Min Two-Handed Scale Ratio (XRGeneralGrabTransformer.minimumScaleRatio)</option>
+            </optgroup>
+            <optgroup label="5. Camera, FOV &amp; Card Hand Placement (StandaloneAvatarNonVR)">
+              <option value="cam_card_dist">Card Hand Preferred Distance (AvatarNonVR.cardHandPreferredDistance)</option>
+              <option value="cam_fov_card_dist">FOV Card Hand Distance (AvatarNonVR.fovCardHandDistance)</option>
+              <option value="cam_fov_card_height">FOV Initial Card Hand Height (AvatarNonVR.fovInitialCardHandHeight)</option>
+              <option value="cam_fov_init_dist">FOV Initial Camera Distance (AvatarNonVR.fovInitialCameraDistance)</option>
+              <option value="cam_fov_init_height">FOV Initial Height (AvatarNonVR.fovInitialHeight)</option>
+              <option value="cam_fov_zoom_comp">FOV Zoom Compensation Factor (AvatarNonVR.fovZoomCompensationFactor)</option>
+              <option value="net_avatar_scale">Network Avatar Scale (HideWhenViewedFromBehind.avatarScale)</option>
+              <option value="net_hide_dist">Network Avatar Hide Distance (HideWhenViewedFromBehind.hideDistance)</option>
+            </optgroup>
+            <optgroup label="6. 2D Party HUD &amp; Health Bar Display">
+              <option value="hud_hp_text">HUD Health Bar Text String (TMPro.TextMeshProUGUI.text)</option>
+              <option value="hud_hp_width_max">HUD Health Bar Max Pixel Width (PieceHealthBarView.healthBarWidthMax)</option>
+              <option value="hud_hp_width_min">HUD Health Bar Min Pixel Width (PieceHealthBarView.healthBarWidthMin)</option>
+              <option value="hud_turn_scale">Active Turn Portrait Scale Factor (PartyTurnView.scaleWhenSelectedFactor)</option>
+              <option value="hud_turn_duration">Active Turn Scale Transition Duration (PartyTurnView.scaleDuration)</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
+
+      <div class="hint" id="var-description">
+        <strong>Hit Point Maximum:</strong> Changes the hero's live maximum HP stat (<code>Jade.GameModel.Stat.maxValue</code>) via <code>CameraTargetCharacter.targetPiece.stats.Health.maxValue</code>.
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Search Query (GameObject Name) / Component Filter</label>
+          <div class="row">
+            <input id="mcp-search-name" type="text" value="Piece_DragonbornPaladin" placeholder="GameObject Name" />
+            <input id="mcp-search-comp" type="text" value="Jade.GameView.CameraTargetCharacter" placeholder="Component Name" />
+          </div>
+        </div>
+        <div>
+          <label>Target GameObject Instance ID (or leave blank to resolve selector)</label>
+          <input id="mcp-go-id" type="text" value="-269924" placeholder="Instance ID (e.g. -269924)" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Component Name</label>
+          <input id="mcp-comp-name" type="text" value="Jade.GameView.CameraTargetCharacter" />
+        </div>
+        <div class="row">
+          <div>
+            <label>Member Name (Supports dotted paths &amp; Stats.Type names)</label>
+            <input id="mcp-member-name" type="text" value="targetPiece.stats.Health.maxValue" />
+          </div>
+          <div>
+            <label>New Value (for Edit / Profile)</label>
+            <input id="mcp-member-value" type="text" value="23" />
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Stable Selector JSON (Stage 4 Paladin Hero / HUD Selector)</label>
+          <textarea id="mcp-selector">{"scene":"27653627778046a48b230901ca6f384c","path":"/LevelSceneRoot[0]/Piece_DragonbornPaladin%28Clone%29[10]","name":"Piece_DragonbornPaladin(Clone)","component":"Jade.GameView.CameraTargetCharacter"}</textarea>
+        </div>
+        <div>
+          <label>Profile Name (Save &amp; Re-apply Verified Edit)</label>
+          <input id="mcp-profile-name" type="text" value="battlemarked_stat_hp_max" />
+          <div class="btn-row" style="margin-top: 10px;">
+            <button onclick="mcpTestBridge()">1. Test Bridge</button>
+            <button class="secondary" onclick="mcpSearch('search_gameobjects')">2a. Search GameObjects</button>
+            <button class="secondary" onclick="mcpSearch('find_objects_with_component')">2b. Find With Component</button>
+            <button class="secondary" onclick="mcpInspect()">3. Inspect &amp; Get Member</button>
+            <button class="success" onclick="mcpEdit()">4. Edit (set_component_value)</button>
+            <button onclick="mcpProfile()">5. Save &amp; Apply Profile</button>
+          </div>
+        </div>
+      </div>
+
+      <pre id="mcp-output">Persistent MCP stdio session ready. Use the controls above to query or mutate the live Unity IL2CPP bridge.</pre>
+    </div>
+
+    <!-- ASSET & MODDABILITY ANALYZER (GREEN / AMBER / RED) -->
+    <div class="card full" id="card-asset-moddability-analyzer">
+      <h2>
+        <span>Asset &amp; Moddability Analyzer</span>
+        <div class="btn-group">
+          <span class="pill na" id="asset-analyzer-summary-pill">Not Scanned</span>
+          <button class="secondary btn-sm" onclick="toggleModdabilityGuide()">Info: Why Some Parts Can't Be Modded</button>
+          <button class="success btn-sm" id="btn-scan-assets" onclick="runAssetModdabilityScan()">Scan Game Assets</button>
+        </div>
+      </h2>
+      <div id="asset-traffic-light-matrix" class="crucial-steps-grid" style="grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));">
+        <div class="step-card pending">
+          <div class="step-card-title">Ready to Audit Game Assets</div>
+          <div class="step-card-detail">Click <strong>Scan Game Assets</strong> to classify open configs, packed containers, runtime hooks, and anti-cheat/encryption gates into Green, Amber, and Red layers.</div>
+        </div>
+      </div>
+      <div id="asset-moddability-guide-panel" style="display:none; margin-top:12px; padding:12px; border:1px solid #2b3c56; border-radius:6px; background:rgba(13,17,23,0.82);">
+        <div style="font-weight:700; font-size:0.86rem; color:#93c5fd; margin-bottom:8px;">
+          Technical Boundaries Guide: Why Some Game Layers Are Amber or Red
+        </div>
+        <div id="asset-moddability-guide-grid" class="crucial-steps-grid" style="grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));"></div>
+      </div>
+    </div>
+
+    <!-- TECHNICAL GAME METADATA & ADVISED MCP TOOLS (COLLAPSIBLE AT BOTTOM OF PAGE) -->
+    <div class="card full" id="card-game-technical-details">
+      <details id="game-technical-details-collapse">
+        <summary style="cursor:pointer; color:#93c5fd; font-weight:700; font-size:0.95rem; list-style-position:inside;">
+          Game Technical Details, Checklist &amp; Advised MCP Tooling
+        </summary>
+        <div class="info-grid" style="margin-top:12px;">
+        <div class="info-item">
+          <div class="k">Developer / Product &amp; Exe</div>
+          <div class="v" id="info-product">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Platform &amp; Architecture</div>
+          <div class="v" id="info-platform">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-engine-ver">Engine &amp; Build Version</div>
+          <div class="v" id="info-unity-ver">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-backend">Scripting Backend &amp; Engine</div>
+          <div class="v" id="info-backend">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Required Mod Loader Tool</div>
+          <div class="v" id="info-req-loader" style="color:#60a5fa;">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Required MCP Bridge Plugin</div>
+          <div class="v" id="info-req-plugin" style="color:#60a5fa;">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-installed-loader">Installed Mod Loader</div>
+          <div class="v" id="info-installed-loader">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-interop">Modding Workspace / Interop</div>
+          <div class="v" id="info-interop">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Graphics API &amp; XR Subsystem</div>
+          <div class="v" id="info-gfx-xr">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-build-guid">Engine Project / Build ID</div>
+          <div class="v" id="info-build-guid">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Reference Sheet Match &amp; Category</div>
+          <div class="v" id="info-sheet-cat" style="color:#f59e0b;">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Recommended MCP Stack (Reference Sheet)</div>
+          <div class="v" id="info-mcp-stack" style="color:#34d399;">—</div>
+        </div>
+        <div class="info-item" style="grid-column: span 2;">
+          <div class="k">Advised MCP Tools for Discovery (Scene, Types &amp; Static Analysis)</div>
+          <div class="v" id="info-mcp-discovery" style="color:#93c5fd;">—</div>
+        </div>
+        <div class="info-item" style="grid-column: span 2;">
+          <div class="k">Advised MCP Tools for Modding (Live Mutation, Patching &amp; Profiles)</div>
+          <div class="v" id="info-mcp-modding" style="color:#a7f3d0;">—</div>
+        </div>
+      </div>
+      <div class="crucial-steps-header" style="margin-top:14px;">
+        <span>Modding Steps &amp; File / Bridge Presence Checklist</span>
+        <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Live verification of game files, mod loader, interop bootstrap, MCP bridge &amp; clean-restore manifest</span>
+      </div>
+      <div class="crucial-steps-grid" id="info-crucial-steps"></div>
+      </details>
+    </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 3: BUILD A MOD                                                    -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-modbuilder">
+    <div class="wip-section-banner" id="wip-banner-modbuilder">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Build a Compatible Standalone Mod (<code id="mb-target-game-label">Battleground (Battlemarked)</code>)</span>
+          <div class="btn-group">
+            <span class="pill yes" id="mb-compat-badge">BepInEx 6 Unity.IL2CPP</span>
+            <button class="success" id="btn-build-mod" onclick="buildCompatibleMod()">Build Compatible Mod</button>
+          </div>
+        </h2>
+        <div class="hint" id="mb-compat-hint">
+          Compiles a standalone, ABI-compatible mod directly against the active game's detected engine and assemblies (BepInEx 6 IL2CPP C# plugin + <code>.zip</code> for Unity IL2CPP, RE-UE4SS Lua + INI override for Unreal Engine 4/5, or Data Patch for scriptable titles).
+        </div>
+        <div id="mb-asset-audit-banner" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.65); font-size:0.78rem;">
+          <span id="mb-asset-audit-text">Asset &amp; Moddability Audit: Run a scan in Active Game to verify Green/Amber/Red layers before building.</span>
+          <button class="secondary btn-sm" onclick="switchTab('game')">View Asset Analyzer</button>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Mod Name</label>
+            <input id="mb-mod-name" type="text" value="Battlemarked Custom Balance Mod" />
+          </div>
+          <div>
+            <label>Mod ID (Reverse-Domain Unique Identifier)</label>
+            <input id="mb-mod-id" type="text" value="com.modtool.battlemarked.custombalance" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="row">
+            <div>
+              <label>Mod Version</label>
+              <input id="mb-mod-version" type="text" value="1.0.0" />
+            </div>
+            <div>
+              <label>Author</label>
+              <input id="mb-author" type="text" value="ModToolPoC" />
+            </div>
+          </div>
+          <div>
+            <label>Re-Apply Interval (Seconds — keeps edits active across scene loads)</label>
+            <input id="mb-interval" type="number" step="0.5" min="0.5" value="2.0" />
+          </div>
+        </div>
+
+        <!-- ADD EDIT RULE BAR -->
+        <div class="crucial-steps-header" style="margin-top:6px;">
+          <span>Game Edit Rules Included in This Mod</span>
+          <div class="btn-group" style="text-transform:none; font-weight:400;">
+            <button class="secondary btn-sm" onclick="addCurrentMcpEditToMod()">Import Current Live MCP Edit</button>
+            <button class="secondary btn-sm" onclick="addHarmonyHookRule()">Add Harmony Hook</button>
+            <button class="secondary btn-sm" onclick="addBlankModRule()">Add Custom Rule</button>
+          </div>
+        </div>
+
+        <div class="log-wrap" style="max-height:280px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Rule Label</th>
+                <th>Target Entity / Object</th>
+                <th>Component / Section</th>
+                <th>Member Path / Key</th>
+                <th>New Value</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="mb-rules-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- BUILD OUTPUT & INSTALLATION INSTRUCTIONS -->
+        <div id="mb-result-panel" style="display:none; margin-top:8px; padding-top:12px; border-top:1px solid var(--border);">
+          <div class="crucial-steps-header" style="margin-top:0;">
+            <span>Built Mod Package &amp; Installation Instructions</span>
+            <div class="btn-group" style="text-transform:none; font-weight:400;">
+              <button class="success btn-sm" id="btn-install-built-mod" onclick="installBuiltModToGame()">Install Built Mod to Game</button>
+              <button class="secondary btn-sm" id="btn-open-mod-folder" onclick="openBuiltModFolder()">Open Output Folder</button>
+            </div>
+          </div>
+          <div class="info-grid" style="margin-bottom:10px;">
+            <div class="info-item">
+              <div class="k">Mod Format &amp; Compatibility</div>
+              <div class="v" id="mb-out-kind" style="color:#34d399;">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Distributable Archive (.zip)</div>
+              <div class="v" id="mb-out-zip">—</div>
+            </div>
+            <div class="info-item" style="grid-column: span 2;">
+              <div class="k">Compatibility Verification</div>
+              <div class="v" id="mb-out-compat" style="color:#93c5fd;">—</div>
+            </div>
+          </div>
+          <div class="crucial-steps-header" style="margin-top:6px;">
+            <span>How to Install This Mod (Also saved as <code>INSTALL_INSTRUCTIONS.txt</code> inside the zip)</span>
+          </div>
+          <pre id="mb-install-instructions" style="max-height:220px; color:#e2e8f0;"></pre>
+          <pre id="mb-build-log" style="margin-top:8px; max-height:140px;"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 4: PC SPECIFICATIONS                                              -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-specs">
+    <div class="wip-section-banner" id="wip-banner-specs">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>PC Hardware &amp; OS Specifications (<code>%LOCALAPPDATA%\ModToolPoC\pc_specs.json</code>)</span>
+          <div class="btn-group">
+            <span class="badge" id="pc-scraped-at-badge">Not scraped yet</span>
+            <button class="success btn-sm" id="btn-rescan-specs" onclick="loadPcSpecs(true)">Refresh PC Specs</button>
+          </div>
+        </h2>
+        <div class="hint" id="pc-tier-banner">
+          Scrapes live CPU, GPU, Dedicated VRAM (via <code>nvidia-smi</code> &amp; Win32 Registry), System RAM, Display Resolution &amp; Refresh Rate, OS Build, and Storage Drives to benchmark Unreal Engine 4/5 &amp; Unity modding performance.
+        </div>
+
+        <div class="info-grid" style="margin-top:6px;">
+          <div class="info-item">
+            <div class="k">Processor (CPU) &amp; Architecture</div>
+            <div class="v" id="pc-cpu-name">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">CPU Cores / Logical Threads &amp; Clock</div>
+            <div class="v" id="pc-cpu-cores">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Primary Graphics Card (GPU)</div>
+            <div class="v" id="pc-gpu-name" style="color:#34d399;">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Dedicated GPU VRAM &amp; Driver</div>
+            <div class="v" id="pc-gpu-vram" style="color:#34d399;">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">DirectX / Shader &amp; Ray-Tracing Tier</div>
+            <div class="v" id="pc-gpu-dx">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">System Memory (RAM) &amp; Current Load</div>
+            <div class="v" id="pc-ram-info">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Primary Display Resolution &amp; Refresh Rate</div>
+            <div class="v" id="pc-display-info" style="color:#60a5fa;">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Operating System &amp; Motherboard</div>
+            <div class="v" id="pc-os-board">—</div>
+          </div>
+          <div class="info-item" style="grid-column: span 2;">
+            <div class="k">Computed Hardware Performance Tier</div>
+            <div class="v" id="pc-tier-name" style="color:#fbbf24;">—</div>
+          </div>
+          <div class="info-item" style="grid-column: span 2;">
+            <div class="k">Recommended Unreal Engine 4/5 Scalability &amp; Target Resolution</div>
+            <div class="v" id="pc-tier-rec" style="color:#a7f3d0;">—</div>
+          </div>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:14px;">
+          <span>Local Storage Drives &amp; Free Library Capacity</span>
+        </div>
+        <div class="log-wrap" style="max-height: 220px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Drive</th>
+                <th>Total Capacity</th>
+                <th>Used Space</th>
+                <th>Free Space</th>
+                <th>Usage %</th>
+              </tr>
+            </thead>
+            <tbody id="pc-drives-tbody">
+              <tr><td colspan="5">Scraping local storage drives...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:16px;">
+          <span>PC Hardware Specs vs. Unreal Engine 4/5 Configuration Reference Array</span>
+          <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Reference matrix used by the Traffic-Light Advisor (Green Optimal / Amber Sub-Optimal / Red Over-Budget)</span>
+        </div>
+        <div class="log-wrap" style="max-height: 320px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Hardware Reference Tier</th>
+                <th>Example GPU / CPU / RAM</th>
+                <th>Target Res &amp; 3D Scale</th>
+                <th>Textures</th>
+                <th>Lumen GI</th>
+                <th>VSM Shadows</th>
+                <th>Reflections</th>
+                <th>View Dist &amp; Foliage</th>
+                <th>Safe VRAM Ceiling</th>
+              </tr>
+            </thead>
+            <tbody id="pc-reference-array-tbody">
+              <tr><td colspan="9">Loading hardware reference array...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">View Raw Scraped PC Specifications JSON</summary>
+          <pre id="pc-specs-raw" style="margin-top:8px; max-height:240px;">{}</pre>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 4: AUDIT LOG                                                      -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-logs">
+    <div class="wip-section-banner" id="wip-banner-logs">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Audit Log (<code id="audit-path">%LOCALAPPDATA%\ModToolPoC\audit.jsonl</code>)</span>
+          <div class="btn-group">
+            <button class="btn-sm" id="btn-log-cat-game" onclick="switchLogCategory('game')">Game Management (<span id="log-game-count-badge">0</span>)</button>
+            <button class="secondary btn-sm" id="btn-log-cat-app" onclick="switchLogCategory('app')">App Management (<span id="log-app-count-badge">0</span>)</button>
+            <button class="secondary btn-sm" id="btn-log-cat-all" onclick="switchLogCategory('all')">All Logs</button>
+            <span class="badge" id="audit-count-badge">Latest 50</span>
+            <button class="secondary btn-sm" onclick="loadLogs()">Refresh Logs</button>
+          </div>
+        </h2>
+        <div class="hint">
+          Every platform scan, bulk Game Info scan, PC specs scan, Unreal INI import, folder browse, game load, rescan, fingerprint, provision, restore, and MCP bridge action is automatically appended to <code>audit.jsonl</code> with a UTC timestamp, status, and SHA-256 integrity hash (showing the latest 50 entries, newest first).
+        </div>
+        <div class="log-wrap" style="max-height: 620px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp (UTC)</th>
+                <th>Action</th>
+                <th>Status</th>
+                <th>SHA-256</th>
+                <th>Summary</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody">
+              <tr><td colspan="5">Loading audit log entries...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 6: APP MANAGEMENT (EXPORT, SAVE/RESTORE, TOOL UPGRADES, UI EDITOR)-->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-appmgmt">
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+
+      <!-- 1. PORTABLE APP EXPORT & DIAGNOSTICS -->
+      <div class="card">
+        <h2>
+          <span>Portable App Export</span>
+          <div class="btn-group">
+            <button class="success btn-sm" id="btn-export-app" onclick="exportPortableAppZip()">Export App (.zip)</button>
+          </div>
+        </h2>
+        <div class="hint">
+          Packages the entire app (UI, backend, MCP bridge, pre-built plugins, and Windows self-bootstrapping launcher) into a standalone <code>ModToolPoC-Win64.zip</code> download for any Windows 10/11 PC.
+        </div>
+        <pre id="am-export-log" style="max-height:110px;">Ready to package and download portable Windows build.</pre>
+      </div>
+
+      <!-- 1B. GITHUB DISTRIBUTION & RESTORE -->
+      <div class="card">
+        <h2>
+          <span>GitHub Distribution &amp; Restore</span>
+          <span class="pill na" id="gh-sync-badge">Unconfigured</span>
+        </h2>
+        <div class="row">
+          <div>
+            <label for="gh-owner">GitHub Owner (or Full Repo URL)</label>
+            <input id="gh-owner" type="text" placeholder="MrWibbleBottom or https://github.com/MrWibbleBottom/The-Modding-Tool" />
+          </div>
+          <div>
+            <label for="gh-repo">Repository Name</label>
+            <input id="gh-repo" type="text" placeholder="The-Modding-Tool" />
+          </div>
+          <div>
+            <label for="gh-branch">Branch</label>
+            <input id="gh-branch" type="text" value="main" placeholder="main" />
+          </div>
+          <div>
+            <label for="gh-token">Private Repo Token (Optional)</label>
+            <input id="gh-token" type="password" placeholder="ghp_... (masked when saved)" />
+          </div>
+        </div>
+        <div class="info-grid" style="grid-template-columns: repeat(2, 1fr); gap:8px; margin:10px 0;">
+          <div class="info-item">
+            <div class="k">Installed Build</div>
+            <div class="v" id="gh-installed-sha">Unset</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Remote Latest</div>
+            <div class="v" id="gh-remote-latest">Not Checked</div>
+          </div>
+        </div>
+        <div class="btn-group" style="margin-bottom:10px;">
+          <button class="secondary btn-sm" onclick="saveGitHubRepoConfig()">Save Repo Settings</button>
+          <button class="btn-sm" id="btn-gh-check" onclick="checkGitHubUpdates()">Check GitHub</button>
+          <button class="success btn-sm" id="btn-gh-sync" onclick="pullGitHubSync()">Pull / Restore Latest from GitHub</button>
+          <button class="secondary btn-sm" onclick="restartAppServer()">Reload Server</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <label for="gh-snapshots-select">Local Snapshots (<code>%LOCALAPPDATA%\ModToolPoC\app_backups\</code>)</label>
+            <select id="gh-snapshots-select"></select>
+          </div>
+          <button class="danger btn-sm" onclick="rollbackToSnapshot()">Rollback to Snapshot</button>
+        </div>
+
+        <!-- PUBLISH / PUSH TO GITHUB -->
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border);">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+            <strong style="font-size:0.84rem; color:#93c5fd;">Publish / Push to GitHub</strong>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <span class="pill na" id="git-init-badge">Checking...</span>
+              <span class="badge" id="git-branch-badge">Branch: —</span>
+              <span class="badge" id="git-remote-badge">Origin: —</span>
+              <span class="badge" id="git-changes-badge">0 Uncommitted</span>
+              <button class="secondary btn-sm" onclick="loadGitStatus()">Refresh Status</button>
+            </div>
+          </div>
+          <div id="git-changed-files-list" style="font-size:0.74rem; color:var(--muted); margin-bottom:8px;">
+            Checking local Git working tree...
+          </div>
+          <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+            <div style="flex:1; min-width:240px;">
+              <label for="gh-commit-msg">Commit Message</label>
+              <input id="gh-commit-msg" type="text" placeholder="Describe changes (leave blank for timestamped auto message)" />
+            </div>
+            <button class="success btn-sm" id="btn-gh-push" onclick="pushAppToGitHub()">Push to GitHub</button>
+          </div>
+        </div>
+
+        <pre id="gh-sync-log" style="max-height:95px; margin-top:8px;">Configure a GitHub repo above to check or sync distribution updates.</pre>
+      </div>
+
+      <!-- 2. DIAGNOSTICS & MAINTENANCE -->
+      <div class="card">
+        <h2>
+          <span>Runtime Diagnostics &amp; Maintenance</span>
+          <div class="btn-group">
+            <button class="secondary btn-sm" onclick="loadAppDiagnostics()">Refresh</button>
+            <button class="secondary btn-sm" onclick="openAppMgmtFolder('appdata')">Open AppData</button>
+            <button class="secondary btn-sm" onclick="openAppMgmtFolder('backups')">Open Backups</button>
+            <button class="secondary btn-sm" onclick="clearBuiltModsCache()">Clear Mod Cache</button>
+            <button class="secondary btn-sm" id="btn-toggle-watcher" onclick="toggleBackupWatcher()">Auto-Watcher: Checking...</button>
+            <button class="danger btn-sm" onclick="flushAllAppCaches()">Flush All Cache &amp; Data</button>
+            <button class="danger btn-sm" onclick="restartAppServer()">Restart App</button>
+          </div>
+        </h2>
+        <div class="info-grid" style="grid-template-columns: repeat(2, 1fr); gap:8px;">
+          <div class="info-item">
+            <div class="k">Python &amp; .NET SDK</div>
+            <div class="v" id="am-diag-runtimes">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Server PID &amp; Cached Mods</div>
+            <div class="v" id="am-diag-pid">—</div>
+          </div>
+          <div class="info-item" style="grid-column: span 2;">
+            <div class="k">AppData &amp; Workspace Paths</div>
+            <div class="v" id="am-diag-paths">—</div>
+          </div>
+          <div class="info-item" style="grid-column: span 2;">
+            <div class="k">Semantic Version (1.0.0 = Full Launch)</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:4px;">
+              <div class="v" id="am-version-display">v0.1.0 (pre-launch)</div>
+              <div class="btn-group">
+                <button class="secondary btn-sm" onclick="bumpAppVersion('patch')">+ Patch</button>
+                <button class="secondary btn-sm" onclick="bumpAppVersion('minor')">+ Minor</button>
+                <button class="secondary btn-sm" onclick="bumpAppVersion('major')">+ Major</button>
+                <button class="success btn-sm" id="btn-launch-1-0" onclick="bumpAppVersion('launch')">Launch 1.0.0</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. MODDING TOOLS UPGRADE & SECURITY CHECKSUMS -->
+      <div class="card full">
+        <h2>
+          <span>Modding Deployment Tools &amp; Security Upgrades</span>
+          <div class="btn-group">
+            <button class="secondary btn-sm" onclick="loadModdingToolsStatus()">Verify Checksums</button>
+          </div>
+        </h2>
+        <div class="hint">
+          Manage and upgrade the modding loaders and bridge plugins deployed to games. Security checks enforce HTTPS transport, SHA-256 digest verification, and automatic pre-upgrade backups.
+        </div>
+        <div class="row" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom:8px;">
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;">
+            <input type="checkbox" id="am-sec-https" checked style="width:auto;" />
+            <span>Enforce HTTPS Downloads Only</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;">
+            <input type="checkbox" id="am-sec-checksum" checked style="width:auto;" />
+            <span>Require SHA-256 Checksum Verification</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;">
+            <input type="checkbox" id="am-sec-backup" checked style="width:auto;" />
+            <span>Backup Previous Tool Before Replacing</span>
+          </label>
+        </div>
+        <div class="row">
+          <div>
+            <label for="am-tool-expected-sha">Expected SHA-256 Override (Optional — verified if provided)</label>
+            <input id="am-tool-expected-sha" type="text" placeholder="64-hex SHA-256 digest (leave blank to use release digest)" />
+          </div>
+          <div>
+            <label for="am-tool-custom-url">Custom HTTPS Archive URL Override (Optional)</label>
+            <input id="am-tool-custom-url" type="text" placeholder="https://github.com/.../release.zip" />
+          </div>
+        </div>
+        <div class="log-wrap" style="max-height:220px; margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Modding Tool</th>
+                <th>Version</th>
+                <th>SHA-256 Checksum</th>
+                <th>Security Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="am-tools-tbody">
+              <tr><td colspan="5">Loading tool status...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre id="am-tools-log" style="margin-top:8px; max-height:110px;">Ready to verify or upgrade modding deployment tools.</pre>
+      </div>
+
+      <!-- 5. APP EDITING TOOLS (MOVED HERE) -->
+      <div class="card full">
+        <h2>
+          <span>App Editing Tools — Branding, Visibility &amp; Layout</span>
+          <div class="btn-group">
+            <button class="success btn-sm" onclick="saveAppUiConfig()">Save Changes</button>
+            <button class="secondary btn-sm" onclick="exportAppUiConfig()">Export JSON</button>
+            <button class="secondary btn-sm" onclick="triggerImportAppUiConfig()">Import JSON</button>
+            <button class="danger btn-sm" onclick="resetAppUiConfig()">Reset Defaults</button>
+            <input id="ae-import-file" type="file" accept=".json,application/json" style="display:none;" onchange="importAppUiConfigFile(event)" />
+          </div>
+        </h2>
+        <div class="hint">
+          Changes preview live as you type or toggle. Click <strong>Save Changes</strong> to persist your layout to <code>%LOCALAPPDATA%\ModToolPoC\app_ui_config.json</code>.
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="ae-app-name">App Name (Header &amp; Browser Title)</label>
+            <input id="ae-app-name" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-app-subtitle">App Subtitle</label>
+            <input id="ae-app-subtitle" type="text" oninput="onAppEditorInput()" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="ae-banner-url">Responsive App Banner Image (URL or Upload)</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input id="ae-banner-url" type="text" placeholder="https://... or upload an image" style="flex:1; min-width:180px;" oninput="onAppEditorInput()" />
+              <select id="ae-banner-height" style="width:auto;" onchange="onAppEditorInput()">
+                <option value="80">80px (Compact)</option>
+                <option value="110" selected>110px (Standard)</option>
+                <option value="150">150px (Tall)</option>
+              </select>
+              <button class="secondary btn-sm" onclick="document.getElementById('ae-banner-file').click()">Upload Banner</button>
+              <button class="danger btn-sm" onclick="removeAppAsset('banner')">Remove</button>
+              <input id="ae-banner-file" type="file" accept="image/*" style="display:none;" onchange="uploadAppAsset('banner', event)" />
+            </div>
+            <div style="margin-top:8px; display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--code-bg); border:1px solid var(--border); border-radius:6px;">
+              <img id="ae-banner-thumb" alt="Current Banner" style="display:none; width:140px; height:44px; object-fit:cover; border-radius:4px; border:1px solid var(--border-strong); flex-shrink:0;" />
+              <span id="ae-banner-thumb-label" style="font-size:0.76rem; color:var(--muted);">No banner currently in use</span>
+            </div>
+          </div>
+          <div>
+            <label for="ae-favicon-url">App Favicon (URL or Upload .ico / .png / .svg)</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input id="ae-favicon-url" type="text" placeholder="https://... or upload a favicon" style="flex:1; min-width:180px;" oninput="onAppEditorInput()" />
+              <button class="secondary btn-sm" onclick="document.getElementById('ae-favicon-file').click()">Upload Favicon</button>
+              <button class="danger btn-sm" onclick="removeAppAsset('favicon')">Remove</button>
+              <input id="ae-favicon-file" type="file" accept="image/*,.ico,.svg" style="display:none;" onchange="uploadAppAsset('favicon', event)" />
+            </div>
+            <div style="margin-top:8px; display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--code-bg); border:1px solid var(--border); border-radius:6px;">
+              <img id="ae-favicon-thumb" alt="Current Favicon" style="display:none; width:32px; height:32px; object-fit:contain; border-radius:4px; border:1px solid var(--border-strong); background:#0b0f17; flex-shrink:0;" />
+              <span id="ae-favicon-thumb-label" style="font-size:0.76rem; color:var(--muted);">No custom favicon currently in use</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row">
+            <div>
+              <label for="ae-accent-color">Accent Color</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input id="ae-accent-color" type="color" value="#3b82f6" style="width:52px; height:36px; padding:2px;" oninput="onAppEditorInput()" />
+                <div class="btn-group">
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#3b82f6')">Blue</button>
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#10b981')">Emerald</button>
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#8b5cf6')">Violet</button>
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#f59e0b')">Amber</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label for="ae-startup-tab">Startup Default Tab</label>
+              <select id="ae-startup-tab" onchange="onAppEditorInput()">
+                <option value="manager">Game Manager</option>
+                <option value="game">Active Game</option>
+                <option value="modbuilder">Build a Mod</option>
+                <option value="specs">PC Specs</option>
+                <option value="logs">Audit Log</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; align-items:end; padding-bottom:6px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text); margin:0;">
+              <input id="ae-compact-mode" type="checkbox" style="width:auto;" onchange="onAppEditorInput()" />
+              <span>Compact Density Mode (tighter cards &amp; tables)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:8px;">
+          <span>Rename Navigation Tabs</span>
+        </div>
+        <div class="row" style="grid-template-columns: repeat(5, 1fr);">
+          <div>
+            <label for="ae-tablabel-manager">Tab 1</label>
+            <input id="ae-tablabel-manager" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-game">Tab 2</label>
+            <input id="ae-tablabel-game" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-modbuilder">Tab 3</label>
+            <input id="ae-tablabel-modbuilder" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-specs">Tab 4</label>
+            <input id="ae-tablabel-specs" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-logs">Tab 5</label>
+            <input id="ae-tablabel-logs" type="text" oninput="onAppEditorInput()" />
+          </div>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:10px;">
+          <span>Flag Sections as 'In Progress' (WIP Overlay &amp; Section Banner)</span>
+        </div>
+        <div class="info-item" style="display:flex; flex-wrap:wrap; gap:16px; padding:10px 12px;">
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-manager" style="width:auto;" onchange="onWipToggle()" /> Game Manager</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-game" style="width:auto;" onchange="onWipToggle()" /> Active Game</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-modbuilder" style="width:auto;" onchange="onWipToggle()" /> Build a Mod</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-specs" style="width:auto;" onchange="onWipToggle()" /> PC Specs</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-logs" style="width:auto;" onchange="onWipToggle()" /> Audit Log</label>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:10px;">
+          <span>Show / Hide UI Elements</span>
+          <div class="btn-group" style="text-transform:none; font-weight:400;">
+            <button class="secondary btn-sm" onclick="setAllElementsVisible(true)">Show All</button>
+            <button class="secondary btn-sm" onclick="setAllElementsVisible(false)">Minimal Mode</button>
+          </div>
+        </div>
+        <div class="info-grid" style="grid-template-columns: repeat(3, 1fr); gap:10px;">
+          <div class="info-item">
+            <div class="k" style="margin-bottom:8px;">Header Elements</div>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-header_subtitle" style="width:auto;" onchange="onAppEditorInput()" /> App Subtitle</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-header_active_badge" style="width:auto;" onchange="onAppEditorInput()" /> Loaded Game Badge</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-header_server_badge" style="width:auto;" onchange="onAppEditorInput()" /> Server Address Badge</label>
+          </div>
+          <div class="info-item">
+            <div class="k" style="margin-bottom:8px;">Navigation Tabs</div>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_manager" style="width:auto;" onchange="onAppEditorInput()" /> Game Manager Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_game" style="width:auto;" onchange="onAppEditorInput()" /> Active Game Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_modbuilder" style="width:auto;" onchange="onAppEditorInput()" /> Build a Mod Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_specs" style="width:auto;" onchange="onAppEditorInput()" /> PC Specs Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_logs" style="width:auto;" onchange="onAppEditorInput()" /> Audit Log Tab</label>
+          </div>
+          <div class="info-item">
+            <div class="k" style="margin-bottom:8px;">Active Game Sections</div>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-sec_pipeline_status" style="width:auto;" onchange="onAppEditorInput()" /> Pipeline Status Bar</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-sec_provision_restore" style="width:auto;" onchange="onAppEditorInput()" /> Provision &amp; Clean Restore</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-sec_live_mcp" style="width:auto;" onchange="onAppEditorInput()" /> Live MCP Panel</label>
+          </div>
+        </div>
+
+        <pre id="ae-status-log" style="margin-top:10px; max-height:90px;">Ready to customize app name, visibility, and layout.</pre>
+      </div>
+
+      <!-- 6. SAVE & RESTORE APP (MOVED TO BOTTOM, LAST 5 BY DEFAULT) -->
+      <div class="card full" id="card-save-restore-app">
+        <h2>
+          <span>Save &amp; Restore App Versions</span>
+          <div class="btn-group">
+            <button class="success btn-sm" onclick="saveAppSnapshot(false)">Save Snapshot</button>
+            <button class="secondary btn-sm" onclick="saveAppSnapshot(true)">Save Full Baseline</button>
+            <button class="secondary btn-sm" onclick="loadAppBackups()">Refresh List</button>
+            <button class="secondary btn-sm" id="btn-toggle-backups-expand" onclick="toggleAppBackupsExpand()" style="display:none;">Show All</button>
+          </div>
+        </h2>
+        <div class="row" style="grid-template-columns: 1fr;">
+          <div>
+            <label for="am-backup-reason">Snapshot Summary / Reason</label>
+            <input id="am-backup-reason" type="text" placeholder="e.g. Before upgrading BepInEx or editing UI" value="Manual checkpoint from App Management" />
+          </div>
+        </div>
+        <div class="log-wrap" style="margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:10%;">Version</th>
+                <th style="width:11%;">Type</th>
+                <th style="width:15%;">Created</th>
+                <th style="width:16%;">Changes</th>
+                <th style="width:36%;">Summary of Changes</th>
+                <th style="width:12%;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="am-backups-tbody">
+              <tr><td colspan="6">Loading saved app versions...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre id="am-backup-log" style="margin-top:8px;">Select any saved version to restore the project to that exact state.</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 7 (LAST TAB): HELP & FEATURE REFERENCE                            -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-help">
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Help &amp; Feature Guide — How Everything Works</span>
+          <span class="badge">Reference</span>
+        </h2>
+        <div class="hint">
+          A complete breakdown of every tab, button, and background process in the application.
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span>1. Game Manager</span></h2>
+        <div class="info-grid" style="grid-template-columns: 1fr;">
+          <div class="info-item">
+            <div class="k">Game scan</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Discovers installed PC games across Steam, Epic Games, GOG Galaxy, Xbox / PC Game Pass, Ubisoft Connect, EA Games, or a custom folder path. Searches up to 3 subdirectory levels for game executables (so games like Days Gone or Elden Ring in nested folders are detected), tracks live progress with the scan progress bar, and automatically runs a <strong>Game info</strong> metadata pass.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Game info</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Inspects each managed game folder on disk to populate its engine, scripting backend, Unity/metadata version, anti-cheat status, and recommended MCP modding stack.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Browse, Add/Edit Game &amp; Icons</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Lets you pick any local folder or manually configure a game profile. Game icons are automatically extracted from each game's primary executable and cached locally for fast loading.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span>2. Active Game &amp; Fingerprint</span></h2>
+        <div class="info-grid" style="grid-template-columns: 1fr;">
+          <div class="info-item">
+            <div class="k">What does Fingerprint do and how does it work?</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              <strong>Fingerprint</strong> inspects the target game directory (<code>POST /api/fingerprint</code>) and computes SHA-256 hashes of key binaries (such as <code>GameAssembly.dll</code>, <code>UnityPlayer.dll</code>, or main executables). It detects the engine (Unity IL2CPP/Mono, Unreal 4/5, Creation, Godot, RE Engine, FromSoftware, Data-Driven, or Native C++), Unity build &amp; IL2CPP metadata version, anti-cheat binaries, and whether Doorstop/BepInEx/MCP Bridge/Interop DLLs are present. <strong>Fingerprint &amp; Rescan</strong> combines this check with a full Game Info refresh.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Provision &amp; Clean Restore</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Verifies the BepInEx 6 IL2CPP archive SHA-256, backs up any colliding files into <code>%LOCALAPPDATA%\ModToolPoC</code>, extracts BepInEx and <code>BepInExMCP.IL2CPP.dll</code>, and writes a manifest so <strong>Clean Restore</strong> can revert every deployed file cleanly.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Steam Artwork, Unreal Traffic Light &amp; Live MCP</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Pulls local Steam <code>librarycache</code> hero banners and thumbnails when available. For Unreal Engine games, imports <code>GameUserSettings.ini</code> / <code>Engine.ini</code> and scores settings against your PC Specs (Green / Amber / Red). For running Unity IL2CPP games, connects over persistent stdio to <code>bepinex-mcp</code> for live object/component inspection and editing.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span>3. Build a Mod</span></h2>
+        <div class="info-grid" style="grid-template-columns: 1fr;">
+          <div class="info-item">
+            <div class="k">How Mod Building Works</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Import live MCP edits or add custom rules, then click <strong>Build Compatible Mod</strong>:
+              <br />• <strong>Unity IL2CPP</strong>: Generates a <code>BepInEx 6</code> C# <code>BasePlugin</code> (<code>Plugin.cs</code>) with <code>Config.Bind</code> entries and scene-load hooks, compiles it as a <code>net6.0</code> <code>.dll</code> directly against the target game's <code>BepInEx\core\*.dll</code> and <code>BepInEx\interop\*.dll</code> via <code>dotnet build</code>, and packages it with <code>INSTALL_INSTRUCTIONS.txt</code> into a <code>.zip</code>.
+              <br />• <strong>Unreal Engine 4/5</strong>: Generates an RE-UE4SS <code>main.lua</code> script + <code>GameUserSettings_Override.ini</code> + <code>INSTALL_INSTRUCTIONS.txt</code> package.
+              <br />• <strong>Install Built Mod to Game</strong> deploys the compiled package directly into the game folder.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span>4. PC Specs &amp; Audit Log</span></h2>
+        <div class="info-grid" style="grid-template-columns: 1fr;">
+          <div class="info-item">
+            <div class="k">PC Specs</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Scrapes CPU, GPU (VRAM, driver, temperature), RAM, drives, OS, and display resolution/refresh rate, caches results for instant loading, and maps your PC to an Unreal hardware reference tier.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Audit Log</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Records every scan, fingerprint, provision, restore, mod build, backup, and setting change with timestamps, status, SHA-256 digests, and expandable detail summaries in <code>%LOCALAPPDATA%\ModToolPoC\audit.jsonl</code>.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card full">
+        <h2><span>5. App Management</span></h2>
+        <div class="info-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));">
+          <div class="info-item">
+            <div class="k">Portable App Export</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Packages the app, MCP bridge, pre-built plugins, branding folders, and <code>Launch_ModToolPoC.bat</code> into a downloadable <code>ModToolPoC-Win64.zip</code> for other Windows 10/11 PCs.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Tool Upgrades &amp; Checksums</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Upgrades or rebuilds BepInEx 6, BepInExMCP.IL2CPP, RE-UE4SS, and MelonLoader with HTTPS-only enforcement, SHA-256 checksum verification, and automatic pre-upgrade backups.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">App Editing &amp; WIP Flags</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Rename the app/tabs, upload a responsive banner (<code>branding/banners</code>) and favicon (<code>branding/favicons</code>), show/hide elements, or flag any section as <strong>In Progress (WIP)</strong>.
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="k">Save &amp; Restore Versions</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              Creates incremental and baseline project backups with expandable change summaries (<code>SUMMARY.md</code>) so you can restore the project to any previous version.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/main.js?v=2"></script>
+</body>
+</html>

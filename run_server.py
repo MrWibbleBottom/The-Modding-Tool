@@ -10,7 +10,7 @@ import time
 HOST = "127.0.0.1"
 PORT = 8765
 ROOT_DIR = Path(__file__).resolve().parent
-POC_DIR = ROOT_DIR / "poc-ui"
+APP_DIR = ROOT_DIR / "app"
 
 
 def is_port_open(host: str = HOST, port: int = PORT, timeout: float = 0.6) -> bool:
@@ -30,16 +30,14 @@ def main() -> int:
         sys.executable,
         "-m",
         "uvicorn",
-        "controller:app",
-        "--app-dir",
-        str(POC_DIR),
+        "app.main:app",
         "--host",
         HOST,
         "--port",
         str(PORT),
         "--reload",
         "--reload-dir",
-        str(POC_DIR),
+        str(APP_DIR),
     ]
 
     proc = None

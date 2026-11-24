@@ -93,7 +93,7 @@ if (-not (Test-Path $VenvPython)) {
     & $SysPy -m venv $VenvDir
     Write-Host "[Setup] Installing Python dependencies..." -ForegroundColor Yellow
     & $VenvPython -m pip install --upgrade pip --quiet
-    & $VenvPython -m pip install -r (Join-Path $Root "poc-ui\requirements.txt")
+    & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt")
     Write-Host "[Setup] Environment ready." -ForegroundColor Green
 }
 
@@ -124,7 +124,7 @@ if (-not $NoBrowser) {
 
 $env:MODTOOL_SUPERVISED = "1"
 while ($true) {
-    & $VenvPython -m uvicorn controller:app --app-dir (Join-Path $Root "poc-ui") --host 127.0.0.1 --port $Port
+    & $VenvPython -m uvicorn app.main:app --host 127.0.0.1 --port $Port
     if ($LASTEXITCODE -eq 42) {
         Write-Host "[Restart] Server requested restart (exit 42). Relaunching..." -ForegroundColor Yellow
         Start-Sleep -Milliseconds 400
@@ -196,7 +196,15 @@ def build_package() -> dict[str, object]:
     PKG_DIR.mkdir(parents=True, exist_ok=True)
 
     file_count = 0
-    # 1. poc-ui & branding
+    # 1. app/ package (including static & templates), root requirements.txt, poc-ui, & branding
+    file_count += copy_tree_clean(
+        PROJECT_ROOT / "app",
+        PKG_DIR / "app",
+        ignore_names={"__pycache__", ".pytest_cache"},
+    )
+    if (PROJECT_ROOT / "requirements.txt").is_file():
+        shutil.copy2(PROJECT_ROOT / "requirements.txt", PKG_DIR / "requirements.txt")
+        file_count += 1
     file_count += copy_tree_clean(
         PROJECT_ROOT / "poc-ui",
         PKG_DIR / "poc-ui",
@@ -293,6 +301,26 @@ def build_package() -> dict[str, object]:
     }
     print(json.dumps(result, indent=2))
     return result
+
+
+def build_pyinstaller_command(onefile: bool = False) -> list[str]:
+    """Return a PyInstaller command bundling `app/static`, `app/templates`, and `poc-ui` data."""
+    cmd = [
+        "pyinstaller",
+        "--noconfirm",
+        "--clean",
+        "--name",
+        PKG_NAME,
+        "--onefile" if onefile else "--onedir",
+        "--add-data",
+        f"{PROJECT_ROOT / 'app' / 'static'};app/static",
+        "--add-data",
+        f"{PROJECT_ROOT / 'app' / 'templates'};app/templates",
+        "--add-data",
+        f"{PROJECT_ROOT / 'poc-ui' / 'steam_games_reference.csv'};poc-ui",
+        str(PROJECT_ROOT / "app" / "main.py"),
+    ]
+    return cmd
 
 
 if __name__ == "__main__":

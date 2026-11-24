@@ -12,10 +12,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "poc-ui"))
 
 from fastapi.testclient import TestClient  # noqa: E402
-import controller  # noqa: E402
+from app.main import app  # noqa: E402
+from app.core.security import SESSION_HEADER, get_session_token  # noqa: E402
 import backup_manager  # noqa: E402
 import version_manager  # noqa: E402
 
@@ -23,7 +23,7 @@ import version_manager  # noqa: E402
 class AppSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.client = TestClient(controller.app)
+        cls.client = TestClient(app)
 
     def test_index_html_has_core_tabs_and_palette(self) -> None:
         r = self.client.get("/")
@@ -40,8 +40,37 @@ class AppSmokeTests(unittest.TestCase):
             "cmd-palette-overlay",
             "app-loading-overlay",
             "app-restarting-overlay",
+            "/static/app.css",
+            "/static/js/main.js",
+            'name="modtool-session-token"',
         ):
             self.assertIn(marker, html)
+
+    def test_static_assets_and_health(self) -> None:
+        r_css = self.client.get("/static/app.css")
+        self.assertEqual(r_css.status_code, 200)
+        self.assertIn(":root", r_css.text)
+
+        for js_name in ("main.js", "api.js", "library.js", "analyzer.js", "mcp.js", "app_mgmt.js"):
+            r_js = self.client.get(f"/static/js/{js_name}")
+            self.assertEqual(r_js.status_code, 200, f"Missing /static/js/{js_name}")
+            self.assertIn("javascript", r_js.headers.get("content-type", "").lower())
+
+        r_health = self.client.get("/api/health")
+        self.assertEqual(r_health.status_code, 200)
+        self.assertEqual(r_health.json().get("status"), "ok")
+
+    def test_session_token_middleware(self) -> None:
+        r_unauth = self.client.post("/api/app/dev-mode", json={"enabled": False})
+        self.assertEqual(r_unauth.status_code, 403)
+
+        r_auth = self.client.post(
+            "/api/app/dev-mode",
+            json={"enabled": False},
+            headers={SESSION_HEADER: get_session_token()},
+        )
+        self.assertEqual(r_auth.status_code, 200)
+        self.assertEqual(r_auth.json().get("status"), "ok")
 
     def test_games_etag_and_304(self) -> None:
         r1 = self.client.get("/api/games")

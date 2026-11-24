@@ -28,3 +28,4 @@ managed_games.json
 pc_specs.json
 audit.jsonl
 custom_banner.*
+*.pyc
