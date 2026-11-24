@@ -1215,6 +1215,39 @@ def evaluate_modding_apps_for_game(game_dir: Path, info: dict[str, Any]) -> list
             "release_url": "https://github.com/TES5Edit/TES5Edit/releases",
         },
     ]
+    ue4ss_in_game = False
+    if dir_exists:
+        shipping_dirs = {p.parent for p in game_dir.rglob("*-Win64-Shipping.exe")}
+        win64_dirs = shipping_dirs or {
+            p for p in game_dir.rglob("Win64") if p.is_dir() and p.parent.name.lower() == "binaries"
+        }
+        for wdir in win64_dirs:
+            has_proxy = any(
+                f.is_file() and f.name.lower() in ("dwmapi.dll", "dxgi.dll")
+                for f in wdir.iterdir()
+            )
+            has_ue4ss = any(
+                f.is_file() and f.name.lower() == "ue4ss.dll" for f in wdir.rglob("*.dll")
+            )
+            if has_proxy and has_ue4ss:
+                ue4ss_in_game = True
+                break
+    game_installed_map = {
+        "bepinex_il2cpp": bep_il2cpp_installed,
+        "bepinex_mcp_il2cpp": bridge_il2cpp_installed,
+        "unity_explorer_il2cpp": bool(
+            dir_exists
+            and (game_dir / "BepInEx" / "plugins").is_dir()
+            and list((game_dir / "BepInEx" / "plugins").rglob("*UnityExplorer*.dll"))
+        ),
+        "bepinex_mono": bool(info.get("doorstop_installed") and info.get("bepinex_installed") and is_mono),
+        "ue4ss": ue4ss_in_game,
+    }
+    for app_item in apps:
+        aid = app_item.get("id", "")
+        app_item["engine_compatible"] = bool(app_item.get("recommended", False))
+        app_item["host_available"] = bool(app_item.get("installed", False))
+        app_item["installed_in_game"] = bool(game_installed_map.get(aid, False))
     return apps
 
 
@@ -1282,6 +1315,20 @@ def enrich_game_status(game: dict[str, Any], refresh_live: bool = False) -> dict
             )
             mod_info["modding_apps"] = evaluate_modding_apps_for_game(gdir, mod_info)
         enriched["modding_info"] = mod_info
+        cat_low = str(mod_info.get("mcp_category") or "").lower()
+        tech_low = str(mod_info.get("sheet_engine_tech") or "").lower()
+        if mod_info.get("is_unreal_engine") or "unreal" in cat_low or "unreal" in tech_low:
+            enriched["detected_engine"] = "unreal"
+        elif enriched.get("has_game_assembly") or "il2cpp" in str(mod_info.get("scripting_backend") or "").lower():
+            enriched["detected_engine"] = "unity_il2cpp"
+        elif "mono" in str(mod_info.get("scripting_backend") or "").lower():
+            enriched["detected_engine"] = "unity_mono"
+        elif "godot" in cat_low:
+            enriched["detected_engine"] = "godot"
+        elif "creation" in cat_low:
+            enriched["detected_engine"] = "creation_engine"
+        else:
+            enriched["detected_engine"] = "generic"
     else:
         raw_folder_name = (
             gdir.parent.name
@@ -3613,12 +3660,12 @@ def fingerprint_library_entry(root_path: Path) -> dict[str, Any]:
     has_global_metadata = any(root_path.glob("*_Data/il2cpp_data/Metadata/global-metadata.dat")) or any(
         root_path.rglob("global-metadata.dat")
     )
-    if has_game_assembly and has_global_metadata:
+    if (root_path / "Engine" / "Binaries" / "Win64").is_dir() or any(root_path.rglob("*.pak")) or any(root_path.rglob("*.utoc")) or any(root_path.rglob("*.ucas")) or any(root_path.rglob("*-Win64-Shipping.exe")):
+        engine = "Unreal_4_5"
+    elif has_game_assembly and has_global_metadata:
         engine = "Unity_IL2CPP"
     elif any(root_path.glob("*_Data/Managed/Assembly-CSharp.dll")):
         engine = "Unity_Mono"
-    elif (root_path / "Engine" / "Binaries" / "Win64").is_dir() or any(root_path.rglob("*.pak")) or any(root_path.rglob("*.ucas")):
-        engine = "Unreal_4_5"
     elif any(root_path.glob("Data/*.esm")) or any(root_path.glob("Data/*.esp")):
         engine = "Creation_Engine"
     elif any(root_path.glob("*.pck")) and any(root_path.glob("*.exe")):

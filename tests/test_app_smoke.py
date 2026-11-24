@@ -114,6 +114,35 @@ class AppSmokeTests(unittest.TestCase):
         self.assertEqual(r2.status_code, 200)
         self.assertIn("has_assets", r2.json())
 
+    def test_unreal_asset_analyzer_excludes_bepinex(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Game" / "Binaries" / "Win64").mkdir(parents=True, exist_ok=True)
+            (root / "Game" / "Content" / "Paks").mkdir(parents=True, exist_ok=True)
+            (root / "Game" / "Config").mkdir(parents=True, exist_ok=True)
+            (root / "Game" / "Binaries" / "Win64" / "Game-Win64-Shipping.exe").write_bytes(b"MZ")
+            (root / "Game" / "Content" / "Paks" / "pakchunk0-Windows.pak").write_bytes(b"PAK0")
+            (root / "Game" / "Config" / "DefaultEngine.ini").write_text("[/Script/Engine.Engine]\n", encoding="utf-8")
+
+            r = self.client.post(
+                "/api/game/analyze-assets",
+                json={"root_path": str(root)},
+                headers={SESSION_HEADER: get_session_token()},
+            )
+            self.assertEqual(r.status_code, 200)
+            data = r.json()
+            self.assertEqual(data.get("detected_engine"), "unreal")
+
+            tool_names = set(data.get("tools", {}).keys())
+            self.assertIn("UE4SS", tool_names)
+            self.assertIn("filesystem-mcp", tool_names)
+            self.assertNotIn("bepinex-mcp", tool_names)
+            self.assertNotIn("BepInEx (IL2CPP)", tool_names)
+            self.assertNotIn("BepInEx (Mono)", tool_names)
+            for item in data.get("available_tools", []):
+                self.assertTrue(item.get("engine_compatible"))
+                self.assertNotIn("bepinex", item.get("name", "").lower())
+
     def test_backup_restore_integrity(self) -> None:
         idx = backup_manager.load_index()
         versions = idx.get("versions", [])

@@ -206,15 +206,16 @@ export async function runAssetModdabilityScan() {
   const rootPath = (document.getElementById("fp-game-dir")?.value || "").trim();
   if (btn) { btn.disabled = true; btn.textContent = "Scanning..."; }
   try {
-    const res = await apiPost("/api/game/analyze-assets", {
-      game_id: state.activeGameId || "",
-      root_path: rootPath
-    });
-    if (!res.ok || !res.data) {
-      if (matrix) matrix.innerHTML = `<div class="step-card missing"><div class="step-card-title">Asset Scan Failed</div><div class="step-card-detail">${res.data?.detail || "Could not analyze game directory."}</div></div>`;
+    let r = null;
+    try {
+      r = await apiPost("/api/game/analyze-assets", {
+        game_id: state.activeGameId || "",
+        root_path: rootPath
+      });
+    } catch (err) {
+      if (matrix) matrix.innerHTML = `<div class="step-card missing"><div class="step-card-title">Asset Scan Failed</div><div class="step-card-detail">${err?.message || "Could not analyze game directory."}</div></div>`;
       return;
     }
-    const r = res.data;
     state.lastAssetAudit = r;
     const s = r.summary || { green: 0, amber: 0, red: 0 };
     if (pill) {
@@ -232,8 +233,9 @@ export async function runAssetModdabilityScan() {
       red: { bg: "#dc2626", cls: "missing", label: "RED" }
     };
     const layers = Array.isArray(r.layers) ? r.layers : [];
+    const compatTools = (Array.isArray(r.available_tools) ? r.available_tools : []).filter(t => t && t.engine_compatible === true);
     if (matrix) {
-      matrix.innerHTML = layers.map(l => {
+      const layerCards = layers.map(l => {
         const cm = colorMap[l.status] || colorMap.amber;
         const sampleTxt = Array.isArray(l.detected_items) && l.detected_items.length
           ? l.detected_items.slice(0, 5).map(x => `<code>${esc(x)}</code>`).join(", ")
@@ -249,6 +251,22 @@ export async function runAssetModdabilityScan() {
           <div class="step-card-detail" style="margin-top:4px;">Samples: ${sampleTxt}</div>
         </div>`;
       }).join("");
+      const toolCards = compatTools.map(t => {
+        const badgeCls = t.installed_in_game ? "yes" : (t.host_available ? "warn" : "na");
+        const badgeLabel = t.installed_in_game
+          ? "Ready in Game"
+          : (t.host_available ? "Host Tool Ready (Not Installed in Game)" : "Recommended (Not Installed)");
+        const cardCls = t.installed_in_game ? "ok" : (t.host_available ? "pending" : "na");
+        return `<div class="step-card ${cardCls}">
+          <div class="step-card-top">
+            <span class="step-card-title">${esc(t.name)}</span>
+            <span class="pill ${badgeCls}">${badgeLabel}</span>
+          </div>
+          <div style="font-size:0.74rem; color:#cbd5e1; margin-top:3px;">${esc(t.detail || t.install_hint || "")}</div>
+          ${t.install_hint && !t.installed_in_game ? `<div class="step-card-detail" style="margin-top:4px;">Hint: ${esc(t.install_hint)}</div>` : ""}
+        </div>`;
+      }).join("");
+      matrix.innerHTML = layerCards + toolCards;
     }
     if (r.guide) {
       renderModdabilityGuideGrid(Object.values(r.guide), r.triggered_blockers || []);

@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.audit import append_audit_log, clear_audit_log_cache, read_audit_logs
+from app.routers.library import fingerprint_library_entry
 from app.core.config import (
     ANTI_CHEAT_BINARIES,
     APP_DATA_ROOT,
@@ -74,6 +75,33 @@ from app.core.config import (
 
 
 router = APIRouter()
+
+ENGINE_TOOL_MATRIX: dict[str, dict[str, list[str]]] = {
+    "unity_il2cpp": {
+        "allowed_mcp_bridges": ["bepinex-mcp", "filesystem-mcp"],
+        "allowed_loaders_and_cli": ["BepInEx (IL2CPP)", "Il2CppDumper", "AssetRipper"],
+    },
+    "unity_mono": {
+        "allowed_mcp_bridges": ["bepinex-mcp", "filesystem-mcp"],
+        "allowed_loaders_and_cli": ["BepInEx (Mono)", "ILSpy", "AssetRipper"],
+    },
+    "unreal": {
+        "allowed_mcp_bridges": ["ue4ss-mcp", "filesystem-mcp"],
+        "allowed_loaders_and_cli": ["UE4SS", "FModel", "UnrealPak"],
+    },
+    "godot": {
+        "allowed_mcp_bridges": ["godot-mcp", "filesystem-mcp"],
+        "allowed_loaders_and_cli": ["GDRE Tools"],
+    },
+    "creation_engine": {
+        "allowed_mcp_bridges": ["creation-kit-mcp", "filesystem-mcp"],
+        "allowed_loaders_and_cli": ["xEdit", "BAE"],
+    },
+    "generic": {
+        "allowed_mcp_bridges": ["filesystem-mcp"],
+        "allowed_loaders_and_cli": [],
+    },
+}
 
 ASSET_AUDITS_DIR = get_app_data_root() / "asset_audits"
 ASSET_AUDITS_DIR.mkdir(parents=True, exist_ok=True)
@@ -138,51 +166,248 @@ MODDABILITY_GUIDE: dict[str, dict[str, str]] = {
 }
 
 
-def _check_local_modding_tools(root_path: Path, engine: str) -> dict[str, dict[str, Any]]:
-    """Checks configured MCP bridges and local helper executables in PATH / TOOLS_ROOT."""
-    tools: dict[str, dict[str, Any]] = {}
+def _detect_normalized_engine(root_path: Path, fp_engine: str = "") -> str:
+    """Detect engine key prioritizing Unreal markers before generic DLL/Mono checks."""
+    if root_path.is_dir():
+        has_ue_dir = (root_path / "Engine" / "Binaries" / "Win64").is_dir()
+        has_ue_pak = (
+            any(root_path.rglob("*.pak"))
+            or any(root_path.rglob("*.utoc"))
+            or any(root_path.rglob("*.ucas"))
+        )
+        has_ue_shipping = any(root_path.rglob("*-Win64-Shipping.exe"))
+        if has_ue_dir or has_ue_pak or has_ue_shipping:
+            return "unreal"
+        if (root_path / "GameAssembly.dll").is_file() or any(root_path.rglob("global-metadata.dat")):
+            return "unity_il2cpp"
+        if any(root_path.glob("*_Data/Managed/Assembly-CSharp.dll")):
+            return "unity_mono"
+        if any(root_path.glob("*.pck")) and any(root_path.glob("*.exe")):
+            return "godot"
+        if any(root_path.glob("Data/*.esm")) or any(root_path.glob("Data/*.esp")):
+            return "creation_engine"
 
-    # MCP Bridges
-    tools["filesystem-mcp"] = {"available": True, "detail": "Built-in local filesystem access"}
-    bep_bridge_ok = Path(DEFAULT_MCP_APP).is_file() and (
-        (root_path / "BepInEx" / "plugins").is_dir() or (WORKSPACE_DIR / "bepinex-mcp").is_dir()
-    )
-    tools["bepinex-mcp"] = {
-        "available": bep_bridge_ok,
-        "detail": "bepinex-mcp ready" if bep_bridge_ok else "Install BepInEx + bridge in game",
-    }
-    ue4ss_ok = any(root_path.glob("*/Binaries/Win64/UE4SS.dll")) or (TOOLS_ROOT / "re_ue4ss").is_dir()
-    tools["ue4ss-mcp"] = {
-        "available": ue4ss_ok,
-        "detail": "UE4SS detected" if ue4ss_ok else "Install RE-UE4SS (App Management / Game tab)",
-    }
-    tools["creation-kit-mcp"] = {"available": False, "detail": "External Creation Kit / xEdit"}
-    tools["godot-mcp"] = {"available": bool(shutil.which("godot")), "detail": "Godot CLI on PATH" if shutil.which("godot") else "Godot / GDRE Tools not found"}
+    low = (fp_engine or "").strip().lower()
+    if "unreal" in low:
+        return "unreal"
+    if "il2cpp" in low:
+        return "unity_il2cpp"
+    if "mono" in low:
+        return "unity_mono"
+    if "godot" in low:
+        return "godot"
+    if "creation" in low:
+        return "creation_engine"
+    return "generic"
 
-    # Offline extraction/repacking helpers
-    for tool_name, folder_hint, exe_names in (
-        ("AssetRipper", "assetripper", ("AssetRipper.exe", "AssetRipper.GUI.Free.exe")),
-        ("Il2CppDumper", "il2cppdumper", ("Il2CppDumper.exe",)),
-        ("FModel", "fmodel", ("FModel.exe",)),
-        ("UnrealPak", "unrealpak", ("UnrealPak.exe",)),
-    ):
-        found_path = ""
-        for ex in exe_names:
-            w = shutil.which(ex)
-            if w:
-                found_path = w
-                break
-        if not found_path and (TOOLS_ROOT / folder_hint).is_dir():
-            for ex in exe_names:
-                cand = next((TOOLS_ROOT / folder_hint).rglob(ex), None)
-                if cand and cand.is_file():
-                    found_path = str(cand)
-                    break
-        tools[tool_name] = {
-            "available": bool(found_path),
-            "detail": found_path if found_path else f"{tool_name} not found locally",
+
+def _check_per_game_loaders(root_path: Path, detected_engine: str) -> dict[str, bool]:
+    """Check whether engine-specific loaders are actually installed inside the game root."""
+    if not root_path.is_dir():
+        return {"unity_bepinex": False, "unity_mcp_plugin": False, "unreal_ue4ss": False}
+
+    if detected_engine in ("unity_il2cpp", "unity_mono"):
+        core_ok = (root_path / "BepInEx" / "core").is_dir()
+        proxy_ok = (root_path / "winhttp.dll").is_file() or (root_path / "version.dll").is_file()
+        plugin_ok = (
+            (root_path / "BepInEx" / "plugins" / "BepInExMCP.IL2CPP.dll").is_file()
+            or any((root_path / "BepInEx" / "plugins").glob("*.dll"))
+            if (root_path / "BepInEx" / "plugins").is_dir()
+            else False
+        )
+        return {
+            "unity_bepinex": core_ok and proxy_ok,
+            "unity_mcp_plugin": core_ok and proxy_ok and plugin_ok,
+            "unreal_ue4ss": False,
         }
-    return tools
+
+    if detected_engine == "unreal":
+        shipping_dirs = {p.parent for p in root_path.rglob("*-Win64-Shipping.exe")}
+        win64_dirs = shipping_dirs or {
+            p for p in root_path.rglob("Win64") if p.is_dir() and p.parent.name.lower() == "binaries"
+        }
+        ue4ss_found = False
+        for wdir in win64_dirs:
+            has_proxy = any((wdir / px).is_file() for px in ("dwmapi.dll", "dxgi.dll"))
+            if not has_proxy:
+                has_proxy = any(
+                    f.is_file() and f.name.lower() in ("dwmapi.dll", "dxgi.dll")
+                    for f in wdir.iterdir()
+                )
+            has_ue4ss = any(
+                c.is_file() and c.name.lower() == "ue4ss.dll"
+                for c in (wdir / "ue4ss" / "UE4SS.dll", wdir / "UE4SS.dll")
+            ) or any(f.is_file() and f.name.lower() == "ue4ss.dll" for f in wdir.rglob("*.dll"))
+            if has_proxy and has_ue4ss:
+                ue4ss_found = True
+                break
+        return {
+            "unity_bepinex": False,
+            "unity_mcp_plugin": False,
+            "unreal_ue4ss": ue4ss_found,
+        }
+
+    return {"unity_bepinex": False, "unity_mcp_plugin": False, "unreal_ue4ss": False}
+
+
+def _find_host_exe(folder_hint: str, exe_names: tuple[str, ...]) -> str:
+    for ex in exe_names:
+        w = shutil.which(ex)
+        if w:
+            return w
+    if (TOOLS_ROOT / folder_hint).is_dir():
+        for ex in exe_names:
+            cand = next((TOOLS_ROOT / folder_hint).rglob(ex), None)
+            if cand and cand.is_file():
+                return str(cand)
+    return ""
+
+
+def _check_local_modding_tools(
+    root_path: Path, detected_engine: str
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Evaluate only ENGINE_TOOL_MATRIX[detected_engine] tools, separating host vs per-game status."""
+    matrix_entry = ENGINE_TOOL_MATRIX.get(detected_engine, ENGINE_TOOL_MATRIX["generic"])
+    allowed_bridges = matrix_entry["allowed_mcp_bridges"]
+    allowed_cli = matrix_entry["allowed_loaders_and_cli"]
+    game_loaders = _check_per_game_loaders(root_path, detected_engine)
+
+    bep_host_ok = Path(DEFAULT_MCP_APP).is_file() and (
+        (WORKSPACE_DIR / "bepinex-mcp").is_dir() or (RESOURCE_ROOT / "bepinex-mcp").is_dir()
+    )
+    ue4ss_host_ok = (TOOLS_ROOT / "re_ue4ss").is_dir() or (TOOLS_ROOT / "UE4SS").is_dir()
+    godot_host_ok = bool(shutil.which("godot"))
+
+    cli_probes = {
+        "Il2CppDumper": ("il2cppdumper", ("Il2CppDumper.exe",), f"Download Il2CppDumper into {TOOLS_ROOT / 'Il2CppDumper'}"),
+        "AssetRipper": ("assetripper", ("AssetRipper.exe", "AssetRipper.GUI.Free.exe"), f"Download AssetRipper into {TOOLS_ROOT / 'AssetRipper'}"),
+        "ILSpy": ("dnspyex", ("ILSpy.exe", "dnSpy.exe"), f"Download ILSpy / dnSpyEx into {TOOLS_ROOT / 'dnSpyEx'}"),
+        "FModel": ("fmodel", ("FModel.exe",), f"Download FModel into {TOOLS_ROOT / 'FModel'}"),
+        "UnrealPak": ("unrealpak", ("UnrealPak.exe",), f"Place UnrealPak.exe in PATH or {TOOLS_ROOT / 'unrealpak'}"),
+        "GDRE Tools": ("gdretools", ("gdre_tools.exe", "GDRE_tools.exe"), f"Download GDRE Tools into {TOOLS_ROOT / 'GDRETools'}"),
+        "xEdit": ("xedit", ("xEdit.exe", "SSEEdit.exe", "FO4Edit.exe"), f"Download xEdit into {TOOLS_ROOT / 'xEdit'}"),
+        "BAE": ("bae", ("bae.exe", "BAE.exe"), f"Download Bethesda Archive Extractor into {TOOLS_ROOT / 'BAE'}"),
+    }
+
+    tools: dict[str, dict[str, Any]] = {}
+    available_tools: list[dict[str, Any]] = []
+
+    for name in allowed_bridges:
+        if name == "filesystem-mcp":
+            entry = {
+                "name": name,
+                "kind": "mcp_bridge",
+                "engine_compatible": True,
+                "host_available": True,
+                "installed_in_game": True,
+                "available": True,
+                "install_hint": "Built-in local filesystem access",
+                "detail": "Built-in local filesystem access",
+            }
+        elif name == "bepinex-mcp":
+            in_game = game_loaders["unity_mcp_plugin"]
+            entry = {
+                "name": name,
+                "kind": "mcp_bridge",
+                "engine_compatible": True,
+                "host_available": bep_host_ok,
+                "installed_in_game": in_game,
+                "available": bep_host_ok and in_game,
+                "install_hint": f"Run Provision in Active Game to deploy BepInEx + bridge into {root_path}",
+                "detail": (
+                    "Ready in Game"
+                    if (bep_host_ok and in_game)
+                    else ("Host bridge ready — provision into game" if bep_host_ok else "bepinex-mcp bridge not found on host")
+                ),
+            }
+        elif name == "ue4ss-mcp":
+            in_game = game_loaders["unreal_ue4ss"]
+            entry = {
+                "name": name,
+                "kind": "mcp_bridge",
+                "engine_compatible": True,
+                "host_available": ue4ss_host_ok,
+                "installed_in_game": in_game,
+                "available": in_game,
+                "install_hint": f"Extract RE-UE4SS into {root_path}\\Binaries\\Win64\\",
+                "detail": (
+                    "UE4SS installed in Binaries/Win64"
+                    if in_game
+                    else "Install UE4SS into Binaries/Win64 to enable Lua/Blueprint runtime hooks"
+                ),
+            }
+        elif name == "godot-mcp":
+            entry = {
+                "name": name,
+                "kind": "mcp_bridge",
+                "engine_compatible": True,
+                "host_available": godot_host_ok,
+                "installed_in_game": False,
+                "available": godot_host_ok,
+                "install_hint": "Install Godot CLI on PATH or GDRE Tools",
+                "detail": "Godot CLI on PATH" if godot_host_ok else "Godot CLI not found on PATH",
+            }
+        else:  # creation-kit-mcp
+            entry = {
+                "name": name,
+                "kind": "mcp_bridge",
+                "engine_compatible": True,
+                "host_available": False,
+                "installed_in_game": False,
+                "available": False,
+                "install_hint": "Use Creation Kit / xEdit for .esm/.esp editing",
+                "detail": "External Creation Kit / xEdit",
+            }
+        tools[name] = entry
+        available_tools.append(entry)
+
+    for name in allowed_cli:
+        if name in ("BepInEx (IL2CPP)", "BepInEx (Mono)"):
+            in_game = game_loaders["unity_bepinex"]
+            host_ok = Path(DEFAULT_BEPINEX_ZIP).is_file() or (TOOLS_ROOT / "BepInEx5_Mono").is_dir()
+            entry = {
+                "name": name,
+                "kind": "loader_cli",
+                "engine_compatible": True,
+                "host_available": host_ok,
+                "installed_in_game": in_game,
+                "available": in_game,
+                "install_hint": f"Extract {name} into {root_path}",
+                "detail": (
+                    "Installed in Game Folder"
+                    if in_game
+                    else ("Host cache ready — not installed in game" if host_ok else f"Install {name} into game folder")
+                ),
+            }
+        elif name == "UE4SS":
+            in_game = game_loaders["unreal_ue4ss"]
+            entry = {
+                "name": name,
+                "kind": "loader_cli",
+                "engine_compatible": True,
+                "host_available": ue4ss_host_ok,
+                "installed_in_game": in_game,
+                "available": in_game,
+                "install_hint": f"Extract RE-UE4SS into {root_path}\\Binaries\\Win64\\",
+                "detail": "Installed in Binaries/Win64" if in_game else f"Extract RE-UE4SS into {root_path}\\Binaries\\Win64\\",
+            }
+        else:
+            folder_hint, exe_names, hint = cli_probes[name]
+            found_path = _find_host_exe(folder_hint, exe_names)
+            entry = {
+                "name": name,
+                "kind": "loader_cli",
+                "engine_compatible": True,
+                "host_available": bool(found_path),
+                "installed_in_game": False,
+                "available": bool(found_path),
+                "install_hint": hint,
+                "detail": found_path if found_path else f"{name} not found locally",
+            }
+        tools[name] = entry
+        available_tools.append(entry)
+
+    return tools, available_tools
 
 
 def _check_pak_encrypted_hint(pak_path: Path) -> bool:
@@ -248,6 +473,7 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
 
     fp = fingerprint_library_entry(root_path)
     engine = fp["engine"]
+    detected_engine = _detect_normalized_engine(root_path, engine)
 
     skip_dirs = {".git", "backups", "app_backups", "__pycache__", ".venv", "temp", "tmp", "crashdumps"}
     open_exts = {".json", ".xml", ".yaml", ".yml", ".lua", ".ini", ".cfg", ".csv", ".tsv", ".sqlite", ".db"}
@@ -300,7 +526,7 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
             elif ext in (".exe", ".dll") and len(samples["runtime_code"]) < 6 and "binaries/win64" in rel_p.lower():
                 _add_sample("runtime_code", rel_p)
 
-    tools = _check_local_modding_tools(root_path, engine)
+    tools, available_tools = _check_local_modding_tools(root_path, detected_engine)
     layers: list[dict[str, Any]] = []
 
     # 1. Anti-Cheat Gate (RED if present)
@@ -342,10 +568,10 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
             "blocker_key": "",
         })
 
-    # 4. Runtime Code & Scripting Surfaces (GREEN if active bridge / Creation, AMBER if bridge missing, plus RED AOT note)
-    if counts["runtime_code"] > 0 or engine in ("Unity_IL2CPP", "Unity_Mono", "Unreal_4_5", "Creation_Engine", "Godot"):
-        if engine in ("Unity_IL2CPP", "Unity_Mono"):
-            bep_ok = tools["bepinex-mcp"]["available"]
+    # 4. Runtime Code & Scripting Surfaces (strictly engine-filtered via ENGINE_TOOL_MATRIX)
+    if counts["runtime_code"] > 0 or detected_engine in ("unity_il2cpp", "unity_mono", "unreal", "creation_engine", "godot"):
+        if detected_engine in ("unity_il2cpp", "unity_mono"):
+            bep_ok = tools.get("bepinex-mcp", {}).get("installed_in_game", False)
             layers.append({
                 "status": "green" if bep_ok and counts["anti_cheat"] == 0 else "amber",
                 "layer_name": f"Runtime Hooks & Object Inspection ({engine})",
@@ -356,19 +582,23 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
                 "what_can_change": "Live object properties, component values, and runtime method hooks.",
                 "blocker_key": "",
             })
-        elif engine == "Unreal_4_5":
-            ue_ok = tools["ue4ss-mcp"]["available"]
+        elif detected_engine == "unreal":
+            ue_ok = tools.get("ue4ss-mcp", {}).get("installed_in_game", False)
             layers.append({
                 "status": "green" if ue_ok and counts["anti_cheat"] == 0 else "amber",
-                "layer_name": "Unreal Blueprint & Runtime Hooks (UE4SS)",
+                "layer_name": "Unreal Blueprint & UObject Runtime Hooks (UE4SS)",
                 "detected_items": samples["runtime_code"] or ["Unreal Engine Binaries"],
                 "file_count": counts["runtime_code"],
-                "required_tools": ["ue4ss-mcp"],
-                "tool_status": tools["ue4ss-mcp"]["detail"],
+                "required_tools": ["ue4ss-mcp", "UE4SS"],
+                "tool_status": (
+                    "UE4SS installed in Binaries/Win64"
+                    if ue_ok
+                    else "Install UE4SS into Binaries/Win64 to enable Lua/Blueprint runtime hooks"
+                ),
                 "what_can_change": "Blueprint hooks, Lua mods, and live UObject property overrides.",
                 "blocker_key": "" if ue_ok else "packed_binary_containers",
             })
-        elif engine == "Creation_Engine":
+        elif detected_engine == "creation_engine":
             layers.append({
                 "status": "green",
                 "layer_name": "Creation Engine Plugins (.esm / .esp)",
@@ -379,31 +609,67 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
                 "what_can_change": "Game records, quests, NPCs, items, and worldspaces via .esp/.esm plugins.",
                 "blocker_key": "",
             })
+        elif detected_engine == "godot":
+            layers.append({
+                "status": "amber",
+                "layer_name": "Godot Scripts & Packed Scenes",
+                "detected_items": samples["runtime_code"] or ["Godot Project"],
+                "file_count": counts["runtime_code"],
+                "required_tools": ["godot-mcp", "GDRE Tools"],
+                "tool_status": tools.get("GDRE Tools", {}).get("detail", "GDRE Tools"),
+                "what_can_change": "GDScript logic and packed .pck scenes via GDRE Tools.",
+                "blocker_key": "",
+            })
 
-        if engine in ("Unity_IL2CPP", "Unreal_4_5", "Unknown"):
+        if detected_engine == "unity_il2cpp":
             layers.append({
                 "status": "red",
-                "layer_name": "AOT-Compiled Native / IL2CPP Source Code",
-                "detected_items": samples["runtime_code"][:4] or ["Compiled Game Binaries"],
+                "layer_name": "AOT-Compiled IL2CPP Native Code",
+                "detected_items": samples["runtime_code"][:4] or ["GameAssembly.dll"],
                 "file_count": counts["runtime_code"],
-                "required_tools": ["Il2CppDumper (read-only metadata)"],
-                "tool_status": tools["Il2CppDumper"]["detail"],
-                "what_can_change": "Cannot edit/recompile original C#/C++ source code directly (use runtime hooks instead).",
+                "required_tools": ["Il2CppDumper"],
+                "tool_status": tools.get("Il2CppDumper", {}).get("detail", "Il2CppDumper"),
+                "what_can_change": "Cannot edit/recompile original C# source code directly (use runtime hooks instead).",
+                "blocker_key": "aot_compiled_code",
+            })
+        elif detected_engine == "unreal":
+            layers.append({
+                "status": "red",
+                "layer_name": "AOT-Compiled Native C++ Shipping Binary",
+                "detected_items": samples["runtime_code"][:4] or ["*-Win64-Shipping.exe"],
+                "file_count": counts["runtime_code"],
+                "required_tools": ["UE4SS"],
+                "tool_status": tools.get("UE4SS", {}).get("detail", "UE4SS"),
+                "what_can_change": "Native C++ shipping code cannot be recompiled; use UE4SS Lua/Blueprint hooks instead.",
                 "blocker_key": "aot_compiled_code",
             })
 
     # 5. Packed Containers & Signed / Encrypted Archives (AMBER / RED)
     if counts["packed_containers"] > 0:
-        helper_list = ["FModel", "UnrealPak"] if engine == "Unreal_4_5" else ["AssetRipper"]
-        helper_status = ", ".join(f"{h}: {'Found' if tools.get(h, {}).get('available') else 'Missing'}" for h in helper_list)
+        if detected_engine == "unreal":
+            helper_list = ["FModel", "UnrealPak"]
+        elif detected_engine == "godot":
+            helper_list = ["GDRE Tools"]
+        elif detected_engine == "creation_engine":
+            helper_list = ["BAE"]
+        elif detected_engine in ("unity_il2cpp", "unity_mono"):
+            helper_list = ["AssetRipper"]
+        else:
+            helper_list = []
+        helper_status = (
+            ", ".join(f"{h}: {'Found' if tools.get(h, {}).get('host_available') else 'Missing'}" for h in helper_list)
+            if helper_list
+            else "No engine-specific archive unpacker configured"
+        )
+        sig_note = " (check *.sig bypass before loading custom ~mods/*.pak)" if detected_engine == "unreal" else ""
         layers.append({
             "status": "amber",
             "layer_name": "Packed Binary Engine Containers",
             "detected_items": samples["packed_containers"],
             "file_count": counts["packed_containers"],
-            "required_tools": helper_list,
+            "required_tools": helper_list or ["Manual Inspection"],
             "tool_status": helper_status,
-            "what_can_change": "Requires offline unpacking/repacking tools before replacing bundled textures, meshes, or audio.",
+            "what_can_change": f"Requires offline unpacking/repacking tools before replacing bundled textures, meshes, or audio{sig_note}.",
             "blocker_key": "packed_binary_containers",
         })
         layers.append({
@@ -423,8 +689,8 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
             "layer_name": "Signed Unreal Archives (*.sig Verification)",
             "detected_items": samples["signed_archives"],
             "file_count": counts["signed_archives"],
-            "required_tools": ["RE-UE4SS / Sig Bypass"],
-            "tool_status": tools["ue4ss-mcp"]["detail"],
+            "required_tools": ["UE4SS"],
+            "tool_status": tools.get("UE4SS", {}).get("detail", "Extract RE-UE4SS into Binaries/Win64"),
             "what_can_change": "Custom ~mods/*.pak files require a signature-check bypass to load.",
             "blocker_key": "signed_archives",
         })
@@ -454,12 +720,14 @@ async def analyze_game_assets(req: AnalyzeAssetsRequest) -> dict[str, Any]:
         "title": game_title,
         "root_path": str(root_path),
         "engine": engine,
+        "detected_engine": detected_engine,
         "anti_cheat_status": fp["anti_cheat_status"],
         "recommended_adapter": fp["recommended_adapter"],
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary_counts,
         "counts": counts,
         "tools": tools,
+        "available_tools": available_tools,
         "layers": layers,
         "triggered_blockers": triggered_blockers,
         "guide": MODDABILITY_GUIDE,

@@ -883,23 +883,27 @@ export function renderModdingAppsSection(game) {
   const info = game.modding_info || {};
   const allApps = Array.isArray(info.modding_apps) ? info.modding_apps : [];
   const mode = document.getElementById("tools-filter-mode")?.value || "recommended";
-  const recApps = allApps.filter(a => a.recommended);
-  const shownApps = mode === "all" ? allApps : recApps;
+  const compatApps = allApps.filter(a => a.engine_compatible !== undefined ? a.engine_compatible === true : Boolean(a.recommended));
+  const shownApps = mode === "all" ? allApps : compatApps;
 
   if (shownApps.length === 0) {
     const isBlockedAc = info.mcp_category === "Online / Anti-Cheat" || (info.modding_readiness || "").startsWith("Blocked");
     container.innerHTML = isBlockedAc
       ? `<div class="step-card blocked"><div class="step-card-title">Modding Tools Not Recommended (Anti-Cheat Protected)</div><div class="step-card-label">This title uses kernel/online anti-cheat (${_mbEsc(info.sheet_reference_match || info.mcp_category)}). Mod loaders are disabled by default; switch the dropdown to 'All Modding Apps' only if inspecting offline tools.</div></div>`
-      : `<div class="step-card na"><div class="step-card-title">No Engine-Specific Apps Matched</div><div class="step-card-label">Switch filter to 'All Modding Apps' or click Fingerprint &amp; Rescan.</div></div>`;
+      : `<div class="step-card na"><div class="step-card-title">No Engine-Compatible Tools Matched</div><div class="step-card-label">Click Fingerprint &amp; Rescan or switch filter to inspect all tools.</div></div>`;
     return;
   }
 
   container.innerHTML = shownApps.map(app => {
-    const stClass = app.installed ? "ok" : (app.recommended ? "pending" : "na");
-    const pillCls = app.installed ? "yes" : (app.recommended ? "warn" : "na");
-    const pillText = app.installed ? "INSTALLED" : "NOT INSTALLED";
+    const inGame = Boolean(app.installed_in_game);
+    const hostReady = Boolean(app.host_available !== undefined ? app.host_available : app.installed);
+    const stClass = inGame ? "ok" : (hostReady ? "pending" : (app.recommended ? "pending" : "na"));
+    const pillCls = inGame ? "yes" : (hostReady ? "warn" : "na");
+    const pillText = inGame
+      ? "Ready in Game"
+      : (hostReady ? "Host Tool Ready (Not Installed in Game)" : "Recommended (Not Installed)");
     const recBadge = app.recommended
-      ? `<span class="badge" style="color:#fbbf24; border-color:rgba(245,158,11,0.45); font-size:0.68rem;">Recommended</span>`
+      ? `<span class="badge" style="color:#fbbf24; border-color:rgba(245,158,11,0.45); font-size:0.68rem;">Engine Compatible</span>`
       : `<span class="badge" style="font-size:0.68rem;">${app.category_badge || "Tool"}</span>`;
     const escapedTarget = (app.install_target || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const escapedUrl = (app.release_url || "").replace(/'/g, "\\'");
