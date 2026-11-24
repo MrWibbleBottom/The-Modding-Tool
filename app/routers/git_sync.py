@@ -599,12 +599,119 @@ def _resolve_git_app_root() -> Path:
 
 
 def _sanitize_git_output(text: str, token: str = "", auth_b64: str = "") -> str:
+    import re
+
     out = str(text or "")
     if token:
         out = out.replace(token, "***")
     if auth_b64:
         out = out.replace(auth_b64, "***")
+    out = re.sub(r"(?i)(AUTHORIZATION:\s*basic\s+)\S+", r"\1***", out)
+    out = re.sub(r"(?i)(http\.extraheader=)\S+", r"\1***", out)
     return out.strip()
+
+
+def run_git_step(
+    step_name: str,
+    args: list[str],
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+    timeout: int = 30,
+    extra_header: str = "",
+) -> dict[str, Any]:
+    """Run a single git CLI step non-interactively and return step, returncode, stdout, stderr."""
+    import shutil as _shutil
+    import subprocess
+
+    git_bin = _shutil.which("git") or "git"
+    cmd = [git_bin]
+    if extra_header:
+        cmd.extend(["-c", f"http.extraheader={extra_header}"])
+    cmd.extend(args)
+
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "never"
+    if extra_env:
+        env.update(extra_env)
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        return {
+            "step": step_name,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout or "",
+            "stderr": proc.stderr or "",
+        }
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "step": step_name,
+            "returncode": -1,
+            "stdout": (exc.stdout or "") if isinstance(exc.stdout, str) else "",
+            "stderr": f"Git '{step_name}' step timed out after {timeout}s.",
+        }
+
+
+def _map_git_error_hint(step: str, stderr: str, stdout: str = "") -> str:
+    combined = f"{stderr}\n{stdout}".lower()
+    if any(k in combined for k in ("non-fast-forward", "fetch first", "updates were rejected", "failed to push some refs")):
+        return "Remote has newer commits — pull/rebase first"
+    if any(k in combined for k in ("user.name", "user.email", "please tell me who you are", "unable to auto-detect email")):
+        return "Git user.name/user.email is not configured"
+    if any(k in combined for k in ("authentication failed", "invalid username", "could not read username", "permission to", "denied to", "403", "401")):
+        return "GitHub authentication failed"
+    if any(k in combined for k in ("submodule", "untracked content", "modified content", "embedded git repository")):
+        return "Nested submodule has uncommitted changes"
+    if "timed out" in combined:
+        return "Git command timed out"
+    return f"Git '{step}' step failed"
+
+
+def _fail_git_step(
+    step: str,
+    returncode: int,
+    stdout: str,
+    stderr: str,
+    token: str = "",
+    auth_b64: str = "",
+) -> JSONResponse:
+    san_out = _sanitize_git_output(stdout, token=token, auth_b64=auth_b64)
+    san_err = _sanitize_git_output(stderr, token=token, auth_b64=auth_b64)
+    hint = _map_git_error_hint(step, san_err, san_out)
+    ts = datetime.now(timezone.utc).isoformat()
+    append_audit_log(
+        action="GIT_PUSH_FAILED",
+        status="error",
+        summary=f"Git push failed at '{step}' (exit {returncode}): {hint}",
+        details={
+            "timestamp": ts,
+            "step": step,
+            "exit_code": returncode,
+            "hint": hint,
+            "stderr": san_err,
+            "stdout": san_out,
+        },
+    )
+    return JSONResponse(
+        status_code=400,
+        content={
+            "ok": False,
+            "step": step,
+            "exit_code": returncode,
+            "hint": hint,
+            "stderr": san_err,
+            "stdout": san_out,
+        },
+    )
 
 
 def _run_git_cmd(
@@ -614,22 +721,8 @@ def _run_git_cmd(
     extra_header: str = "",
     timeout: int = 30,
 ) -> tuple[int, str, str]:
-    import subprocess
-
-    cmd = [git_bin]
-    if extra_header:
-        cmd.extend(["-c", f"http.extraheader={extra_header}"])
-    cmd.extend(args)
-    proc = subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-    )
-    return proc.returncode, proc.stdout or "", proc.stderr or ""
+    res = run_git_step("cmd", args, cwd, timeout=timeout, extra_header=extra_header)
+    return res["returncode"], res["stdout"], res["stderr"]
 
 
 @router.get("/api/app/git-status")
@@ -716,37 +809,53 @@ async def push_app_to_github(req: GitPushRequest) -> dict[str, Any]:
 
     # Initialize .git if needed
     if not (app_root / ".git").is_dir():
-        rc_init, _, err_init = _run_git_cmd(git_bin, ["init"], app_root)
-        if rc_init != 0:
-            raise HTTPException(status_code=500, detail=f"git init failed: {err_init.strip()}")
-        _run_git_cmd(git_bin, ["branch", "-M", branch], app_root)
+        res_init = run_git_step("init", ["init"], app_root)
+        if res_init["returncode"] != 0:
+            return _fail_git_step("init", res_init["returncode"], res_init["stdout"], res_init["stderr"], token=token)
+        run_git_step("init", ["branch", "-M", branch], app_root)
 
     # Ensure origin remote points to clean HTTPS URL (no token embedded)
     clean_remote_url = f"https://github.com/{owner}/{repo}.git"
-    rc_rem, out_rem, _ = _run_git_cmd(git_bin, ["remote", "get-url", "origin"], app_root)
-    if rc_rem != 0:
-        _run_git_cmd(git_bin, ["remote", "add", "origin", clean_remote_url], app_root)
-    elif out_rem.strip() != clean_remote_url:
-        _run_git_cmd(git_bin, ["remote", "set-url", "origin", clean_remote_url], app_root)
+    res_rem = run_git_step("remote", ["remote", "get-url", "origin"], app_root)
+    if res_rem["returncode"] != 0:
+        res_rem_set = run_git_step("remote", ["remote", "add", "origin", clean_remote_url], app_root)
+        if res_rem_set["returncode"] != 0:
+            return _fail_git_step("remote", res_rem_set["returncode"], res_rem_set["stdout"], res_rem_set["stderr"], token=token)
+    elif res_rem["stdout"].strip() != clean_remote_url:
+        res_rem_set = run_git_step("remote", ["remote", "set-url", "origin", clean_remote_url], app_root)
+        if res_rem_set["returncode"] != 0:
+            return _fail_git_step("remote", res_rem_set["returncode"], res_rem_set["stdout"], res_rem_set["stderr"], token=token)
 
     # Stage all changes
-    rc_add, _, err_add = _run_git_cmd(git_bin, ["add", "-A"], app_root)
-    if rc_add != 0:
-        raise HTTPException(status_code=500, detail=f"git add -A failed: {err_add.strip()}")
+    res_add = run_git_step("add", ["add", "-A"], app_root)
+    if res_add["returncode"] != 0:
+        return _fail_git_step("add", res_add["returncode"], res_add["stdout"], res_add["stderr"], token=token)
 
     # Count changed files & commit if staged changes exist
-    rc_st, out_st, _ = _run_git_cmd(git_bin, ["status", "--porcelain"], app_root)
-    changed_count = len([ln for ln in out_st.splitlines() if ln.strip()]) if rc_st == 0 else 0
+    res_st = run_git_step("status", ["status", "--porcelain"], app_root)
+    changed_count = len([ln for ln in res_st["stdout"].splitlines() if ln.strip()]) if res_st["returncode"] == 0 else 0
 
-    rc_diff, _, _ = _run_git_cmd(git_bin, ["diff", "--cached", "--quiet"], app_root)
+    res_diff = run_git_step("diff_cached", ["diff", "--cached", "--quiet"], app_root)
     commit_created = False
-    if rc_diff != 0:
+    if res_diff["returncode"] != 0:
         ts_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         commit_msg = req.commit_message.strip() or f"Update app ({ts_str})"
-        rc_cm, out_cm, err_cm = _run_git_cmd(git_bin, ["commit", "-m", commit_msg], app_root)
-        if rc_cm != 0:
-            raise HTTPException(status_code=500, detail=f"git commit failed: {(err_cm or out_cm).strip()}")
+        res_cm = run_git_step("commit", ["commit", "-m", commit_msg], app_root)
+        if res_cm["returncode"] != 0:
+            return _fail_git_step("commit", res_cm["returncode"], res_cm["stdout"], res_cm["stderr"], token=token)
         commit_created = True
+    else:
+        res_rev = run_git_step("rev_list", ["rev-list", "--count", "@{u}..HEAD"], app_root)
+        ahead_count = int(res_rev["stdout"].strip()) if (res_rev["returncode"] == 0 and res_rev["stdout"].strip().isdigit()) else 1
+        if ahead_count == 0:
+            return {
+                "ok": True,
+                "status": "up_to_date",
+                "message": "Everything is already up to date with origin.",
+                "branch": branch,
+                "changed_file_count": 0,
+                "commit_created": False,
+            }
 
     # Push with ephemeral header if token is set
     auth_b64 = ""
@@ -755,26 +864,26 @@ async def push_app_to_github(req: GitPushRequest) -> dict[str, Any]:
         auth_b64 = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
         extra_header = f"AUTHORIZATION: basic {auth_b64}"
 
-    rc_push, out_push, err_push = _run_git_cmd(
-        git_bin,
+    res_push = run_git_step(
+        "push",
         ["push", "-u", "origin", branch],
         app_root,
         extra_header=extra_header,
         timeout=60,
     )
-    sanitized_out = _sanitize_git_output(f"{out_push}\n{err_push}", token=token, auth_b64=auth_b64)
-    if rc_push != 0:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": "error",
-                "detail": "git push failed",
-                "stderr": _sanitize_git_output(err_push or out_push, token=token, auth_b64=auth_b64),
-            },
+    sanitized_out = _sanitize_git_output(f"{res_push['stdout']}\n{res_push['stderr']}", token=token, auth_b64=auth_b64)
+    if res_push["returncode"] != 0:
+        return _fail_git_step(
+            "push",
+            res_push["returncode"],
+            res_push["stdout"],
+            res_push["stderr"],
+            token=token,
+            auth_b64=auth_b64,
         )
 
-    rc_head, out_head, _ = _run_git_cmd(git_bin, ["rev-parse", "HEAD"], app_root)
-    head_sha = out_head.strip() if rc_head == 0 else ""
+    res_head = run_git_step("rev_parse", ["rev-parse", "HEAD"], app_root)
+    head_sha = res_head["stdout"].strip() if res_head["returncode"] == 0 else ""
     if head_sha:
         cfg["installed_sha"] = head_sha
         cfg["branch"] = branch
@@ -795,6 +904,7 @@ async def push_app_to_github(req: GitPushRequest) -> dict[str, Any]:
         },
     )
     return {
+        "ok": True,
         "status": "ok",
         "commit_sha": head_sha,
         "short_sha": head_sha[:7],

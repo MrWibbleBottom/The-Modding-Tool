@@ -888,26 +888,70 @@ export async function loadGitStatus() {
   }
 }
 
+export async function copyGitPushError() {
+  const summary = document.getElementById("gh-push-error-summary")?.textContent || "";
+  const pre = document.getElementById("gh-push-error-pre")?.textContent || "";
+  const txt = [summary, pre].filter(Boolean).join("\n");
+  if (!txt) return;
+  try {
+    await navigator.clipboard.writeText(txt);
+    const btn = document.getElementById("btn-copy-git-error");
+    if (btn) {
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = "Copy Error"; }, 1500);
+    }
+  } catch {
+    // ignore clipboard errors in restricted contexts
+  }
+}
+
 export async function pushAppToGitHub() {
   const btn = document.getElementById("btn-gh-push");
   const logEl = document.getElementById("gh-sync-log");
+  const errBox = document.getElementById("gh-push-error-box");
+  const errSum = document.getElementById("gh-push-error-summary");
+  const errPre = document.getElementById("gh-push-error-pre");
   const msg = (document.getElementById("gh-commit-msg")?.value || "").trim();
   const branch = (document.getElementById("gh-branch")?.value || "main").trim() || "main";
+  if (errBox) errBox.style.display = "none";
   if (btn) { btn.disabled = true; btn.textContent = "Pushing..."; }
   if (logEl) logEl.textContent = "Staging changes, committing, and pushing to GitHub...";
   try {
-    const res = await apiPost("/api/app/git-push", { commit_message: msg, branch });
-    if (res.ok && res.data) {
+    const res = await apiFetch("/api/app/git-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commit_message: msg, branch }),
+    });
+    const text = await res.text();
+    let data = {};
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    if (res.ok) {
       if (logEl) {
-        logEl.textContent = `Pushed ${res.data.short_sha || "HEAD"} to ${res.data.branch} (${res.data.changed_file_count} changed file(s)).\n${res.data.output || ""}`;
+        if (data.status === "up_to_date") {
+          logEl.textContent = data.message || "Everything is already up to date with origin.";
+        } else {
+          logEl.textContent = `Pushed ${data.short_sha || "HEAD"} to ${data.branch} (${data.changed_file_count} changed file(s)).\n${data.output || ""}`;
+        }
       }
       const msgEl = document.getElementById("gh-commit-msg");
       if (msgEl) msgEl.value = "";
       await Promise.all([loadGitStatus(), loadGitHubRepoConfig(), loadLogs()]);
-    } else if (logEl) {
-      const errText = res.data?.stderr || res.data?.detail || "Push failed.";
-      logEl.textContent = `Push failed:\n${errText}`;
+    } else {
+      const step = data.step || "push";
+      const code = data.exit_code !== undefined ? data.exit_code : res.status;
+      const hint = data.hint || data.detail || "Git push failed";
+      const details = [data.stderr, data.stdout].filter(Boolean).join("\n\n") || text || "Unknown error";
+      if (logEl) logEl.textContent = `Push failed at '${step}' (exit ${code}): ${hint}`;
+      if (errSum) errSum.textContent = `Step: ${step} · Exit: ${code} — ${hint}`;
+      if (errPre) errPre.textContent = details;
+      if (errBox) errBox.style.display = "block";
+      await loadLogs();
     }
+  } catch (err) {
+    if (logEl) logEl.textContent = `Push failed: ${err?.message || err}`;
+    if (errSum) errSum.textContent = "Git Push Request Error";
+    if (errPre) errPre.textContent = String(err?.message || err);
+    if (errBox) errBox.style.display = "block";
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Push to GitHub"; }
   }

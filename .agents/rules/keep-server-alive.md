@@ -1,8 +1,10 @@
 ---
 trigger: always_on
-description: Ensure the local FastAPI web service on 127.0.0.1:8765 remains running after any code edit.
+description: Keep 127.0.0.1:8765 alive after code edits without spawning subagents or duplicate tasks.
 ---
 # Keep Local Web Service Available
-Before finishing any turn where files in this workspace were modified or inspected:
-1. Check `http://127.0.0.1:8765/api/health` (e.g. via Python `urllib.request` or `curl`).
-2. If the port is not responding, start the server in the background using `run_server.py` (or `start_app.bat`) and re-verify that `/api/health` returns `200 OK` before responding to the user.
+Only run this check if you **modified or created** `.py`, `.html`, `.css`, or `.js` files in this turn (skip if you only read files or an edit was canceled):
+1. Run a single shell one-liner using Python `urllib.request` to check `http://127.0.0.1:8765/api/health` (timeout 2s). **Never** launch a browser subagent (`UI Browser Verifier`) for this check.
+2. **Only if step 1 fails**, start the server as a detached Windows process so it does not block or pile up in Background Tasks:
+   `powershell -Command "Start-Process -WindowStyle Hidden -FilePath '.\.venv\Scripts\python.exe' -ArgumentList 'run_server.py'"`
+3. Wait 2 seconds and re-run the `urllib.request` check once to confirm HTTP `200`.

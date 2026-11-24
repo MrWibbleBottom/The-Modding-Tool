@@ -1356,6 +1356,13 @@
         </div>
 
         <pre id="gh-sync-log" style="max-height:95px; margin-top:8px;">Configure a GitHub repo above to check or sync distribution updates.</pre>
+        <div id="gh-push-error-box" style="display:none; margin-top:8px; padding:10px; border:1px solid #ef4444; background:rgba(239,68,68,0.1); border-radius:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
+            <strong id="gh-push-error-summary" style="color:#fca5a5; font-size:0.82rem;">Git Push Error</strong>
+            <button class="secondary btn-sm" id="btn-copy-git-error" onclick="copyGitPushError()">Copy Error</button>
+          </div>
+          <pre id="gh-push-error-pre" style="max-height:140px; margin:0; color:#fecaca; white-space:pre-wrap;"></pre>
+        </div>
       </div>
 
       <!-- 2. DIAGNOSTICS & MAINTENANCE -->

@@ -143,6 +143,95 @@ class AppSmokeTests(unittest.TestCase):
                 self.assertTrue(item.get("engine_compatible"))
                 self.assertNotIn("bepinex", item.get("name", "").lower())
 
+    def test_git_push_up_to_date_and_failure_audit(self) -> None:
+        import json
+        from unittest.mock import patch
+        from app.core import audit as core_audit
+        from app.routers import git_sync
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp)
+            (repo_dir / ".git").mkdir()
+            (repo_dir / ".gitignore").write_text(".venv/\n__pycache__/\n*.pyc\n.env\n*.log\n", encoding="utf-8")
+
+            fake_cfg = {
+                "owner": "octocat",
+                "repo": "modtool",
+                "branch": "main",
+                "token": "ghp_secret123",
+                "installed_sha": "",
+                "last_checked": "",
+            }
+
+            def mock_up_to_date(step_name, args, cwd, **kwargs):
+                if step_name == "remote":
+                    return {"step": step_name, "returncode": 0, "stdout": "https://github.com/octocat/modtool.git\n", "stderr": ""}
+                if step_name == "rev_list":
+                    return {"step": step_name, "returncode": 0, "stdout": "0\n", "stderr": ""}
+                return {"step": step_name, "returncode": 0, "stdout": "", "stderr": ""}
+
+            with (
+                patch.object(git_sync, "load_repo_config", return_value=dict(fake_cfg)),
+                patch.object(git_sync, "_resolve_git_app_root", return_value=repo_dir),
+                patch.object(git_sync, "run_git_step", side_effect=mock_up_to_date),
+            ):
+                r_ok = self.client.post(
+                    "/api/app/git-push",
+                    json={"commit_message": "", "branch": "main"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+            self.assertEqual(r_ok.status_code, 200)
+            ok_data = r_ok.json()
+            self.assertTrue(ok_data.get("ok"))
+            self.assertEqual(ok_data.get("status"), "up_to_date")
+
+            def mock_push_fail(step_name, args, cwd, **kwargs):
+                if step_name == "remote":
+                    return {"step": step_name, "returncode": 0, "stdout": "https://github.com/octocat/modtool.git\n", "stderr": ""}
+                if step_name == "diff_cached":
+                    return {"step": step_name, "returncode": 1, "stdout": "", "stderr": ""}
+                if step_name == "push":
+                    return {
+                        "step": "push",
+                        "returncode": 128,
+                        "stdout": "",
+                        "stderr": "fatal: Authentication failed for 'https://github.com/octocat/modtool.git/' token=ghp_secret123",
+                    }
+                return {"step": step_name, "returncode": 0, "stdout": "", "stderr": ""}
+
+            temp_audit = repo_dir / "audit.jsonl"
+            temp_app_audit = repo_dir / "audit_app.jsonl"
+            temp_game_audit = repo_dir / "audit_game.jsonl"
+            with (
+                patch.object(git_sync, "load_repo_config", return_value=dict(fake_cfg)),
+                patch.object(git_sync, "_resolve_git_app_root", return_value=repo_dir),
+                patch.object(git_sync, "run_git_step", side_effect=mock_push_fail),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                r_fail = self.client.post(
+                    "/api/app/git-push",
+                    json={"commit_message": "test push", "branch": "main"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+            self.assertEqual(r_fail.status_code, 400)
+            fail_data = r_fail.json()
+            self.assertFalse(fail_data.get("ok"))
+            self.assertEqual(fail_data.get("step"), "push")
+            self.assertEqual(fail_data.get("exit_code"), 128)
+            self.assertEqual(fail_data.get("hint"), "GitHub authentication failed")
+            self.assertNotIn("ghp_secret123", fail_data.get("stderr", ""))
+            self.assertIn("***", fail_data.get("stderr", ""))
+
+            entries = [json.loads(ln) for ln in temp_audit.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            self.assertTrue(any(
+                e.get("action") == "GIT_PUSH_FAILED"
+                and e.get("details", {}).get("step") == "push"
+                and "***" in e.get("details", {}).get("stderr", "")
+                for e in entries
+            ))
+
     def test_backup_restore_integrity(self) -> None:
         idx = backup_manager.load_index()
         versions = idx.get("versions", [])
