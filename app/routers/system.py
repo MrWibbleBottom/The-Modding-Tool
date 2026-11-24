@@ -1095,10 +1095,10 @@ async def get_modding_tools_status() -> dict[str, Any]:
     """Returns local versions and SHA-256 checksums for deployed modding tools."""
     saved = _load_tool_versions()
     bep_zip = Path(DEFAULT_BEPINEX_ZIP)
-    bep_sha = _sha256_file_local(bep_zip) if bep_zip.is_file() else None
+    bep_sha = sha256_file(bep_zip) if bep_zip.is_file() else None
 
     plugin_dll = Path(DEFAULT_PLUGIN_BUILD_DIR) / "BepInExMCP.IL2CPP.dll"
-    plugin_sha = _sha256_file_local(plugin_dll) if plugin_dll.is_file() else None
+    plugin_sha = sha256_file(plugin_dll) if plugin_dll.is_file() else None
 
     ue4ss_dir = get_app_data_root() / "tools" / "ue4ss"
     melon_dir = get_app_data_root() / "tools" / "melonloader"
@@ -1182,7 +1182,7 @@ async def upgrade_modding_tool(req: UpgradeModdingToolRequest) -> dict[str, Any]
         )
         if proc.returncode != 0 or not plugin_dll.is_file():
             raise HTTPException(status_code=500, detail=f"dotnet build failed:\n{proc.stdout}\n{proc.stderr}")
-        new_sha = _sha256_file_local(plugin_dll)
+        new_sha = sha256_file(plugin_dll)
         if req.require_checksum and expected and new_sha != expected:
             raise HTTPException(status_code=400, detail=f"Checksum mismatch: expected {expected}, got {new_sha}")
         saved["bepinex_mcp_plugin"] = {
@@ -1250,7 +1250,7 @@ async def upgrade_modding_tool(req: UpgradeModdingToolRequest) -> dict[str, Any]
             tmp_zip.unlink()
         raise HTTPException(status_code=502, detail=f"Download failed: {exc}")
 
-    actual_sha = _sha256_file_local(tmp_zip)
+    actual_sha = sha256_file(tmp_zip)
     if req.require_checksum and effective_expected and actual_sha != effective_expected:
         tmp_zip.unlink(missing_ok=True)
         raise HTTPException(
