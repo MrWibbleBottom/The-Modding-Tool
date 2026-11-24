@@ -1,7 +1,7 @@
 """
-Packages the ModToolPoC / Battleground app into a portable Windows distribution:
-  dist/ModToolPoC-Win64/
-  dist/ModToolPoC-Win64.zip
+Packages The Modding Tool into a portable Windows distribution:
+  dist/TheModdingTool/
+  dist/TheModdingTool.zip
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DIST_DIR = PROJECT_ROOT / "dist"
-PKG_NAME = "ModToolPoC-Win64"
+PKG_NAME = "TheModdingTool"
 PKG_DIR = DIST_DIR / PKG_NAME
 ZIP_PATH = DIST_DIR / f"{PKG_NAME}.zip"
 
@@ -23,10 +23,10 @@ ZIP_PATH = DIST_DIR / f"{PKG_NAME}.zip"
 LAUNCH_BAT = r"""@echo off
 setlocal
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Launch_ModToolPoC.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Launch_TheModdingTool.ps1"
 if errorlevel 1 (
     echo.
-    echo ModToolPoC exited with an error. Press any key to close...
+    echo The Modding Tool exited with an error. Press any key to close...
     pause >nul
 )
 """
@@ -42,7 +42,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  ModToolPoC - Portable Windows Launcher" -ForegroundColor Cyan
+Write-Host "  The Modding Tool - Portable Windows Launcher" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 $VenvDir = Join-Path $Root ".venv"
@@ -84,8 +84,8 @@ if (-not (Test-Path $VenvPython)) {
     }
     if (-not $SysPy) {
         Write-Host ""
-        Write-Host "ERROR: Python 3.10 or newer is required to run ModToolPoC." -ForegroundColor Red
-        Write-Host "Install Python from https://www.python.org/downloads/ (check 'Add Python to PATH') and re-run Launch_ModToolPoC.bat." -ForegroundColor Red
+        Write-Host "ERROR: Python 3.10 or newer is required to run The Modding Tool." -ForegroundColor Red
+        Write-Host "Install Python from https://www.python.org/downloads/ (check 'Add Python to PATH') and re-run Launch_TheModdingTool.bat." -ForegroundColor Red
         exit 1
     }
 
@@ -103,7 +103,7 @@ if (-not $dotnet) {
 }
 
 $Url = "http://127.0.0.1:$Port"
-Write-Host "[Start] Launching ModToolPoC server at $Url ..." -ForegroundColor Green
+Write-Host "[Start] Launching The Modding Tool server at $Url ..." -ForegroundColor Green
 Write-Host "[Start] Keep this window open while using the app. Press Ctrl+C to stop." -ForegroundColor Gray
 
 if (-not $NoBrowser) {
@@ -135,15 +135,15 @@ while ($true) {
 """
 
 
-README_WINDOWS = """ModToolPoC - Portable Windows Package
-======================================
+README_WINDOWS = """The Modding Tool - Portable Windows Package
+===========================================
 
 How to Run on Another Windows 10 / 11 PC
 ----------------------------------------
-1. Extract this entire folder (for example, to C:\\ModToolPoC).
-2. Double-click `Launch_ModToolPoC.bat`.
+1. Extract this entire folder (for example, to C:\\TheModdingTool).
+2. Double-click `Launch_TheModdingTool.bat`.
    - On first launch, it automatically creates a local `.venv` and installs
-     the Python packages from `poc-ui\\requirements.txt`.
+     the Python packages from `requirements.txt`.
    - If Python 3.10+ is not installed, it attempts to install Python 3.12
      via `winget` (or prompts you to install Python from python.org).
 3. Your default web browser will open automatically to:
@@ -157,11 +157,11 @@ Optional Requirements
 
 Included Contents
 -----------------
-- poc-ui\\           : FastAPI backend, single-page web UI, Steam reference DB
-- bepinex-mcp\\mcp\\  : BepInEx MCP Python bridge server
-- bepinex-mcp\\plugins\\BepInExMCP.IL2CPP\\ : Pre-built IL2CPP bridge plugin + source
+- app\\              : FastAPI backend, single-page web UI, Steam reference DB
+- bridges\\bepinex-mcp\\mcp\\  : BepInEx MCP Python bridge server
+- bridges\\bepinex-mcp\\plugins\\BepInExMCP.IL2CPP\\ : Pre-built IL2CPP bridge plugin + source
 - assets\\           : Bundled BepInEx 6 IL2CPP archive (if present at build time)
-- Launch_ModToolPoC.bat / .ps1 : Self-bootstrapping Windows launcher
+- Launch_TheModdingTool.bat / .ps1 : Self-bootstrapping Windows launcher
 """
 
 
@@ -196,7 +196,7 @@ def build_package() -> dict[str, object]:
     PKG_DIR.mkdir(parents=True, exist_ok=True)
 
     file_count = 0
-    # 1. app/ package (including static & templates), root requirements.txt, poc-ui, & branding
+    # 1. app/ package (including static, templates, & data), root requirements.txt, & branding
     file_count += copy_tree_clean(
         PROJECT_ROOT / "app",
         PKG_DIR / "app",
@@ -205,35 +205,31 @@ def build_package() -> dict[str, object]:
     if (PROJECT_ROOT / "requirements.txt").is_file():
         shutil.copy2(PROJECT_ROOT / "requirements.txt", PKG_DIR / "requirements.txt")
         file_count += 1
-    file_count += copy_tree_clean(
-        PROJECT_ROOT / "poc-ui",
-        PKG_DIR / "poc-ui",
-        ignore_names={"__pycache__", ".pytest_cache"},
-    )
     if (PROJECT_ROOT / "branding").is_dir():
         file_count += copy_tree_clean(
             PROJECT_ROOT / "branding",
             PKG_DIR / "branding",
         )
 
-    # 2. bepinex-mcp/mcp and skills
+    # 2. bridges/bepinex-mcp/mcp and skills
+    bridge_root = PROJECT_ROOT / "bridges" / "bepinex-mcp"
     file_count += copy_tree_clean(
-        PROJECT_ROOT / "bepinex-mcp" / "mcp",
-        PKG_DIR / "bepinex-mcp" / "mcp",
+        bridge_root / "mcp",
+        PKG_DIR / "bridges" / "bepinex-mcp" / "mcp",
         ignore_names={"__pycache__", ".pytest_cache"},
     )
-    if (PROJECT_ROOT / "bepinex-mcp" / "skills").is_dir():
+    if (bridge_root / "skills").is_dir():
         file_count += copy_tree_clean(
-            PROJECT_ROOT / "bepinex-mcp" / "skills",
-            PKG_DIR / "bepinex-mcp" / "skills",
+            bridge_root / "skills",
+            PKG_DIR / "bridges" / "bepinex-mcp" / "skills",
         )
 
     # 3. Pre-built BepInExMCP.IL2CPP Release binaries + source
-    plugin_src = PROJECT_ROOT / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP"
+    plugin_src = bridge_root / "plugins" / "BepInExMCP.IL2CPP"
     if plugin_src.is_dir():
         file_count += copy_tree_clean(
             plugin_src,
-            PKG_DIR / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP",
+            PKG_DIR / "bridges" / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP",
             ignore_names={"obj", "Debug"},
         )
 
@@ -252,8 +248,8 @@ def build_package() -> dict[str, object]:
             break
 
     # 5. Launchers, version files & README
-    (PKG_DIR / "Launch_ModToolPoC.bat").write_text(LAUNCH_BAT, encoding="utf-8")
-    (PKG_DIR / "Launch_ModToolPoC.ps1").write_text(LAUNCH_PS1, encoding="utf-8")
+    (PKG_DIR / "Launch_TheModdingTool.bat").write_text(LAUNCH_BAT, encoding="utf-8")
+    (PKG_DIR / "Launch_TheModdingTool.ps1").write_text(LAUNCH_PS1, encoding="utf-8")
     (PKG_DIR / "README_WINDOWS.txt").write_text(README_WINDOWS, encoding="utf-8")
     file_count += 3
     for vf in ("version.json", "version_manager.py"):
@@ -279,7 +275,7 @@ def build_package() -> dict[str, object]:
         "channel": app_channel,
         "built_at": datetime.now().isoformat(timespec="seconds"),
         "file_count": file_count,
-        "entrypoint": "Launch_ModToolPoC.bat",
+        "entrypoint": "Launch_TheModdingTool.bat",
     }
     (PKG_DIR / "package_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
@@ -304,7 +300,7 @@ def build_package() -> dict[str, object]:
 
 
 def build_pyinstaller_command(onefile: bool = False) -> list[str]:
-    """Return a PyInstaller command bundling `app/static`, `app/templates`, and `poc-ui` data."""
+    """Return a PyInstaller command bundling `app/static`, `app/templates`, and `app/data`."""
     cmd = [
         "pyinstaller",
         "--noconfirm",
@@ -312,14 +308,19 @@ def build_pyinstaller_command(onefile: bool = False) -> list[str]:
         "--name",
         PKG_NAME,
         "--onefile" if onefile else "--onedir",
+    ]
+    ico_path = PROJECT_ROOT / "branding" / "favicons" / "app.ico"
+    if ico_path.is_file():
+        cmd.extend(["--icon", str(ico_path)])
+    cmd.extend([
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'static'};app/static",
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'templates'};app/templates",
         "--add-data",
-        f"{PROJECT_ROOT / 'poc-ui' / 'steam_games_reference.csv'};poc-ui",
+        f"{PROJECT_ROOT / 'app' / 'data' / 'steam_games_reference.csv'};app/data",
         str(PROJECT_ROOT / "app" / "main.py"),
-    ]
+    ])
     return cmd
 
 

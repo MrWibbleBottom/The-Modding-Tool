@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.audit import append_audit_log, clear_audit_log_cache, read_audit_logs
+from app.routers.library import inspect_game_modding_info, make_slug
 from app.core.config import (
     ANTI_CHEAT_BINARIES,
     APP_DATA_ROOT,
@@ -48,7 +49,6 @@ from app.core.config import (
     MANIFEST_DIR,
     PC_SPECS_CACHE_PATH,
     PLUGIN_DEPLOY_FILES,
-    POC_DIR,
     REPO_CONFIG_PATH,
     RESOURCE_ROOT,
     SCAN_EXCLUSIONS_PATH,
@@ -64,6 +64,7 @@ from app.core.config import (
     clear_pc_specs_cache,
     default_managed_games,
     get_app_data_root,
+    get_bepinex_bridge_roots,
     invalidate_games_cache,
     load_managed_games,
     manifest_path_for_game,
@@ -104,6 +105,15 @@ class PersistentMcpStdioManager:
             return self._session
 
         await self._close_unlocked()
+        if not Path(python_path).is_file() and "bepinex-mcp" in python_path.lower():
+            if Path(DEFAULT_VENV_PYTHON).is_file():
+                python_path = DEFAULT_VENV_PYTHON
+        if not Path(script_path).is_file() and "bepinex-mcp" in script_path.lower():
+            for root in get_bepinex_bridge_roots():
+                candidate = root / "mcp" / "ModdersHelperApp.py"
+                if candidate.is_file():
+                    script_path = str(candidate)
+                    break
         if not Path(python_path).is_file():
             raise FileNotFoundError(f"MCP venv Python not found: {python_path}")
         if not Path(script_path).is_file():
@@ -245,7 +255,7 @@ class BuildModRequest(BaseModel):
     mod_name: str = Field(default="Battlemarked Custom Balance Mod")
     mod_id: str = Field(default="com.modtool.battlemarked.custombalance")
     mod_version: str = Field(default="1.0.0")
-    author: str = Field(default="ModToolPoC")
+    author: str = Field(default="The Modding Tool")
     apply_interval_sec: float = Field(default=2.0)
     edits: list[ModEditRule] = Field(default_factory=list)
 
@@ -328,6 +338,12 @@ async def provision_game(req: ProvisionRequest) -> dict[str, Any]:
     game_dir = Path(req.game_dir.strip())
     zip_path = Path(req.bepinex_zip_path.strip())
     plugin_build_dir = Path(req.plugin_build_dir.strip())
+    if not plugin_build_dir.is_dir() and "bepinex-mcp" in str(plugin_build_dir).lower():
+        for root in get_bepinex_bridge_roots():
+            candidate = root / "plugins" / "BepInExMCP.IL2CPP" / "bin" / "Release" / "net6.0"
+            if candidate.is_dir():
+                plugin_build_dir = candidate
+                break
     expected_hash = req.expected_sha256.strip().lower()
 
     if not game_dir.is_dir():

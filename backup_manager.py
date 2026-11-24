@@ -1,5 +1,5 @@
 """
-Incremental Project Backup Manager & File Watcher for Battleground.
+Incremental Project Backup Manager & File Watcher for The Modding Tool.
 
 - Creates a full baseline backup (v001_YYYYMMDD_HHMMSS_baseline) in ./backups/
 - Watches the project tree for file additions, modifications, and deletions
@@ -73,6 +73,23 @@ def is_text_file(path: Path) -> bool:
     return path.suffix.lower() in TEXT_EXTENSIONS or path.name in {"LICENSE", "README"}
 
 
+def ensure_within(target: Path | str, base_dir: Path | str) -> Path:
+    """Return resolved `target` if it lies inside `base_dir`; raise ValueError on `../` or symlink escape."""
+    resolved = Path(target).resolve()
+    base = Path(base_dir).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError(f"Path traversal blocked: '{target}' resolves outside '{base}'")
+    return resolved
+
+
+def safe_copy(src: Path, src_base: Path, dst: Path, dst_base: Path) -> None:
+    """Copy `src` -> `dst` only if both stay inside their respective base directories."""
+    src_r = ensure_within(src, src_base)
+    dst_r = ensure_within(dst, dst_base)
+    dst_r.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src_r, dst_r)
+
+
 def scan_project_files() -> dict[str, dict[str, Any]]:
     """Return {rel_posix_path: {size, mtime_ns, sha256}} for all tracked project files."""
     files: dict[str, dict[str, Any]] = {}
@@ -120,9 +137,9 @@ def collect_env_info() -> dict[str, Any]:
         "platform": sys.platform,
         "project_root": str(PROJECT_ROOT),
         "resume_commands": {
-            "setup_venv": "python -m venv bepinex-mcp\\.venv && .\\bepinex-mcp\\.venv\\Scripts\\pip install -r poc-ui\\requirements.txt",
-            "start_server": ".\\bepinex-mcp\\.venv\\Scripts\\python.exe -m uvicorn controller:app --app-dir poc-ui --host 127.0.0.1 --port 8765",
-            "start_watcher": ".\\bepinex-mcp\\.venv\\Scripts\\python.exe backup_manager.py --watch",
+            "setup_venv": "python -m venv .venv && .\\.venv\\Scripts\\pip install -r requirements.txt",
+            "start_server": ".\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765",
+            "start_watcher": ".\\.venv\\Scripts\\python.exe backup_manager.py --watch",
         },
     }
     try:
@@ -134,7 +151,7 @@ def collect_env_info() -> dict[str, Any]:
 
     local_appdata = os.environ.get("LOCALAPPDATA")
     if local_appdata:
-        mg = Path(local_appdata) / "ModToolPoC" / "managed_games.json"
+        mg = Path(local_appdata) / "TheModdingTool" / "managed_games.json"
         if mg.is_file():
             info["managed_games_source"] = str(mg)
     return info
@@ -187,11 +204,10 @@ def snapshot_appdata(version_dir: Path) -> None:
     local_appdata = os.environ.get("LOCALAPPDATA")
     if not local_appdata:
         return
-    mg = Path(local_appdata) / "ModToolPoC" / "managed_games.json"
+    mg = Path(local_appdata) / "TheModdingTool" / "managed_games.json"
     if mg.is_file():
         dest = version_dir / "_appdata" / "managed_games.json"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(mg, dest)
+        safe_copy(mg, mg.parent, dest, version_dir)
 
 
 def create_backup(reason: str = "manual", force_baseline: bool = False) -> dict[str, Any] | None:
@@ -203,7 +219,7 @@ def create_backup(reason: str = "manual", force_baseline: bool = False) -> dict[
     prev_version = versions[-1] if versions else None
     prev_manifest_files: dict[str, dict[str, Any]] = {}
     if prev_version and not force_baseline:
-        prev_manifest_path = BACKUPS_DIR / prev_version["folder"] / "manifest.json"
+        prev_manifest_path = ensure_within(BACKUPS_DIR / prev_version["folder"] / "manifest.json", BACKUPS_DIR)
         if prev_manifest_path.is_file():
             prev_manifest = json.loads(prev_manifest_path.read_text(encoding="utf-8"))
             prev_manifest_files = prev_manifest.get("files", {})
@@ -248,8 +264,7 @@ def create_backup(reason: str = "manual", force_baseline: bool = False) -> dict[
         if is_baseline or rel in changed_set:
             src = PROJECT_ROOT / rel
             dst = files_dir / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            safe_copy(src, PROJECT_ROOT, dst, files_dir)
             new_manifest_files[rel] = {
                 "sha256": meta["sha256"],
                 "size": meta["size"],
@@ -257,7 +272,8 @@ def create_backup(reason: str = "manual", force_baseline: bool = False) -> dict[
             }
             if not is_baseline and rel in modified:
                 old_holder = prev_manifest_files[rel]["stored_in"]
-                old_file = BACKUPS_DIR / old_holder / "files" / rel
+                old_files_dir = ensure_within(BACKUPS_DIR / old_holder / "files", BACKUPS_DIR)
+                old_file = ensure_within(old_files_dir / rel, old_files_dir)
                 diff_md = build_diff_preview(old_file if old_file.is_file() else None, dst, rel)
                 if diff_md:
                     diff_sections.append(f"### Modified: `{rel}`\n\n{diff_md}")
@@ -385,14 +401,26 @@ def restore_version(version_id: str, target_dir: Path) -> None:
     if not match:
         raise SystemExit(f"Backup version '{version_id}' not found in {STATE_FILE}")
 
-    manifest_path = BACKUPS_DIR / match["folder"] / "manifest.json"
+    manifest_path = ensure_within(BACKUPS_DIR / match["folder"] / "manifest.json", BACKUPS_DIR)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     target_files: dict[str, dict[str, Any]] = manifest.get("files", {})
 
     target_dir = target_dir.resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    # Validate every source/destination path up front so a malicious manifest
+    # (e.g. "../evil" or a stored_in of "..\\..") aborts before anything is touched.
+    restore_plan: list[tuple[Path, Path, Path]] = []
+    for rel, meta in sorted(target_files.items()):
+        holder_files_dir = ensure_within(BACKUPS_DIR / meta["stored_in"] / "files", BACKUPS_DIR)
+        src = ensure_within(holder_files_dir / rel, holder_files_dir)
+        if not src.is_file():
+            raise FileNotFoundError(f"Missing backup object: {src}")
+        dst = ensure_within(target_dir / rel, target_dir)
+        restore_plan.append((src, holder_files_dir, dst))
+
     # Remove tracked files in target_dir that do not exist in target_files (when restoring in-place)
+    to_delete: list[Path] = []
     for root, dirs, filenames in os.walk(target_dir):
         dirs[:] = [d for d in dirs if d not in EXCLUDED_DIR_NAMES]
         root_path = Path(root)
@@ -402,27 +430,26 @@ def restore_version(version_id: str, target_dir: Path) -> None:
             fpath = root_path / fname
             rel = fpath.relative_to(target_dir).as_posix()
             if rel not in target_files:
-                fpath.unlink()
+                to_delete.append(fpath)
+    for fpath in to_delete:
+        # Check the unresolved parent + name so a symlink is removed as a link, never its outside target.
+        ensure_within(fpath.parent, target_dir)
+        if not fpath.is_symlink():
+            ensure_within(fpath, target_dir)
+        fpath.unlink()
 
     restored_count = 0
-    for rel, meta in sorted(target_files.items()):
-        holder_folder = meta["stored_in"]
-        src = BACKUPS_DIR / holder_folder / "files" / rel
-        if not src.is_file():
-            raise FileNotFoundError(f"Missing backup object: {src}")
-        dst = target_dir / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+    for src, holder_files_dir, dst in restore_plan:
+        safe_copy(src, holder_files_dir, dst, target_dir)
         restored_count += 1
 
-    appdata_mg = BACKUPS_DIR / match["folder"] / "_appdata" / "managed_games.json"
+    appdata_mg = ensure_within(BACKUPS_DIR / match["folder"] / "_appdata" / "managed_games.json", BACKUPS_DIR)
     if appdata_mg.is_file():
         if target_dir == PROJECT_ROOT.resolve() and os.environ.get("LOCALAPPDATA"):
-            dest_mg = Path(os.environ["LOCALAPPDATA"]) / "ModToolPoC" / "managed_games.json"
+            dest_base = Path(os.environ["LOCALAPPDATA"]) / "TheModdingTool"
         else:
-            dest_mg = target_dir / "_appdata" / "managed_games.json"
-        dest_mg.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(appdata_mg, dest_mg)
+            dest_base = target_dir / "_appdata"
+        safe_copy(appdata_mg, BACKUPS_DIR, dest_base / "managed_games.json", dest_base)
 
     print(f"[backup_manager] Restored {match['version_id']} ({restored_count} files) -> {target_dir}")
 
@@ -465,7 +492,7 @@ def watch_loop(poll_sec: float = 1.5, debounce_sec: float = 2.0) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Incremental backup manager for Battleground.")
+    parser = argparse.ArgumentParser(description="Incremental backup manager for The Modding Tool.")
     parser.add_argument("--baseline", action="store_true", help="Create a new full baseline backup.")
     parser.add_argument("--snapshot", action="store_true", help="Create an incremental backup if changes exist.")
     parser.add_argument("--reason", type=str, default="manual snapshot", help="Reason/summary note for the backup.")

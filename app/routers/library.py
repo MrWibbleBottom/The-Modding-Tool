@@ -48,7 +48,7 @@ from app.core.config import (
     MANIFEST_DIR,
     PC_SPECS_CACHE_PATH,
     PLUGIN_DEPLOY_FILES,
-    POC_DIR,
+    DATA_DIR,
     REPO_CONFIG_PATH,
     RESOURCE_ROOT,
     SCAN_EXCLUSIONS_PATH,
@@ -75,6 +75,7 @@ from app.core.config import (
 
 from app.routers.system import (
     UNREAL_HARDWARE_REFERENCE_ARRAY,
+    _UE_QUALITY_LABELS,
     _format_ue_quality,
     evaluate_scalability_traffic_light,
     match_pc_to_unreal_reference_tier,
@@ -129,7 +130,7 @@ class ImportUnrealSettingsRequest(BaseModel):
     reference_tier_id: str = Field(default="auto")
 
 
-STEAM_REF_CSV = POC_DIR / "steam_games_reference.csv"
+STEAM_REF_CSV = DATA_DIR / "steam_games_reference.csv"
 _STEAM_REF_CACHE: list[dict[str, str]] | None = None
 
 
@@ -904,7 +905,7 @@ def inspect_game_modding_info(game_dir: Path, display_name: str = "") -> dict[st
                 "step": "6. Backup & Clean Restore Manifest",
                 "state": "ok" if info["manifest_tracked"] else "pending",
                 "label": "Tracked (Zero-Residual Restore Ready)" if info["manifest_tracked"] else "No Active Provision Manifest",
-                "detail": "Tracks added & backed-up colliding files in %LOCALAPPDATA%\\ModToolPoC\\manifests",
+                "detail": "Tracks added & backed-up colliding files in %LOCALAPPDATA%\\TheModdingTool\\manifests",
             },
         ]
     elif is_unreal:
@@ -945,7 +946,7 @@ def inspect_game_modding_info(game_dir: Path, display_name: str = "") -> dict[st
                 "step": "6. INI Backup & Restore",
                 "state": "ok",
                 "label": "Automatic Pre-Edit Backup Enabled",
-                "detail": "Backups saved in %LOCALAPPDATA%\\ModToolPoC\\unreal_ini_backups",
+                "detail": "Backups saved in %LOCALAPPDATA%\\TheModdingTool\\unreal_ini_backups",
             },
         ]
     else:
@@ -1253,6 +1254,7 @@ def evaluate_modding_apps_for_game(game_dir: Path, info: dict[str, Any]) -> list
 
 def enrich_game_status(game: dict[str, Any], refresh_live: bool = False) -> dict[str, Any]:
     enriched = dict(game)
+    enriched["name"] = str(enriched.get("name") or enriched.get("title") or enriched.get("id") or "Unknown")
     gdir = Path(str(game.get("game_dir", "")).strip())
     dir_exists = gdir.is_dir()
     missing_on_disk = bool(game.get("missing_on_disk", False)) or (not dir_exists)
@@ -1407,20 +1409,24 @@ async def list_games(request: Request):
 
 
 @router.post("/api/games/select")
+@router.post("/api/games/load")
 async def select_game(req: SelectGameRequest) -> dict[str, Any]:
     store = load_managed_games()
     target = next((g for g in store["games"] if g["id"] == req.game_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"Managed game '{req.game_id}' not found.")
 
+    display_name = str(target.get("name") or target.get("title") or req.game_id)
+    target["name"] = display_name
     gdir = Path(str(target.get("game_dir", "")).strip())
     dir_exists = gdir.is_dir()
     target["missing_on_disk"] = not dir_exists
     scraped_now = False
 
-    # When loaded for the first time (and folder exists), scrape metadata from game folder
-    if (not target.get("metadata_scraped")) and dir_exists:
-        scraped_info = await asyncio.to_thread(inspect_game_modding_info, gdir, str(target.get("name", "")))
+    # When loaded without cached metadata (and folder exists), scrape metadata from game folder
+    has_cached = isinstance(target.get("cached_modding_info"), dict) and bool(target.get("cached_modding_info"))
+    if (not target.get("metadata_scraped") or not has_cached) and dir_exists:
+        scraped_info = await asyncio.to_thread(inspect_game_modding_info, gdir, display_name)
         scraped_info["metadata_scraped"] = True
         target["cached_modding_info"] = scraped_info
         target["metadata_scraped"] = True
@@ -1428,6 +1434,7 @@ async def select_game(req: SelectGameRequest) -> dict[str, Any]:
         scraped_now = True
 
     store["active_game_id"] = req.game_id
+    store["selected_id"] = req.game_id
     save_managed_games(store)
 
     status_note = (
@@ -1445,7 +1452,7 @@ async def select_game(req: SelectGameRequest) -> dict[str, Any]:
     append_audit_log(
         action="game_manager.load_and_scan" if scraped_now else "game_manager.load",
         status="warning" if not dir_exists else "ok",
-        summary=f"Loaded game '{target['name']}' ({req.game_id}) [{status_note}]",
+        summary=f"Loaded game '{display_name}' ({req.game_id}) [{status_note}]",
         sha256=info_hash,
         details={
             "game_id": req.game_id,
@@ -1773,6 +1780,127 @@ def discover_platform_roots() -> list[tuple[str, Path]]:
     return roots
 
 
+NON_GAME_STEAM_APPIDS: frozenset[str] = frozenset({
+    "228980",   # Steamworks Common Redistributables
+    "250820",   # SteamVR
+    "431960",   # Wallpaper Engine
+    "993090",   # Lossless Scaling
+    "223850",   # 3DMark
+    "1070560",  # Steam Linux Runtime 1.0 (scout)
+    "1391110",  # Steam Linux Runtime 2.0 (soldier)
+    "1493710",  # Proton Experimental
+    "1628350",  # Steam Linux Runtime 3.0 (sniper)
+    "2348590",  # Proton 8.0 / runtime
+})
+
+NON_GAME_NAME_PATTERNS: tuple[str, ...] = (
+    "unreal engine",
+    "ue_4",
+    "ue_5",
+    "steamworks common redistributables",
+    "steamworks shared",
+    "steam controller configs",
+    "steamvr",
+    "proton ",
+    "steam linux runtime",
+    "dedicated server",
+    " sdk",
+    "modkit",
+    "mod kit",
+    "creation kit",
+    "authoring tools",
+    "level editor",
+    "soundtrack",
+    "artbook",
+    "digital art book",
+    "benchmark",
+    "3dmark",
+    "last crusade pack",
+)
+
+NON_GAME_LOCALAPPDATA_FOLDERS: frozenset[str] = frozenset({
+    "unrealengine",
+    "unrealheadertool",
+    "epicgameslauncher",
+    "crashreportclient",
+    "microsoft",
+    "packages",
+    "programs",
+    "temp",
+    "steam",
+    "nvidia",
+    "amd",
+    "google",
+    "antigravity",
+})
+
+
+def is_non_game_entry(
+    app_id: str | int | None = None,
+    name: str = "",
+    install_dir: Path | str | None = None,
+) -> bool:
+    """Return True if a Steam AppID, title, or install directory represents a non-game tool/runtime/editor."""
+    aid = str(app_id or "").strip()
+    if aid and aid in NON_GAME_STEAM_APPIDS:
+        return True
+
+    dir_path: Path | None = None
+    if install_dir:
+        raw_dir = str(install_dir).strip()
+        if raw_dir:
+            dir_path = Path(raw_dir)
+
+    dir_name = ""
+    if dir_path is not None:
+        dir_name = (
+            dir_path.parent.name
+            if dir_path.name.lower() == "content" and dir_path.parent.name
+            else dir_path.name
+        )
+
+    for text in (str(name or "").strip().lower(), dir_name.strip().lower()):
+        if text and any(pat in text for pat in NON_GAME_NAME_PATTERNS):
+            return True
+
+    if dir_path is not None:
+        try:
+            if dir_path.is_dir():
+                editor_patterns = (
+                    "UnrealEditor.exe",
+                    "UE4Editor.exe",
+                    "*/UnrealEditor.exe",
+                    "*/UE4Editor.exe",
+                    "*/*/UnrealEditor.exe",
+                    "*/*/UE4Editor.exe",
+                    "*/*/*/UnrealEditor.exe",
+                    "*/*/*/UE4Editor.exe",
+                )
+                has_editor_exe = any(
+                    p.is_file()
+                    for pat in editor_patterns
+                    for p in dir_path.glob(pat)
+                )
+                if has_editor_exe:
+                    shipping_patterns = (
+                        "*-Win64-Shipping.exe",
+                        "*/*-Win64-Shipping.exe",
+                        "*/*/*-Win64-Shipping.exe",
+                        "*/*/*/*-Win64-Shipping.exe",
+                    )
+                    has_shipping_exe = any(
+                        p.is_file()
+                        for pat in shipping_patterns
+                        for p in dir_path.glob(pat)
+                    )
+                    if not has_shipping_exe:
+                        return True
+        except OSError:
+            pass
+
+    return False
+
+
 def is_game_candidate(
     folder: Path,
     discovery_scope: str = "all",
@@ -1780,6 +1908,10 @@ def is_game_candidate(
 ) -> tuple[bool, str]:
     """Checks whether a directory matches the requested discovery_scope and returns (matched, runtime_kind)."""
     if not folder.is_dir():
+        return (False, "")
+
+    raw_name = folder.parent.name if folder.name.lower() == "content" and folder.parent.name else folder.name
+    if is_non_game_entry(None, raw_name, folder):
         return (False, "")
 
     scope = (discovery_scope or "all").strip().lower()
@@ -1835,22 +1967,6 @@ def is_game_candidate(
     if not has_unity and not exes:
         return (False, "")
 
-    raw_name = folder.parent.name if folder.name.lower() == "content" and folder.parent.name else folder.name
-    raw_low = raw_name.lower()
-    non_game_dir_tokens = (
-        "steamworks shared",
-        "steamvr",
-        "steam controller configs",
-        "dedicated server",
-        "benchmark tool",
-        "3dmark",
-        "soundtrack",
-        "artbook",
-        "digital art book",
-        "last crusade pack",
-    )
-    if any(tok in raw_low for tok in non_game_dir_tokens):
-        return (False, "")
     if folder.parent and str(folder).lower() in load_scan_exclusions():
         return (False, "")
     sheet_row = lookup_sheet_reference(raw_name, raw_name)
@@ -2052,17 +2168,30 @@ async def scan_for_games(req: ScanGamesRequest) -> dict[str, Any]:
         if not cpath.is_dir():
             raise HTTPException(status_code=400, detail=f"Folder does not exist: {cpath}")
         scanned_roots.append({"platform": "Manual / Custom Path", "path": str(cpath.resolve())})
-        is_direct, _ = is_game_candidate(cpath, discovery_scope="all", platform_label="Manual Path")
-        if is_direct:
-            candidate_folders.append(("Manual Path", cpath))
+        has_root_game_markers = (
+            (cpath / "GameAssembly.dll").is_file()
+            or any(cpath.glob("*_Data"))
+            or (cpath / "Engine").is_dir()
+            or (cpath / "Content").is_dir()
+            or any(p.is_file() for p in cpath.glob("*.exe"))
+            or any(
+                c.is_dir() and (c / "Binaries").is_dir() and (c / "Content" / "Paks").is_dir()
+                for c in cpath.iterdir()
+            )
+        )
         if (cpath / "Content").is_dir():
             candidate_folders.append(("Xbox / Manual Path", cpath / "Content"))
-        for child in cpath.iterdir():
-            if child.is_dir():
-                if (child / "Content").is_dir():
-                    candidate_folders.append(("Xbox Library", child / "Content"))
-                else:
-                    candidate_folders.append(("Manual Library", child))
+        elif has_root_game_markers:
+            is_direct, _ = is_game_candidate(cpath, discovery_scope="all", platform_label="Manual Path")
+            if is_direct:
+                candidate_folders.append(("Manual Path", cpath))
+        else:
+            for child in cpath.iterdir():
+                if child.is_dir():
+                    if (child / "Content").is_dir():
+                        candidate_folders.append(("Xbox Library", child / "Content"))
+                    else:
+                        candidate_folders.append(("Manual Library", child))
     else:
         for platform_label, root_dir in discover_platform_roots():
             scanned_roots.append({"platform": platform_label, "path": str(root_dir)})
@@ -2243,30 +2372,35 @@ def discover_local_unreal_ini_profiles() -> list[dict[str, str]]:
     """Finds all Unreal Engine GameUserSettings.ini files under %LOCALAPPDATA%\\*\\Saved\\Config."""
     local_app_data = Path(os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local"))
     profiles: list[dict[str, str]] = []
-    if not local_app_data.is_dir():
+    try:
+        if not local_app_data.is_dir():
+            return profiles
+        children = sorted(local_app_data.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
         return profiles
 
-    for child in sorted(local_app_data.iterdir(), key=lambda p: p.name.lower()):
-        if not child.is_dir():
+    for child in children:
+        try:
+            if child.name.strip().lower() in NON_GAME_LOCALAPPDATA_FOLDERS:
+                continue
+            if not child.is_dir():
+                continue
+            cfg_root = child / "Saved" / "Config"
+            if not cfg_root.is_dir():
+                continue
+            for sub_name in ("WindowsNoEditor", "Windows", "WindowsClient"):
+                gus = cfg_root / sub_name / "GameUserSettings.ini"
+                if gus.is_file() and gus.stat().st_size > 10:
+                    profiles.append(
+                        {
+                            "project_name": child.name,
+                            "platform_folder": sub_name,
+                            "ini_path": str(gus.resolve()),
+                        }
+                    )
+                    break
+        except OSError:
             continue
-        cfg_root = child / "Saved" / "Config"
-        if not cfg_root.is_dir():
-            continue
-        for sub_name in ("Windows", "WindowsNoEditor", "WindowsClient", "WinGDK"):
-            gus = cfg_root / sub_name / "GameUserSettings.ini"
-            if gus.is_file():
-                try:
-                    if gus.stat().st_size > 10:
-                        profiles.append(
-                            {
-                                "project_name": child.name,
-                                "platform_folder": sub_name,
-                                "ini_path": str(gus.resolve()),
-                            }
-                        )
-                        break
-                except OSError:
-                    pass
     return profiles
 
 
@@ -3740,7 +3874,7 @@ def scan_steam_installed() -> list[dict[str, Any]]:
                 gdir = steamapps / "common" / installdir
                 if not gdir.is_dir():
                     continue
-                if re.search(r"\b(steamworks|redistributable|proton|dedicated server|soundtrack)\b", name, re.IGNORECASE):
+                if is_non_game_entry(appid, name, gdir):
                     continue
                 entries.append({
                     "id": _canonical_entry_id("steam", appid, str(gdir), name),
@@ -3770,6 +3904,8 @@ def scan_epic_installed() -> list[dict[str, Any]]:
             display_name = str(data.get("DisplayName") or "").strip()
             cat_id = str(data.get("CatalogItemId") or "").strip()
             if not install_loc or not Path(install_loc).is_dir():
+                continue
+            if is_non_game_entry(cat_id, display_name, install_loc):
                 continue
             entries.append({
                 "id": _canonical_entry_id("epic", cat_id, install_loc, display_name),
@@ -3871,7 +4007,7 @@ def scan_manual_folders(custom_roots: list[str], single_folder: str = "") -> lis
     entries: list[dict[str, Any]] = []
     if single_folder:
         p = Path(single_folder.strip())
-        if p.is_dir():
+        if p.is_dir() and not is_non_game_entry(None, p.name, p):
             entries.append({
                 "id": _canonical_entry_id("manual", "", str(p), p.name),
                 "title": p.name,
@@ -3888,17 +4024,20 @@ def scan_manual_folders(custom_roots: list[str], single_folder: str = "") -> lis
         # If the root itself looks like a single game folder (has executables or engine markers), add it directly; otherwise scan immediate children
         has_exe = any(r.glob("*.exe"))
         if has_exe:
-            entries.append({
-                "id": _canonical_entry_id("manual", "", str(r), r.name),
-                "title": r.name,
-                "source_platform": "manual",
-                "external_ids": {},
-                "install_state": "installed",
-                "root_path": str(r),
-            })
+            if not is_non_game_entry(None, r.name, r):
+                entries.append({
+                    "id": _canonical_entry_id("manual", "", str(r), r.name),
+                    "title": r.name,
+                    "source_platform": "manual",
+                    "external_ids": {},
+                    "install_state": "installed",
+                    "root_path": str(r),
+                })
         else:
             for child in sorted(r.iterdir()):
                 if child.is_dir() and not child.name.startswith("."):
+                    if is_non_game_entry(None, child.name, child):
+                        continue
                     if any(child.glob("*.exe")) or any(child.glob("*_Data")) or (child / "Engine").is_dir():
                         entries.append({
                             "id": _canonical_entry_id("manual", "", str(child), child.name),
@@ -3972,7 +4111,7 @@ def enrich_uninstalled_with_pcgw(
                     "format": "json",
                 })
                 url = f"https://www.pcgamingwiki.com/w/api.php?{params}"
-                req = urllib.request.Request(url, headers={"User-Agent": "ModToolPoC/1.0 (Local Game Library)"})
+                req = urllib.request.Request(url, headers={"User-Agent": "TheModdingTool/1.0 (Local Game Library)"})
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     payload = json.loads(resp.read().decode("utf-8", errors="replace"))
                 rows = payload.get("cargoquery", [])
@@ -4054,7 +4193,7 @@ def _fetch_steam_owned_titles(steam_id_override: str = "", api_key_override: str
 
     try:
         xml_url = f"https://steamcommunity.com/profiles/{steam_id}/games/?tab=all&xml=1"
-        req = urllib.request.Request(xml_url, headers={"User-Agent": "ModToolPoC/1.0"})
+        req = urllib.request.Request(xml_url, headers={"User-Agent": "TheModdingTool/1.0"})
         with urllib.request.urlopen(req, timeout=8) as resp:
             xml_bytes = resp.read()
         root = ET.fromstring(xml_bytes)

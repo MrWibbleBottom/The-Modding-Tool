@@ -49,7 +49,6 @@ from app.core.config import (
     MANIFEST_DIR,
     PC_SPECS_CACHE_PATH,
     PLUGIN_DEPLOY_FILES,
-    POC_DIR,
     REPO_CONFIG_PATH,
     RESOURCE_ROOT,
     SCAN_EXCLUSIONS_PATH,
@@ -66,6 +65,7 @@ from app.core.config import (
     clear_pc_specs_cache,
     default_managed_games,
     get_app_data_root,
+    get_bepinex_bridge_roots,
     invalidate_games_cache,
     load_managed_games,
     manifest_path_for_game,
@@ -206,7 +206,7 @@ async def _download_and_extract_zip(url: str, target_dir: Path, archive_name: st
     target_dir.mkdir(parents=True, exist_ok=True)
     archive_path = target_dir / archive_name
     async with httpx.AsyncClient(follow_redirects=True, timeout=90.0) as client:
-        resp = await client.get(url, headers={"User-Agent": "ModToolPoC/1.0"})
+        resp = await client.get(url, headers={"User-Agent": "TheModdingTool/1.0"})
         resp.raise_for_status()
         archive_path.write_bytes(resp.content)
 
@@ -230,7 +230,7 @@ async def _install_github_release_tool(
     target_dir.mkdir(parents=True, exist_ok=True)
     api_url = f"https://api.github.com/repos/{repo}/releases/latest"
     async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-        resp = await client.get(api_url, headers={"User-Agent": "ModToolPoC/1.0"})
+        resp = await client.get(api_url, headers={"User-Agent": "TheModdingTool/1.0"})
         resp.raise_for_status()
         rel = resp.json()
 
@@ -301,7 +301,7 @@ async def install_modding_tool(req: InstallToolRequest) -> dict[str, Any]:
             )
             dest_dir.mkdir(parents=True, exist_ok=True)
             copied = 0
-            for fname in REQUIRED_PLUGIN_FILES:
+            for fname in PLUGIN_DEPLOY_FILES:
                 src = build_dir / fname
                 if src.is_file():
                     shutil.copy2(src, dest_dir / fname)
@@ -400,6 +400,8 @@ async def install_modding_tool(req: InstallToolRequest) -> dict[str, Any]:
         sha256=h,
         details={"tool_id": tool_id, "install_dir": str(dest_dir), "game_id": req.game_id},
     )
+
+    from app.routers.library import enrich_game_status, inspect_game_modding_info
 
     store = load_managed_games()
     target = next((g for g in store.get("games", []) if g.get("id") == req.game_id), None)
@@ -669,8 +671,8 @@ def scrape_pc_specs(force_refresh: bool = False) -> dict[str, Any]:
     drives: list[dict[str, Any]] = []
     for drv_letter in ("C:", "D:", "E:", "F:", "G:"):
         drv_path = Path(drv_letter + "\\")
-        if drv_path.is_dir():
-            try:
+        try:
+            if drv_path.is_dir():
                 usage = shutil.disk_usage(drv_path)
                 total_g = round(usage.total / (1024**3), 1)
                 free_g = round(usage.free / (1024**3), 1)
@@ -685,8 +687,8 @@ def scrape_pc_specs(force_refresh: bool = False) -> dict[str, Any]:
                         "used_percent": pct,
                     }
                 )
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     # 8. Performance Tier Classification for Unreal Engine & Modding
     if vram_total_gb >= 16.0 and physical_cores >= 8 and total_ram_gb >= 24.0:
@@ -1211,7 +1213,14 @@ async def upgrade_modding_tool(req: UpgradeModdingToolRequest) -> dict[str, Any]
     expected = req.expected_sha256.strip().lower()
 
     if tool_id == "bepinex_mcp_plugin":
-        csproj = WORKSPACE_DIR / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj"
+        csproj = next(
+            (
+                root / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj"
+                for root in get_bepinex_bridge_roots()
+                if (root / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj").is_file()
+            ),
+            WORKSPACE_DIR / "bridges" / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj",
+        )
         if not csproj.is_file():
             raise HTTPException(status_code=404, detail=f"Plugin project not found: {csproj}")
         plugin_dll = Path(DEFAULT_PLUGIN_BUILD_DIR) / "BepInExMCP.IL2CPP.dll"
@@ -1254,7 +1263,7 @@ async def upgrade_modding_tool(req: UpgradeModdingToolRequest) -> dict[str, Any]
 
     if not download_url:
         api_url = f"https://api.github.com/repos/{repo}/releases/latest"
-        gh_req = urllib.request.Request(api_url, headers={"User-Agent": "ModToolPoC/1.0"})
+        gh_req = urllib.request.Request(api_url, headers={"User-Agent": "TheModdingTool/1.0"})
         try:
             with urllib.request.urlopen(gh_req, timeout=20) as resp:
                 rel_data = json.loads(resp.read().decode("utf-8"))
@@ -1285,7 +1294,7 @@ async def upgrade_modding_tool(req: UpgradeModdingToolRequest) -> dict[str, Any]
     dl_dir = get_app_data_root() / "tools" / tool_id
     dl_dir.mkdir(parents=True, exist_ok=True)
     tmp_zip = dl_dir / f"{tool_id}_{release_tag}.zip.tmp"
-    dl_req = urllib.request.Request(download_url, headers={"User-Agent": "ModToolPoC/1.0"})
+    dl_req = urllib.request.Request(download_url, headers={"User-Agent": "TheModdingTool/1.0"})
     try:
         with urllib.request.urlopen(dl_req, timeout=60) as resp, tmp_zip.open("wb") as out_f:
             shutil.copyfileobj(resp, out_f)
@@ -1399,7 +1408,7 @@ async def get_app_diagnostics() -> dict[str, Any]:
 
 @router.post("/api/app/maintenance/clear-built-mods")
 async def clear_built_mods_cache() -> dict[str, Any]:
-    """Clears temporary built mod artifacts in %LOCALAPPDATA%\\ModToolPoC\\built_mods."""
+    """Clears temporary built mod artifacts in %LOCALAPPDATA%\\TheModdingTool\\built_mods."""
     removed = 0
     if BUILT_MODS_DIR.is_dir():
         for item in list(BUILT_MODS_DIR.iterdir()):
@@ -1439,7 +1448,7 @@ async def flush_all_app_caches() -> dict[str, Any]:
                     item.unlink(missing_ok=True)
                 removed_items.append(item.name)
 
-    # Re-seed clean default Battleground profile immediately
+    # Re-seed clean default game profile immediately
     load_managed_games()
     summary = f"Flushed all game and PC data caches ({len(removed_items)} item(s) removed)."
     append_audit_log(action="app.maintenance.flush_all", status="ok", summary=summary, details={"removed": removed_items[:30]})
@@ -1553,4 +1562,89 @@ async def set_dev_mode(req: DevModeRequest) -> dict[str, Any]:
         summary=f"Developer mode {'enabled' if req.enabled else 'disabled'}",
     )
     return {"status": "ok", "enabled": bool(req.enabled)}
+
+
+def register_protocol_handler() -> dict[str, Any]:
+    """Register HKCU\\Software\\Classes\\moddingtool on Windows to launch start_app.bat --no-browser."""
+    if sys.platform != "win32":
+        return {
+            "ok": False,
+            "supported": False,
+            "protocol": "moddingtool",
+            "detail": "Windows-only custom URL protocol registration.",
+        }
+
+    import winreg
+
+    bat_path = (WORKSPACE_DIR / "start_app.bat").resolve()
+    command = f'cmd.exe /c ""{bat_path}" --no-browser"'
+    base_key_path = r"Software\Classes\moddingtool"
+    cmd_key_path = rf"{base_key_path}\shell\open\command"
+
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, base_key_path, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "URL:The Modding Tool Protocol")
+        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, cmd_key_path, 0, winreg.KEY_SET_VALUE) as cmd_key:
+        winreg.SetValueEx(cmd_key, "", 0, winreg.REG_SZ, command)
+
+    return {
+        "ok": True,
+        "supported": True,
+        "protocol": "moddingtool",
+        "registry_path": rf"HKCU\{base_key_path}",
+        "command": command,
+    }
+
+
+def _perform_process_shutdown() -> None:
+    """Signal the supervisor (if present) and exit the current server process cleanly."""
+    sig_file = os.environ.get("MODTOOL_SHUTDOWN_SIGNAL_FILE", "").strip()
+    if sig_file:
+        try:
+            Path(sig_file).write_text("stop", encoding="utf-8")
+        except OSError:
+            pass
+    os._exit(0)
+
+
+def _schedule_process_shutdown(delay_sec: float = 0.35) -> None:
+    import threading
+
+    timer = threading.Timer(delay_sec, _perform_process_shutdown)
+    timer.daemon = True
+    timer.start()
+
+
+@router.post("/api/system/register-protocol")
+async def register_protocol_endpoint() -> dict[str, Any]:
+    """Register the user-level moddingtool:// URL protocol handler in HKCU."""
+    try:
+        result = register_protocol_handler()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to register moddingtool:// protocol: {exc}") from exc
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("detail") or "Protocol registration unavailable")
+
+    append_audit_log(
+        action="app.protocol.register",
+        status="ok",
+        summary=f"Registered {result['registry_path']} -> {result['command']}",
+        details=result,
+    )
+    return result
+
+
+@router.post("/api/system/shutdown")
+async def shutdown_server() -> dict[str, Any]:
+    """Log SERVER_STOPPED to audit.jsonl and trigger a clean process exit after returning HTTP 200."""
+    append_audit_log(
+        action="SERVER_STOPPED",
+        status="ok",
+        summary="Server stopped via /api/system/shutdown.",
+        details={"pid": os.getpid()},
+    )
+    _schedule_process_shutdown()
+    return {"ok": True}
 

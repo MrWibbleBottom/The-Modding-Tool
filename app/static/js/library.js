@@ -1,7 +1,7 @@
 import { apiFetch, apiGet, apiPost, runTrackedAction, setOutput, state, switchTab } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
 import { loadModdabilityGuide } from "./analyzer.js";
-import { syncModBuilderWithGame } from "./mcp.js";
+import { ENTITIES, VARIABLES, syncModBuilderWithGame } from "./mcp.js";
 
 function _resolveLibBtn(fallbackId = "") {
   const evTarget = typeof window !== "undefined" ? window.event?.target : null;
@@ -120,13 +120,13 @@ export async function importLibraryFileText() {
   const txt = (document.getElementById("lib-import-text")?.value || "").trim();
   const statusEl = document.getElementById("lib-status-bar");
   if (!txt) return;
-  const res = await apiPost("/api/library/import-file", { content: txt, enrich_metadata: true });
-  if (res.ok && res.data) {
-    LIBRARY_ENTRIES = Array.isArray(res.data.entries) ? res.data.entries : [];
+  const data = await apiPost("/api/library/import-file", { content: txt, enrich_metadata: true });
+  if (data) {
+    LIBRARY_ENTRIES = Array.isArray(data.entries) ? data.entries : [];
     const badge = document.getElementById("library-count-badge");
     if (badge) badge.textContent = String(LIBRARY_ENTRIES.length);
     if (statusEl) {
-      statusEl.innerHTML = `Imported <strong>${res.data.imported_count}</strong> title(s) from JSON/CSV (${res.data.total_count} total).`;
+      statusEl.innerHTML = `Imported <strong>${data.imported_count}</strong> title(s) from JSON/CSV (${data.total_count} total).`;
     }
     renderGameLibraryCards();
   }
@@ -232,89 +232,124 @@ export function toggleGameEditor() {
 
 export async function browseIntoInput(inputId) {
   const inp = document.getElementById(inputId);
-  const res = await apiPost("/api/games/browse", {
+  const data = await apiPost("/api/games/browse", {
     initial_dir: inp ? inp.value : "",
     title: "Select Game or Platform Library Folder"
   });
-  if (res.ok && res.data.status === "ok" && res.data.path) {
-    inp.value = res.data.path;
+  if (data && data.status === "ok" && data.path && inp) {
+    inp.value = data.path;
   }
-  return res.data;
+  return data;
 }
 
 export async function browseAndScan() {
   const picked = await browseIntoInput("scan-custom-path");
   if (picked && picked.status === "ok" && picked.path) {
-    await scanPlatforms(picked.path);
+    await scanPlatforms(picked.path, "btn-game-scan");
   }
 }
 
 export async function scanCustomPathInput() {
   const customPath = document.getElementById("scan-custom-path").value.trim();
-  await scanPlatforms(customPath);
+  await scanPlatforms(customPath, "btn-scan-path");
 }
 
 let SCAN_PROGRESS_TIMER = null;
 let SCAN_PROGRESS_CALLBACK = null;
 
-export function updateScanProgressUI(data) {
-  const wrap = document.getElementById("scan-progress-wrap");
-  const label = document.getElementById("scan-progress-label");
-  const pctEl = document.getElementById("scan-progress-pct");
-  const bar = document.getElementById("scan-progress-bar");
-  if (!data) return;
-  const pct = Math.max(0, Math.min(100, Number(data.percent || 0)));
-  const cur = Number(data.current || 0);
-  const tot = Number(data.total || 0);
-  const itemText = data.current_item ? ` — ${data.current_item}` : "";
-  const phaseMsg = `${data.phase || "Scanning..."}${itemText}`;
-  if (typeof SCAN_PROGRESS_CALLBACK === "function") {
-    SCAN_PROGRESS_CALLBACK(pct, `${phaseMsg} (${pct}%)`);
+function _syncScanLogToggleButton() {
+  const panel = document.getElementById("scan-log-panel");
+  const toggleBtn = document.getElementById("btn-toggle-scan-log");
+  if (!toggleBtn) return;
+  const isOpen = Boolean(panel && !panel.hidden);
+  toggleBtn.textContent = isOpen ? "Hide Game Scan Log" : "Show Game Scan Log";
+}
+
+export function setScanOutputLog(text) {
+  const panel = document.getElementById("scan-log-panel");
+  const out = document.getElementById("scan-output");
+  if (out) {
+    out.textContent = String(text || "");
   }
-  if (!wrap) return;
-  wrap.style.display = "block";
-  if (label) label.textContent = phaseMsg;
-  if (pctEl) pctEl.textContent = `${pct}% (${cur} / ${tot})`;
-  if (bar) bar.style.width = `${pct}%`;
+  if (panel && !String(text || "").trim()) {
+    panel.hidden = true;
+  }
+  _syncScanLogToggleButton();
+}
+
+export function toggleScanOutputLog() {
+  const panel = document.getElementById("scan-log-panel");
+  const out = document.getElementById("scan-output");
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden && out && !out.textContent.trim()) {
+    out.textContent = "No scan output recorded yet.";
+  }
+  _syncScanLogToggleButton();
+}
+
+export function closeScanOutputLog() {
+  const panel = document.getElementById("scan-log-panel");
+  if (panel) panel.hidden = true;
+  _syncScanLogToggleButton();
+}
+
+export async function copyScanOutputLog() {
+  const out = document.getElementById("scan-output");
+  const copyBtn = document.getElementById("btn-copy-scan-log");
+  const text = out ? out.textContent.trim() : "";
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (copyBtn) {
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+    }
+  } catch {
+    // Ignore clipboard restrictions
+  }
 }
 
 export function startScanProgressPolling(initialPhase = "Starting scan...", onProgress = null) {
   stopScanProgressPolling();
   SCAN_PROGRESS_CALLBACK = typeof onProgress === "function" ? onProgress : null;
-  updateScanProgressUI({ phase: initialPhase, percent: 0, current: 0, total: 0, current_item: "" });
+  if (typeof SCAN_PROGRESS_CALLBACK === "function") {
+    SCAN_PROGRESS_CALLBACK(0, initialPhase);
+  }
   SCAN_PROGRESS_TIMER = setInterval(async () => {
     try {
       const res = await apiFetch("/api/games/scan-progress");
       if (res.ok) {
         const data = await res.json();
-        updateScanProgressUI(data);
+        if (typeof SCAN_PROGRESS_CALLBACK === "function" && data) {
+          const pct = Math.max(0, Math.min(100, Number(data.percent || 0)));
+          const itemText = data.current_item ? ` — ${data.current_item}` : "";
+          const phaseMsg = `${data.phase || "Scanning..."}${itemText}`;
+          SCAN_PROGRESS_CALLBACK(pct, `${phaseMsg} (${pct}%)`);
+        }
       }
     } catch {}
   }, 200);
 }
 
-export function stopScanProgressPolling(finalPhase = "Scan complete") {
+export function stopScanProgressPolling(finalPhase = "", onProgress = null) {
   if (SCAN_PROGRESS_TIMER) {
     clearInterval(SCAN_PROGRESS_TIMER);
     SCAN_PROGRESS_TIMER = null;
   }
+  const cb = typeof onProgress === "function" ? onProgress : SCAN_PROGRESS_CALLBACK;
+  if (typeof cb === "function" && finalPhase) {
+    cb(100, finalPhase);
+  }
   SCAN_PROGRESS_CALLBACK = null;
-  const bar = document.getElementById("scan-progress-bar");
-  const label = document.getElementById("scan-progress-label");
-  const pctEl = document.getElementById("scan-progress-pct");
-  if (bar) bar.style.width = "100%";
-  if (label && finalPhase) label.textContent = finalPhase;
-  if (pctEl && pctEl.textContent.startsWith("0%")) pctEl.textContent = "100%";
 }
 
 async function _executeScanAllGamesInfo(prefixText = "", onProgress = null) {
-  const out = document.getElementById("scan-output");
-  if (out) {
-    out.style.display = "block";
-    if (!prefixText) {
-      out.textContent = "Scanning game folders on disk and populating Game Info metadata for all found games...";
-    }
-  }
+  setScanOutputLog(
+    prefixText
+      ? `${prefixText}\n\nScraping Game Info metadata...`
+      : "Scanning game folders on disk and populating Game Info metadata for all found games..."
+  );
   startScanProgressPolling("Scraping Game Info metadata...", onProgress);
   try {
     const res = await apiPost("/api/games/scan-info", {});
@@ -323,34 +358,34 @@ async function _executeScanAllGamesInfo(prefixText = "", onProgress = null) {
       r => `${r.name} (${r.id}): ${r.status}${r.mcp_category ? ` [${r.mcp_category} | Unity ${r.unity_version || "N/A"} | ${r.modding_readiness}]` : ""}`
     ).join("\n  ");
     const infoSummary = `${data?.summary || "Game info scan complete."}\nPopulated Game Info:\n  ${lines || "None"}`;
-    if (out) out.textContent = prefixText ? `${prefixText}\n\n${infoSummary}` : infoSummary;
-    stopScanProgressPolling("Game scan & info complete");
+    setScanOutputLog(prefixText ? `${prefixText}\n\n${infoSummary}` : infoSummary);
+    stopScanProgressPolling("Game scan & info complete", onProgress);
     await refreshGamesList(true);
     return data;
   } catch (err) {
-    stopScanProgressPolling("Game info scan failed");
-    if (out) out.textContent = (prefixText ? `${prefixText}\n\n` : "") + `Game info scan failed: ${err?.message || err}`;
+    stopScanProgressPolling("", onProgress);
+    setScanOutputLog((prefixText ? `${prefixText}\n\n` : "") + `Game info scan failed: ${err?.message || err}`);
     throw err;
   }
 }
 
-export async function scanPlatforms(customPath = "") {
-  const out = document.getElementById("scan-output");
-  const scanBtn = _resolveLibBtn("btn-game-scan");
+export async function scanPlatforms(customPath = "", fallbackBtnId = "btn-game-scan") {
+  const scanBtn = _resolveLibBtn(fallbackBtnId);
   const scopeEl = document.getElementById("scan-unity-only");
   const discoveryScope = scopeEl ? scopeEl.value : "all";
   const scopeLabel = scopeEl && scopeEl.selectedOptions[0] ? scopeEl.selectedOptions[0].textContent : discoveryScope;
-  if (out) {
-    out.style.display = "block";
-    out.textContent = customPath
+  setScanOutputLog(
+    customPath
       ? `Scanning folder '${customPath}' [Scope: ${scopeLabel}] and auto-populating Game Manager...`
-      : `Scanning PC game platforms (Steam, Epic Games, GOG Galaxy, XboxGames, Ubisoft, EA) [Scope: ${scopeLabel}]...`;
-  }
+      : `Scanning PC game platforms (Steam, Epic Games, GOG Galaxy, XboxGames, Ubisoft, EA) [Scope: ${scopeLabel}]...`
+  );
   try {
     await runTrackedAction(
       scanBtn,
       async ({ setProgress }) => {
-        startScanProgressPolling("Discovering platform game folders...", setProgress);
+        const mapPhase1 = (pct, label) => setProgress(Math.round(pct * 0.5), label);
+        const mapPhase2 = (pct, label) => setProgress(50 + Math.round(pct * 0.5), label);
+        startScanProgressPolling("Discovering platform game folders...", mapPhase1);
         const res = await apiPost("/api/games/scan", {
           custom_path: customPath,
           auto_populate: true,
@@ -364,8 +399,8 @@ export async function scanPlatforms(customPath = "") {
           `${data?.summary || "Scan complete."}\n` +
           `Scanned Library Roots:\n  ${rootsList || "None"}\n` +
           `Discovered Games:\n  ${gamesList || "None"}`;
-        if (out) out.textContent = `${scanSummaryText}\n\nAutomatically running Game info scan for all found games...`;
-        const infoData = await _executeScanAllGamesInfo(scanSummaryText, setProgress);
+        const infoData = await _executeScanAllGamesInfo(scanSummaryText, mapPhase2);
+        setProgress(100, data?.summary || "Platform & Game Info scan complete");
         return { scan: data, info: infoData };
       },
       {
@@ -375,8 +410,8 @@ export async function scanPlatforms(customPath = "") {
       },
     );
   } catch (err) {
-    stopScanProgressPolling("Scan failed");
-    if (out) out.textContent = `Scan failed: ${err?.message || err}`;
+    stopScanProgressPolling();
+    setScanOutputLog(`Scan failed: ${err?.message || err}`);
   }
 }
 
@@ -385,7 +420,11 @@ export async function scanAllGamesInfo(prefixText = "") {
   try {
     await runTrackedAction(
       btn,
-      async ({ setProgress }) => _executeScanAllGamesInfo(prefixText, setProgress),
+      async ({ setProgress }) => {
+        const data = await _executeScanAllGamesInfo(prefixText, setProgress);
+        setProgress(100, data?.summary || "Game info scan complete");
+        return data;
+      },
       {
         pendingText: "Scraping Game Info metadata for managed games...",
         successText: (d) => d?.summary || "Game info scan complete",
@@ -401,7 +440,8 @@ export async function rescanActiveGameMetadata() {
   const res = await apiPost("/api/games/rescan", { game_id: state.activeGameId });
   const data = res?.data ?? res;
   if (data && data.game) {
-    applyGameSettingsToUI(data.game);
+    _upsertManagedGameInState(data.game);
+    renderActiveGamePanel(data.game, { allowAutoFetch: false });
     await refreshGamesList(false);
   }
 }
@@ -415,7 +455,12 @@ export function renderTopGameInfoPanel(game) {
     missingBadge.style.display = isMissing ? "inline-block" : "none";
   }
 
-  document.getElementById("info-title").textContent = `${game.name} (${game.id})`;
+  const titleEl = document.getElementById("info-title");
+  if (titleEl) titleEl.textContent = game.name || game.id || "Unknown Game";
+  const slugBadge = document.getElementById("info-slug-badge");
+  if (slugBadge) slugBadge.textContent = game.id || "unknown";
+  const engineBadge = document.getElementById("info-engine-badge");
+  if (engineBadge) engineBadge.textContent = info.mcp_category || game.runtime || "PC";
 
   const isUnity = Boolean(
     info.mcp_category === "Unity" ||
@@ -879,13 +924,14 @@ export async function importUnrealSettings(customPath = "") {
   if (srcBanner) {
     srcBanner.textContent = "Evaluating Unreal Engine settings against Traffic-Light Hardware Reference Array...";
   }
-  const res = await apiPost("/api/games/unreal-settings", {
+  const data = await apiPost("/api/games/unreal-settings", {
     game_id: state.activeGameId,
     custom_ini_path: customPath,
     reference_tier_id: refTierId
   });
-  if (res.ok && res.data.game) {
-    applyGameSettingsToUI(res.data.game);
+  if (data && data.game) {
+    _upsertManagedGameInState(data.game);
+    renderActiveGamePanel(data.game, { allowAutoFetch: false });
     await refreshGamesList(false);
   }
 }
@@ -1062,56 +1108,117 @@ export async function installAllRecommendedTools() {
 }
 
 export async function openToolFolder(pathStr) {
+  if (!pathStr) return;
   const out = document.getElementById("tools-install-output");
-  const res = await apiPost("/api/tools/open-folder", { path: pathStr });
-  if (!res.ok && out) {
-    out.style.display = "block";
-    out.textContent = `Could not open folder '${pathStr}': ${JSON.stringify(res.data)}`;
+  try {
+    await apiPost("/api/tools/open-folder", { path: pathStr });
+  } catch (err) {
+    if (out) {
+      out.style.display = "block";
+      out.textContent = `Could not open folder '${pathStr}': ${err?.message || err}`;
+    }
   }
 }
 
-export function applyGameSettingsToUI(game) {
+const AUTO_RESCAN_IN_FLIGHT = new Set();
+
+function _upsertManagedGameInState(game) {
+  if (!game || !game.id || !Array.isArray(state.managedGames)) return;
+  const idx = state.managedGames.findIndex((item) => item.id === game.id);
+  if (idx >= 0) {
+    state.managedGames[idx] = game;
+  } else {
+    state.managedGames.push(game);
+  }
+}
+
+async function _autoPopulateGameMetadata(gameId) {
+  if (!gameId || AUTO_RESCAN_IN_FLIGHT.has(gameId)) return;
+  AUTO_RESCAN_IN_FLIGHT.add(gameId);
+  try {
+    const data = await apiPost("/api/games/rescan", { game_id: gameId });
+    if (data && data.game) {
+      _upsertManagedGameInState(data.game);
+      if (state.activeGameId === gameId) {
+        renderActiveGamePanel(data.game, { allowAutoFetch: false });
+      }
+      await refreshGamesList(false);
+    }
+  } catch (err) {
+    console.warn(`Background metadata fetch failed for ${gameId}:`, err);
+  } finally {
+    AUTO_RESCAN_IN_FLIGHT.delete(gameId);
+  }
+}
+
+export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
   if (!game) return;
+  const prevId = state.lastRenderedGame?.id;
+  const gameChanged = Boolean(prevId && prevId !== game.id);
+
   state.activeGameId = game.id;
-  document.getElementById("active-game-badge").textContent = `Loaded: ${game.name}`;
-  document.getElementById("game-tab-title-badge").textContent = game.name;
+  _upsertManagedGameInState(game);
+
+  const activeBadge = document.getElementById("active-game-badge");
+  if (activeBadge) activeBadge.textContent = `Loaded: ${game.name || game.id}`;
+  const tabBadge = document.getElementById("game-tab-title-badge");
+  if (tabBadge) tabBadge.textContent = game.name || game.id;
+  const globalSel = document.getElementById("global-game-select");
+  if (globalSel && globalSel.value !== game.id) {
+    globalSel.value = game.id;
+  }
+
+  if (gameChanged) {
+    const fpOut = document.getElementById("fp-output");
+    if (fpOut) { fpOut.style.display = "none"; fpOut.textContent = ""; }
+    const toolsOut = document.getElementById("tools-install-output");
+    if (toolsOut) { toolsOut.style.display = "none"; toolsOut.textContent = ""; }
+    const provOut = document.getElementById("prov-output");
+    if (provOut) {
+      provOut.textContent = "Ready to validate SHA-256, back up collisions, extract BepInEx + BepInExMCP.IL2CPP.dll, or restore cleanly.";
+    }
+  }
+
   renderTopGameInfoPanel(game);
 
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   // Populate Fingerprint / Provision / MCP inputs
-  document.getElementById("fp-game-dir").value = game.game_dir || "";
-  document.getElementById("prov-zip-path").value = game.bepinex_zip_path || "";
-  document.getElementById("prov-sha256").value = game.expected_sha256 || "";
-  document.getElementById("prov-plugin-dir").value = game.plugin_build_dir || "";
-  document.getElementById("mcp-python").value = game.venv_python_path || "";
-  document.getElementById("mcp-app").value = game.mcp_app_path || "";
+  setVal("fp-game-dir", game.game_dir || "");
+  setVal("prov-zip-path", game.bepinex_zip_path || "");
+  setVal("prov-sha256", game.expected_sha256 || "");
+  setVal("prov-plugin-dir", game.plugin_build_dir || "");
+  setVal("mcp-python", game.venv_python_path || "");
+  setVal("mcp-app", game.mcp_app_path || "");
 
-  if (game.default_entity && ENTITIES[game.default_entity]) {
-    document.getElementById("mcp-target-entity").value = game.default_entity;
+  const targetEnt = document.getElementById("mcp-target-entity");
+  if (targetEnt && game.default_entity && ENTITIES[game.default_entity]) {
+    targetEnt.value = game.default_entity;
   }
-  if (game.default_variable && VARIABLES[game.default_variable]) {
-    document.getElementById("mcp-variable-select").value = game.default_variable;
+  const targetVar = document.getElementById("mcp-variable-select");
+  if (targetVar && game.default_variable && VARIABLES[game.default_variable]) {
+    targetVar.value = game.default_variable;
   }
-  document.getElementById("mcp-go-id").value = game.default_go_id || "-269924";
-  document.getElementById("mcp-comp-name").value = game.default_component || "Jade.GameView.CameraTargetCharacter";
-  document.getElementById("mcp-member-name").value = game.default_member || "targetPiece.stats.Health.maxValue";
-  document.getElementById("mcp-member-value").value = game.default_value || "23";
-  document.getElementById("mcp-profile-name").value = game.default_profile || "battlemarked_stat_hp_max";
+  setVal("mcp-go-id", game.default_go_id || "-269924");
+  setVal("mcp-comp-name", game.default_component || "Jade.GameView.CameraTargetCharacter");
+  setVal("mcp-member-name", game.default_member || "targetPiece.stats.Health.maxValue");
+  setVal("mcp-member-value", game.default_value || "23");
+  setVal("mcp-profile-name", game.default_profile || "battlemarked_stat_hp_max");
   if (game.default_selector && Object.keys(game.default_selector).length > 0) {
-    document.getElementById("mcp-selector").value = JSON.stringify(game.default_selector);
+    setVal("mcp-selector", JSON.stringify(game.default_selector));
   }
 
   // Populate Game Manager editor form
-  document.getElementById("gm-id").value = game.id || "";
-  document.getElementById("gm-name").value = game.name || "";
-  document.getElementById("gm-game-dir").value = game.game_dir || "";
-  document.getElementById("gm-runtime").value = game.runtime || "Unity_IL2CPP";
-  document.getElementById("gm-zip-path").value = game.bepinex_zip_path || "";
-  document.getElementById("gm-sha256").value = game.expected_sha256 || "";
-  document.getElementById("gm-plugin-dir").value = game.plugin_build_dir || "";
-  document.getElementById("gm-notes").value = game.notes || "";
-  document.getElementById("gm-def-comp").value = game.default_component || "";
-  document.getElementById("gm-def-member").value = game.default_member || "";
-  document.getElementById("gm-def-val").value = game.default_value || "";
+  setVal("gm-id", game.id || "");
+  setVal("gm-name", game.name || "");
+  setVal("gm-game-dir", game.game_dir || "");
+  setVal("gm-runtime", game.runtime || "Unity_IL2CPP");
+  setVal("gm-zip-path", game.bepinex_zip_path || "");
+  setVal("gm-sha256", game.expected_sha256 || "");
+  setVal("gm-plugin-dir", game.plugin_build_dir || "");
+  setVal("gm-notes", game.notes || "");
+  setVal("gm-def-comp", game.default_component || "");
+  setVal("gm-def-member", game.default_member || "");
+  setVal("gm-def-val", game.default_value || "");
 
   const tagsEl = document.getElementById("game-user-tags");
   const notesEl = document.getElementById("game-user-notes");
@@ -1120,6 +1227,17 @@ export function applyGameSettingsToUI(game) {
 
   syncModBuilderWithGame(game);
   loadGameSteamAssets(game);
+  renderGamesTable();
+
+  const hasCachedMeta = Boolean(game.metadata_scraped || game.modding_info?.metadata_scraped);
+  const canInspectDisk = Boolean(game.dir_exists !== false && !game.missing_on_disk);
+  if (allowAutoFetch && !hasCachedMeta && canInspectDisk) {
+    _autoPopulateGameMetadata(game.id);
+  }
+}
+
+export function applyGameSettingsToUI(game) {
+  renderActiveGamePanel(game);
 }
 
 const STEAM_ASSETS_JS_CACHE = new Map();
@@ -1373,7 +1491,7 @@ export function renderGamesTable() {
   }).join("");
 }
 
-export function _applyGamesPayload(data, applyActive = false) {
+export function _applyGamesPayload(data, applyActive = false, { allowAutoFetch = true } = {}) {
   if (!data) return;
   state.managedGames = data.games || [];
   state.activeGameId = data.active_game_id || "battleground";
@@ -1392,8 +1510,8 @@ export function _applyGamesPayload(data, applyActive = false) {
 
   const activeGame = state.managedGames.find(g => g.id === state.activeGameId) || state.managedGames[0];
   if (activeGame) {
-    if (applyActive) {
-      applyGameSettingsToUI(activeGame);
+    if (applyActive || !state.lastRenderedGame || state.lastRenderedGame.id !== activeGame.id) {
+      renderActiveGamePanel(activeGame, { allowAutoFetch });
     } else {
       renderTopGameInfoPanel(activeGame);
     }
@@ -1404,25 +1522,31 @@ export async function refreshGamesList(applyActive = false) {
   if (!state.managedGames.length) {
     try {
       const cachedRaw = localStorage.getItem("modtool_cache_games");
-      if (cachedRaw) _applyGamesPayload(JSON.parse(cachedRaw), applyActive);
+      if (cachedRaw) _applyGamesPayload(JSON.parse(cachedRaw), applyActive, { allowAutoFetch: false });
     } catch {}
   }
   try {
     const res = await apiFetch("/api/games");
     const data = await res.json();
     try { localStorage.setItem("modtool_cache_games", JSON.stringify(data)); } catch {}
-    _applyGamesPayload(data, applyActive);
+    _applyGamesPayload(data, applyActive, { allowAutoFetch: true });
   } catch (err) {
     console.error("Failed to load managed games:", err);
   }
 }
 
 export async function onGlobalGameSelected() {
-  const gameId = document.getElementById("global-game-select").value;
-  await loadAndOpenGame(gameId);
+  const gameId = document.getElementById("global-game-select")?.value;
+  if (gameId) {
+    await loadAndOpenGame(gameId);
+  }
 }
 
 export async function loadAndOpenGame(gameId) {
+  const localGame = state.managedGames.find(item => item.id === gameId);
+  if (localGame) {
+    renderActiveGamePanel(localGame, { allowAutoFetch: false });
+  }
   await selectManagedGame(gameId);
   switchTab("game");
 }
@@ -1430,21 +1554,26 @@ export async function loadAndOpenGame(gameId) {
 export function editGameInManager(gameId) {
   const g = state.managedGames.find(item => item.id === gameId);
   if (!g) return;
-  applyGameSettingsToUI(g);
+  renderActiveGamePanel(g);
   const d = document.getElementById("game-editor-details");
   d.open = true;
   d.scrollIntoView({ behavior: "smooth" });
 }
 
 export async function selectManagedGame(gameId) {
-  const res = await apiPost("/api/games/select", { game_id: gameId });
-  if (res.ok && res.data.game) {
-    applyGameSettingsToUI(res.data.game);
-    document.getElementById("gm-output").textContent =
-      `Loaded settings for '${res.data.game.name}' (${gameId}):\n` +
-      JSON.stringify(res.data.game, null, 2);
+  const data = await apiPost("/api/games/select", { game_id: gameId });
+  if (data && data.game) {
+    _upsertManagedGameInState(data.game);
+    renderActiveGamePanel(data.game);
+    const gmOut = document.getElementById("gm-output");
+    if (gmOut) {
+      gmOut.textContent =
+        `Loaded settings for '${data.game.name}' (${gameId}):\n` +
+        JSON.stringify(data.game, null, 2);
+    }
     await refreshGamesList(false);
   }
+  return data;
 }
 
 export function fillNewGameTemplate() {
@@ -1481,10 +1610,11 @@ export async function saveManagedGame() {
     default_selector: parseSelector() || {},
     notes: document.getElementById("gm-notes").value.trim()
   };
-  const res = await apiPost("/api/games", payload);
-  out.textContent = JSON.stringify(res.data, null, 2);
-  if (res.ok && res.data.game) {
-    applyGameSettingsToUI(res.data.game);
+  const data = await apiPost("/api/games", payload);
+  if (out) out.textContent = JSON.stringify(data, null, 2);
+  if (data && data.game) {
+    _upsertManagedGameInState(data.game);
+    renderActiveGamePanel(data.game);
     await refreshGamesList(false);
     switchTab("game");
   }
@@ -1499,20 +1629,27 @@ export async function deleteManagedGame(gameId) {
 }
 
 export async function pruneNonGames() {
-  const btn = _resolveLibBtn("");
+  const btn = _resolveLibBtn("btn-prune-non-games");
   try {
     await runTrackedAction(
       btn,
-      async () => {
+      async ({ setProgress }) => {
+        setProgress(25, "Pruning non-game and duplicate entries...");
         const resp = await apiPost("/api/games/prune-non-games", {});
         const data = resp?.data ?? resp;
+        setProgress(80, "Refreshing Game Manager list...");
         await refreshGamesList(false);
         loadLogs();
+        setScanOutputLog(
+          `${data?.summary || "Prune complete."}\nRemoved:\n  ${(data?.removed || []).join("\n  ") || "None"}`
+        );
+        setProgress(100, data?.summary || "Pruned non-game entries");
         return data;
       },
       {
         pendingText: "Pruning non-game entries...",
         successText: (d) => d?.summary || "Pruned non-game entries",
+        mode: "determinate",
       },
     );
   } catch {
@@ -1525,15 +1662,20 @@ export async function prewarmAllGameIcons() {
   try {
     await runTrackedAction(
       btn,
-      async () => {
+      async ({ setProgress }) => {
+        setProgress(25, "Extracting and caching game executable icons...");
         const resp = await apiPost("/api/games/prewarm-icons", {});
         const data = resp?.data ?? resp;
+        setProgress(85, "Updating game table icons...");
         renderGamesTable();
+        setScanOutputLog(data?.summary || "Game icons pre-warmed.");
+        setProgress(100, data?.summary || "Icons pre-warmed");
         return data;
       },
       {
         pendingText: "Pre-warming game icons...",
         successText: (d) => d?.summary || "Icons pre-warmed",
+        mode: "determinate",
       },
     );
   } catch {
@@ -1543,10 +1685,8 @@ export async function prewarmAllGameIcons() {
 
 export async function toggleFavoriteGame(gameId, favorite) {
   try {
-    const resp = await apiPost(`/api/games/${encodeURIComponent(gameId)}/notes`, { favorite });
-    if (resp.ok) {
-      await refreshGamesList(false);
-    }
+    await apiPost(`/api/games/${encodeURIComponent(gameId)}/notes`, { favorite });
+    await refreshGamesList(false);
   } catch {}
 }
 
@@ -1555,11 +1695,11 @@ export async function saveActiveGameNotes() {
   const notes = document.getElementById("game-user-notes")?.value || "";
   const tags = tagsRaw.split(",").map(s => s.trim()).filter(Boolean);
   try {
-    const resp = await apiPost(`/api/games/${encodeURIComponent(state.activeGameId)}/notes`, { tags, user_notes: notes });
+    await apiPost(`/api/games/${encodeURIComponent(state.activeGameId)}/notes`, { tags, user_notes: notes });
     const out = document.getElementById("fp-output");
     if (out) {
       out.style.display = "block";
-      out.textContent = resp.ok ? "Saved game tags and notes." : JSON.stringify(resp.data);
+      out.textContent = "Saved game tags and notes.";
     }
     await refreshGamesList(false);
   } catch (err) {
@@ -1570,10 +1710,10 @@ export async function saveActiveGameNotes() {
 export async function launchActiveGame() {
   const out = document.getElementById("fp-output");
   try {
-    const resp = await apiPost(`/api/games/${encodeURIComponent(state.activeGameId)}/launch`, {});
+    const data = await apiPost(`/api/games/${encodeURIComponent(state.activeGameId)}/launch`, {});
     if (out) {
       out.style.display = "block";
-      out.textContent = resp.ok ? resp.data.summary : (resp.data?.detail || "Launch failed");
+      out.textContent = data?.summary || "Game launched.";
     }
   } catch (err) {
     if (out) { out.style.display = "block"; out.textContent = `Launch failed: ${err.message || err}`; }

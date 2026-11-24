@@ -26,8 +26,8 @@
 ### Option B: Manual Terminal Setup
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r poc-ui\requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn controller:app --app-dir poc-ui --host 127.0.0.1 --port 8765 --reload
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 Then open **http://127.0.0.1:8765** in your browser.
 
@@ -39,14 +39,14 @@ For live Unity IL2CPP runtime inspection and editing:
 1. Open the **Active Game** tab and select a Unity game.
 2. In the **Live MCP Inspection & Mutation** section:
    - Set **Python Executable** to your `.venv\Scripts\python.exe` (for example `.\.venv\Scripts\python.exe`).
-   - Set **MCP Server Script** to `bepinex-mcp\mcp\ModdersHelperApp.py`.
+   - Set **MCP Server Script** to `bridges\bepinex-mcp\mcp\ModdersHelperApp.py`.
 3. Provision BepInEx + the bridge plugin from **Provision & Clean Restore**, launch the game once, and click **1. Test Bridge** to verify the live connection.
 
 ---
 
 ## Backups, Logs & Updates
 
-- **Safe Local Storage**: All user configuration, game caches, manifests, app snapshots, and audit logs are stored safely in `%LOCALAPPDATA%\ModToolPoC\` — outside your game folders and outside the app directory.
+- **Safe Local Storage**: All user configuration, game caches, manifests, app snapshots, and audit logs are stored safely in `%LOCALAPPDATA%\TheModdingTool\` — outside your game folders and outside the app directory.
 - **Pulling Updates**: Open the **App Management** tab, enter the repository Owner/Name/Branch under **GitHub Distribution & Restore**, click **Save Repo Settings**, then use **Check GitHub** and **Pull / Restore Latest from GitHub** (a pre-sync snapshot is saved automatically before updating, and you can roll back anytime from the **Local Snapshots** dropdown).
 
 ---

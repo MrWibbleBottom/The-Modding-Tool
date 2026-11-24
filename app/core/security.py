@@ -48,7 +48,7 @@ def dpapi_encrypt(plaintext: str) -> str:
         kernel32 = ctypes.windll.kernel32
         if not crypt32.CryptProtectData(
             ctypes.byref(blob_in),
-            "ModToolPoC",
+            "TheModdingTool",
             None,
             None,
             None,

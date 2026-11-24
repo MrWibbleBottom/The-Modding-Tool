@@ -1,7 +1,7 @@
 # Python virtual environments & bytecode
 .venv/
 venv/
-bepinex-mcp/.venv/
+bridges/bepinex-mcp/.venv/
 __pycache__/
 *.py[cod]
 *.pyo

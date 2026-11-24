@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -48,7 +49,6 @@ from app.core.config import (
     MANIFEST_DIR,
     PC_SPECS_CACHE_PATH,
     PLUGIN_DEPLOY_FILES,
-    POC_DIR,
     REPO_CONFIG_PATH,
     RESOURCE_ROOT,
     SCAN_EXCLUSIONS_PATH,
@@ -85,8 +85,8 @@ BRANDING_FAVICONS_DIR.mkdir(parents=True, exist_ok=True)
 
 def default_app_ui_config() -> dict[str, Any]:
     return {
-        "app_name": "Unity IL2CPP Modding Manager & Live MCP Console",
-        "app_subtitle": "FastAPI + Persistent MCP Stdio Bridge (bepinex-mcp)",
+        "app_name": "The Modding Tool",
+        "app_subtitle": "Platform- & Engine-Agnostic Modding Console",
         "accent_color": "#3b82f6",
         "compact_mode": False,
         "startup_tab": "manager",
@@ -185,9 +185,52 @@ class UploadAppAssetRequest(BaseModel):
     data_url: str
 
 
+def _fit_rgba_image(raw_bytes: bytes, size: tuple[int, int]):
+    """Decode image bytes and center-crop/resize to `size` using Pillow ImageOps.fit."""
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            return ImageOps.fit(img.convert("RGBA"), size, method=Image.Resampling.LANCZOS)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid or unsupported image file: {exc}") from exc
+
+
+def _save_processed_favicon(raw_bytes: bytes, ext: str, target_dir: Path) -> Path:
+    """Save uploaded favicon as center-cropped `favicon.png` (64x64) and `app.ico` (16/32/48/256), or raw `.svg`."""
+    for old in target_dir.glob("favicon.*"):
+        old.unlink(missing_ok=True)
+    (target_dir / "app.ico").unlink(missing_ok=True)
+    if ext == ".svg":
+        dest = target_dir / "favicon.svg"
+        dest.write_bytes(raw_bytes)
+        return dest
+
+    png_dest = target_dir / "favicon.png"
+    ico_dest = target_dir / "app.ico"
+    _fit_rgba_image(raw_bytes, (64, 64)).save(png_dest, format="PNG")
+    _fit_rgba_image(raw_bytes, (256, 256)).save(
+        ico_dest,
+        format="ICO",
+        sizes=[(16, 16), (32, 32), (48, 48), (256, 256)],
+    )
+    return png_dest
+
+
+def _save_processed_banner(raw_bytes: bytes, ext: str, dest_stem: Path) -> Path:
+    """Save uploaded banner center-cropped to 1500x300 PNG (or raw `.svg`)."""
+    if ext == ".svg":
+        dest = dest_stem.with_suffix(".svg")
+        dest.write_bytes(raw_bytes)
+        return dest
+    dest = dest_stem.with_suffix(".png")
+    _fit_rgba_image(raw_bytes, (1500, 300)).save(dest, format="PNG")
+    return dest
+
+
 @router.post("/api/app-ui-config/upload-asset")
 async def upload_app_asset(req: UploadAppAssetRequest) -> dict[str, Any]:
-    """Saves an uploaded responsive banner image into branding/banners or favicon into branding/favicons."""
+    """Saves an uploaded responsive banner (1500x300) into branding/banners or favicon (PNG + ICO) into branding/favicons."""
     import base64
 
     kind = req.kind.strip().lower()
@@ -210,12 +253,15 @@ async def upload_app_asset(req: UploadAppAssetRequest) -> dict[str, Any]:
     elif "image/x-icon" in header or "vnd.microsoft.icon" in header or req.filename.lower().endswith(".ico"):
         ext = ".ico"
 
+    raw_bytes = base64.b64decode(b64_data)
     target_dir = BRANDING_BANNERS_DIR if kind == "banner" else BRANDING_FAVICONS_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
-    for old in target_dir.glob(f"{kind}.*"):
-        old.unlink(missing_ok=True)
-    dest = target_dir / f"{kind}{ext}"
-    dest.write_bytes(base64.b64decode(b64_data))
+    if kind == "favicon":
+        dest = _save_processed_favicon(raw_bytes, ext, target_dir)
+    else:
+        for old in target_dir.glob("banner.*"):
+            old.unlink(missing_ok=True)
+        dest = _save_processed_banner(raw_bytes, ext, target_dir / "banner")
     url = f"/api/app-ui-config/asset/{kind}?v={int(datetime.now().timestamp())}"
 
     # Persist immediately into app_ui_config.json
@@ -270,6 +316,11 @@ async def remove_app_asset(req: RemoveAppAssetRequest) -> dict[str, Any]:
         for old in target_dir.glob(f"{kind}.*"):
             old.unlink(missing_ok=True)
             removed_files.append(str(old))
+        if kind == "favicon":
+            ico_file = target_dir / "app.ico"
+            if ico_file.is_file():
+                ico_file.unlink(missing_ok=True)
+                removed_files.append(str(ico_file))
 
     cfg = (await get_app_ui_config())["config"]
     if kind == "banner":
@@ -341,7 +392,7 @@ class BannerSettingsRequest(BaseModel):
 
 @router.post("/api/ui/banner")
 async def upload_ui_banner(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Saves a custom banner image to %LOCALAPPDATA%\\ModToolPoC\\custom_banner.<ext> and updates ui_settings.json."""
+    """Saves a custom banner image (center-cropped to 1500x300) to %LOCALAPPDATA%\\TheModdingTool\\ and updates ui_settings.json."""
     orig_name = str(file.filename or "banner.png")
     ext = Path(orig_name).suffix.lower()
     if ext not in BANNER_MEDIA_TYPES:
@@ -362,9 +413,8 @@ async def upload_ui_banner(file: UploadFile = File(...)) -> dict[str, Any]:
             except Exception:
                 pass
 
-    target_name = f"custom_banner{ext}"
-    target_path = app_root / target_name
-    target_path.write_bytes(data)
+    target_path = _save_processed_banner(data, ext, app_root / "custom_banner")
+    target_name = target_path.name
 
     settings = load_ui_settings()
     settings["banner_enabled"] = True

@@ -1,5 +1,5 @@
 """
-Semantic Versioning (SemVer) Manager for ModToolPoC / Battleground.
+Semantic Versioning (SemVer) Manager for The Modding Tool.
 
 Follows standard SemVer best practices:
 - Pre-launch development: 0.MINOR.PATCH (e.g. 0.1.0, 0.1.1, 0.2.0)
@@ -117,7 +117,7 @@ def bump_version(bump_type: str = "patch", note: str = "Incremental project chan
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Manage SemVer version.json for Battleground.")
+    parser = argparse.ArgumentParser(description="Manage SemVer version.json for The Modding Tool.")
     parser.add_argument("--show", action="store_true", help="Print current version info.")
     parser.add_argument("--bump", choices=["patch", "minor", "major", "launch"], help="Advance version.")
     parser.add_argument("--note", type=str, default="Manual version bump", help="Change note.")

@@ -1,4 +1,4 @@
-// Entry point for ModToolPoC native ES module frontend.
+// Entry point for The Modding Tool native ES module frontend.
 
 import * as api from "./api.js";
 import * as library from "./library.js";
@@ -40,9 +40,13 @@ api.appHooks.onReconnect = async () => {
 };
 
 api.registerGlobalListeners();
-appMgmt.registerBannerMenuListener();
 
 window.addEventListener("DOMContentLoaded", async () => {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((err) => {
+      console.warn("Service worker registration failed:", err);
+    });
+  }
   api.applyResponsiveResolutionLayout();
   const loadingOverlay = document.getElementById("app-loading-overlay");
   const loadingStatus = document.getElementById("app-loading-status");

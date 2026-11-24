@@ -1,4 +1,4 @@
-"""Primary FastAPI application entry point for ModToolPoC."""
+"""Primary FastAPI application entry point for The Modding Tool."""
 
 from __future__ import annotations
 
@@ -19,13 +19,13 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.audit import append_audit_log, log_action_error, sanitize_audit_text, sanitize_audit_value
-from app.core.config import POC_DIR, STATIC_DIR, TEMPLATES_DIR
+from app.core.config import STATIC_DIR, TEMPLATES_DIR
 from app.core.security import SessionTokenMiddleware, get_session_token
 from app.routers import asset_audit, branding, git_sync, library, mcp_bridge, system
 
@@ -47,10 +47,14 @@ class SafeMimeStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    try:
+        system.register_protocol_handler()
+    except Exception:
+        pass
     append_audit_log(
         action="server.startup",
         status="ok",
-        summary="PoC FastAPI controller initialized on 127.0.0.1:8765",
+        summary="The Modding Tool FastAPI controller initialized on 127.0.0.1:8765",
     )
     try:
         yield
@@ -192,7 +196,7 @@ class ApiErrorCaptureMiddleware(BaseHTTPMiddleware):
         return JSONResponse(status_code=response.status_code, content=payload, headers=headers)
 
 
-app = FastAPI(title="Battlemarked IL2CPP Modding PoC", lifespan=lifespan)
+app = FastAPI(title="The Modding Tool", lifespan=lifespan)
 app.add_middleware(SessionTokenMiddleware)
 app.add_middleware(ApiErrorCaptureMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -269,11 +273,30 @@ app.include_router(branding.router)
 @app.get("/")
 async def serve_index() -> HTMLResponse:
     template_path = TEMPLATES_DIR / "index.html"
-    if not template_path.is_file():
-        template_path = POC_DIR / "index.html"
     html = template_path.read_text(encoding="utf-8")
     html = html.replace("__SESSION_TOKEN__", get_session_token())
     return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/offline")
+async def serve_offline() -> HTMLResponse:
+    template_path = TEMPLATES_DIR / "offline.html"
+    html = template_path.read_text(encoding="utf-8")
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/sw.js")
+async def serve_service_worker() -> Response:
+    sw_path = STATIC_DIR / "sw.js"
+    js_text = sw_path.read_text(encoding="utf-8")
+    return Response(
+        content=js_text,
+        media_type="application/javascript; charset=utf-8",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 if __name__ == "__main__":

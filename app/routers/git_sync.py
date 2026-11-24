@@ -22,6 +22,7 @@ from app.core.audit import append_audit_log, clear_audit_log_cache, read_audit_l
 from app.core.config import (
     ANTI_CHEAT_BINARIES,
     APP_DATA_ROOT,
+    APP_DIR,
     APP_SNAPSHOTS_DIR,
     APP_UI_CONFIG_PATH,
     ASSET_AUDITS_DIR,
@@ -48,7 +49,6 @@ from app.core.config import (
     MANIFEST_DIR,
     PC_SPECS_CACHE_PATH,
     PLUGIN_DEPLOY_FILES,
-    POC_DIR,
     REPO_CONFIG_PATH,
     RESOURCE_ROOT,
     SCAN_EXCLUSIONS_PATH,
@@ -189,7 +189,7 @@ async def export_portable_app() -> dict[str, Any]:
 @router.get("/api/app/export/download")
 async def download_portable_app():
     """Streams the packaged portable Windows .zip archive as a browser download."""
-    zip_path = WORKSPACE_DIR / "dist" / "ModToolPoC-Win64.zip"
+    zip_path = WORKSPACE_DIR / "dist" / "TheModdingTool.zip"
     if not zip_path.is_file():
         pw = _load_workspace_module("package_windows", "package_windows.py")
         pw.build_package()
@@ -198,7 +198,7 @@ async def download_portable_app():
     return FileResponse(
         path=zip_path,
         media_type="application/zip",
-        filename="ModToolPoC-Win64.zip",
+        filename="TheModdingTool.zip",
     )
 
 
@@ -315,10 +315,10 @@ def _create_app_snapshot(tag: str = "pre_sync") -> dict[str, Any]:
     exclude_parts = {".venv", "__pycache__", ".git", "node_modules"}
     file_hashes: dict[str, str] = {}
     copied = 0
-    for fpath in POC_DIR.rglob("*"):
+    for fpath in APP_DIR.rglob("*"):
         if not fpath.is_file():
             continue
-        rel = fpath.relative_to(POC_DIR)
+        rel = fpath.relative_to(APP_DIR)
         if any(part in exclude_parts for part in rel.parts):
             continue
         dest = snap_dir / rel
@@ -362,7 +362,7 @@ def _list_app_snapshots() -> list[dict[str, Any]]:
 def _github_headers(token: str = "") -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "ModToolPoC/1.0",
+        "User-Agent": "TheModdingTool/1.0",
     }
     if token.strip():
         headers["Authorization"] = f"Bearer {token.strip()}"
@@ -501,25 +501,26 @@ async def sync_app_from_github() -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"GitHub zipball download failed: {exc}")
 
     archive_sha256 = hashlib.sha256(zip_bytes).hexdigest()
+    app_root = APP_DIR.resolve()
     extracted_files: list[str] = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         members = [m for m in zf.infolist() if not m.is_dir()]
-        # Detect if repo has a poc-ui/ subfolder
+        # Detect if repo has an app/ subfolder
         stripped_names = [Path(m.filename).parts[1:] for m in members if len(Path(m.filename).parts) > 1]
-        has_poc_ui = any(parts and parts[0].lower() == "poc-ui" for parts in stripped_names)
+        has_app_dir = any(parts and parts[0].lower() == "app" for parts in stripped_names)
         for m in members:
             parts = Path(m.filename).parts
             if len(parts) <= 1:
                 continue
             rel_parts = parts[1:]
-            if has_poc_ui:
-                if rel_parts[0].lower() != "poc-ui" or len(rel_parts) <= 1:
+            if has_app_dir:
+                if rel_parts[0].lower() != "app" or len(rel_parts) <= 1:
                     continue
                 rel_sub = Path(*rel_parts[1:])
             else:
                 rel_sub = Path(*rel_parts)
-            dest = (POC_DIR / rel_sub).resolve()
-            if not str(dest).startswith(str(POC_DIR.resolve())):
+            dest = (app_root / rel_sub).resolve()
+            if not dest.is_relative_to(app_root):
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(m) as src, open(dest, "wb") as dst:
@@ -564,13 +565,14 @@ async def rollback_app_snapshot(req: RollbackSnapshotRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Snapshot '{snap_name}' not found.")
 
     safety_snap = _create_app_snapshot(tag="pre_rollback")
+    app_root = APP_DIR.resolve()
     restored = 0
     for fpath in snap_dir.rglob("*"):
         if not fpath.is_file() or fpath.name == "manifest.json":
             continue
         rel = fpath.relative_to(snap_dir)
-        dest = (POC_DIR / rel).resolve()
-        if not str(dest).startswith(str(POC_DIR.resolve())):
+        dest = (app_root / rel).resolve()
+        if not dest.is_relative_to(app_root):
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(fpath, dest)
@@ -591,10 +593,6 @@ async def rollback_app_snapshot(req: RollbackSnapshotRequest) -> dict[str, Any]:
 
 
 def _resolve_git_app_root() -> Path:
-    if (WORKSPACE_DIR / ".git").is_dir():
-        return WORKSPACE_DIR
-    if (POC_DIR / ".git").is_dir():
-        return POC_DIR
     return WORKSPACE_DIR
 
 

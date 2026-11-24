@@ -90,8 +90,8 @@ export function renderAuditLogsTable() {
 
 
 const DEFAULT_APP_UI_CONFIG = {
-  app_name: "Unity IL2CPP Modding Manager & Live MCP Console",
-  app_subtitle: "FastAPI + Persistent MCP Stdio Bridge (bepinex-mcp)",
+  app_name: "The Modding Tool",
+  app_subtitle: "Platform- & Engine-Agnostic Modding Console",
   accent_color: "#3b82f6",
   compact_mode: false,
   startup_tab: "manager",
@@ -574,7 +574,7 @@ export async function exportPortableAppZip() {
         }
         const a = document.createElement("a");
         a.href = data.download_url || "/api/app/export/download";
-        a.download = "ModToolPoC-Win64.zip";
+        a.download = "TheModdingTool.zip";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -582,8 +582,8 @@ export async function exportPortableAppZip() {
         return data;
       },
       {
-        pendingText: "Packaging portable ModToolPoC-Win64.zip...",
-        successText: (d) => d?.summary || "Exported ModToolPoC-Win64.zip",
+        pendingText: "Packaging portable TheModdingTool.zip...",
+        successText: (d) => d?.summary || "Exported TheModdingTool.zip",
       },
     );
   } catch (err) {
@@ -1138,7 +1138,7 @@ export async function openAppMgmtFolder(kind) {
 }
 
 export async function clearBuiltModsCache() {
-  if (!confirm("Clear all cached built mod folders in %LOCALAPPDATA%\\ModToolPoC\\built_mods?")) return;
+  if (!confirm("Clear all cached built mod folders in %LOCALAPPDATA%\\TheModdingTool\\built_mods?")) return;
   try {
     const resp = await apiPost("/api/app/maintenance/clear-built-mods", {});
     alert((resp.data && resp.data.summary) || "Built mods cache cleared.");
@@ -1169,7 +1169,7 @@ export async function flushAllAppCaches() {
 }
 
 export async function restartAppServer() {
-  if (!confirm("Restart the ModToolPoC server now?")) return;
+  if (!confirm("Restart The Modding Tool server now?")) return;
   const overlay = document.getElementById("app-restarting-overlay");
   const statusEl = document.getElementById("app-restarting-status");
   if (overlay) overlay.style.display = "flex";
@@ -1193,6 +1193,47 @@ export async function restartAppServer() {
       }
     } catch {}
   }, 600);
+}
+
+export async function stopAppServer() {
+  const btn = _resolveAppMgmtBtn("btn-am-stop-server");
+  if (!confirm("Stop The Modding Tool server and open the Offline Control Page?")) return;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/system/shutdown", {});
+        window.location.href = "/offline";
+        return res;
+      },
+      {
+        pendingText: "Stopping local server...",
+        successText: "Server stopped — opening Offline Control Page",
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
+  }
+}
+
+export async function registerProtocolLauncher() {
+  const btn = _resolveAppMgmtBtn("btn-register-protocol");
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/system/register-protocol", {});
+        loadLogs();
+        return res;
+      },
+      {
+        pendingText: "Registering moddingtool:// Windows protocol...",
+        successText: (d) => `Registered ${d?.registry_path || "moddingtool://"} launcher`,
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
+  }
 }
 
 export async function loadWatcherStatus() {
@@ -1222,25 +1263,7 @@ let APP_BANNER_STATE = {
   has_banner: false
 };
 
-export function toggleBannerMenu(ev) {
-  if (ev) ev.stopPropagation();
-  const dd = document.getElementById("banner-dropdown");
-  if (dd) dd.classList.toggle("open");
-}
-
-export function registerBannerMenuListener() {
-  document.addEventListener("click", (ev) => {
-    const wrap = document.getElementById("banner-menu-wrap");
-    const dd = document.getElementById("banner-dropdown");
-    if (dd && wrap && !wrap.contains(ev.target)) {
-      dd.classList.remove("open");
-    }
-  });
-}
-
 export function triggerBannerUpload() {
-  const dd = document.getElementById("banner-dropdown");
-  if (dd) dd.classList.remove("open");
   const inp = document.getElementById("app-banner-file-input");
   if (inp) {
     inp.value = "";
@@ -1251,13 +1274,9 @@ export function triggerBannerUpload() {
 export function applyBannerStateToDOM(cacheBust = false) {
   const slot = document.getElementById("app-banner-slot");
   const img = document.getElementById("app-banner-img");
-  const fitBtn = document.getElementById("btn-banner-fit-toggle");
-  const visBtn = document.getElementById("btn-banner-vis-toggle");
   const fit = APP_BANNER_STATE.banner_fit === "cover" ? "cover" : "contain";
 
   document.documentElement.style.setProperty("--banner-fit", fit);
-  if (fitBtn) fitBtn.textContent = fit === "cover" ? "Fit: Fill (Cover)" : "Fit: Full (Contain)";
-  if (visBtn) visBtn.textContent = APP_BANNER_STATE.banner_enabled ? "Hide Banner" : "Show Banner";
 
   if (!slot || !img) return;
   if (APP_BANNER_STATE.has_banner && APP_BANNER_STATE.banner_enabled) {
@@ -1296,10 +1315,9 @@ export async function loadPersistentBanner() {
 export async function uploadCustomBannerFile(inputEl) {
   const file = inputEl?.files?.[0];
   if (!file) return;
-  const btn = document.getElementById("btn-banner-menu");
   try {
     await runTrackedAction(
-      btn,
+      null,
       async () => {
         const fd = new FormData();
         fd.append("file", file);
@@ -1328,8 +1346,6 @@ export async function uploadCustomBannerFile(inputEl) {
 }
 
 export async function toggleBannerFit() {
-  const dd = document.getElementById("banner-dropdown");
-  if (dd) dd.classList.remove("open");
   const nextFit = APP_BANNER_STATE.banner_fit === "cover" ? "contain" : "cover";
   const res = await apiPost("/api/ui/banner/settings", { banner_fit: nextFit });
   if (res.ok && res.data) {
@@ -1339,8 +1355,6 @@ export async function toggleBannerFit() {
 }
 
 export async function toggleBannerVisibility(explicitState = null) {
-  const dd = document.getElementById("banner-dropdown");
-  if (dd) dd.classList.remove("open");
   const nextEnabled = explicitState !== null ? Boolean(explicitState) : !APP_BANNER_STATE.banner_enabled;
   const res = await apiPost("/api/ui/banner/settings", { banner_enabled: nextEnabled });
   if (res.ok && res.data) {

@@ -1,4 +1,4 @@
-"""Shared configuration, `%LOCALAPPDATA%\\ModToolPoC\\` paths, and in-memory state."""
+"""Shared configuration, `%LOCALAPPDATA%\\TheModdingTool\\` paths, and in-memory state."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,7 @@ WORKSPACE_DIR = (
 APP_DIR = RESOURCE_ROOT / "app"
 STATIC_DIR = APP_DIR / "static"
 TEMPLATES_DIR = APP_DIR / "templates"
-POC_DIR = RESOURCE_ROOT / "poc-ui"
+DATA_DIR = APP_DIR / "data"
 
 
 def _safe_is_file(path: Path) -> bool:
@@ -39,15 +40,11 @@ def _safe_is_file(path: Path) -> bool:
         return False
 
 
-def _resolve_default_venv_python() -> str:
-    candidates = [
-        WORKSPACE_DIR / ".venv" / "Scripts" / "python.exe",
-        WORKSPACE_DIR / "bepinex-mcp" / ".venv" / "Scripts" / "python.exe",
-    ]
-    for c in candidates:
-        if _safe_is_file(c):
-            return str(c)
-    return sys.executable
+def _safe_is_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 def _resolve_default_bepinex_zip() -> str:
@@ -64,11 +61,6 @@ def _resolve_default_bepinex_zip() -> str:
 
 
 DEFAULT_GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\Battlemarked"
-DEFAULT_MCP_APP = str(RESOURCE_ROOT / "bepinex-mcp" / "mcp" / "ModdersHelperApp.py")
-DEFAULT_VENV_PYTHON = _resolve_default_venv_python()
-DEFAULT_PLUGIN_BUILD_DIR = str(
-    RESOURCE_ROOT / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP" / "bin" / "Release" / "net6.0"
-)
 DEFAULT_BEPINEX_ZIP = _resolve_default_bepinex_zip()
 DEFAULT_BEPINEX_SHA256 = "5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4"
 
@@ -88,6 +80,17 @@ PLUGIN_DEPLOY_FILES = [
 ]
 
 
+def migrate_legacy_appdata(new_root: Path, legacy_root: Path) -> bool:
+    """One-time migration copying `%LOCALAPPDATA%\\ModToolPoC\\` to `new_root` when `new_root` does not yet exist."""
+    if new_root.exists() or not legacy_root.is_dir():
+        return False
+    try:
+        shutil.copytree(legacy_root, new_root, dirs_exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 def get_app_data_root() -> Path:
     override = os.environ.get("MODTOOL_DATA_DIR")
     if override:
@@ -95,8 +98,10 @@ def get_app_data_root() -> Path:
         root.mkdir(parents=True, exist_ok=True)
         return root
     local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    root = Path(local_app_data) / "ModToolPoC"
+    root = Path(local_app_data) / "TheModdingTool"
+    legacy_root = Path(local_app_data) / "ModToolPoC"
     try:
+        migrate_legacy_appdata(root, legacy_root)
         root.mkdir(parents=True, exist_ok=True)
         # Verify directory is actually accessible/writable
         (root / "manifests").mkdir(parents=True, exist_ok=True)
@@ -104,7 +109,7 @@ def get_app_data_root() -> Path:
     except OSError:
         import tempfile
 
-        fallback = Path(tempfile.gettempdir()) / "ModToolPoC"
+        fallback = Path(tempfile.gettempdir()) / "TheModdingTool"
         fallback.mkdir(parents=True, exist_ok=True)
         return fallback
 
@@ -134,6 +139,53 @@ REPO_CONFIG_PATH = APP_DATA_ROOT / "repo_config.json"
 APP_SNAPSHOTS_DIR = APP_DATA_ROOT / "app_snapshots"
 ASSET_AUDITS_DIR = APP_DATA_ROOT / "asset_audits"
 DEV_MODE_PATH = APP_DATA_ROOT / "developer_mode.json"
+
+
+def get_bepinex_bridge_roots() -> list[Path]:
+    """Return candidate bepinex-mcp bridge roots, preferring `bridges/bepinex-mcp` over `%LOCALAPPDATA%\\TheModdingTool\\tools\\bepinex-mcp`."""
+    candidates = [
+        WORKSPACE_DIR / "bridges" / "bepinex-mcp",
+        RESOURCE_ROOT / "bridges" / "bepinex-mcp",
+        TOOLS_ROOT / "bepinex-mcp",
+    ]
+    roots: list[Path] = []
+    for c in candidates:
+        if c not in roots:
+            roots.append(c)
+    return roots
+
+
+def _resolve_default_mcp_app() -> str:
+    for root in get_bepinex_bridge_roots():
+        candidate = root / "mcp" / "ModdersHelperApp.py"
+        if _safe_is_file(candidate):
+            return str(candidate)
+    return str(WORKSPACE_DIR / "bridges" / "bepinex-mcp" / "mcp" / "ModdersHelperApp.py")
+
+
+def _resolve_default_venv_python() -> str:
+    candidates = [WORKSPACE_DIR / ".venv" / "Scripts" / "python.exe"]
+    for root in get_bepinex_bridge_roots():
+        candidates.append(root / ".venv" / "Scripts" / "python.exe")
+    for c in candidates:
+        if _safe_is_file(c):
+            return str(c)
+    return sys.executable
+
+
+def _resolve_default_plugin_build_dir() -> str:
+    for root in get_bepinex_bridge_roots():
+        candidate = root / "plugins" / "BepInExMCP.IL2CPP" / "bin" / "Release" / "net6.0"
+        if _safe_is_dir(candidate):
+            return str(candidate)
+    return str(
+        WORKSPACE_DIR / "bridges" / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP" / "bin" / "Release" / "net6.0"
+    )
+
+
+DEFAULT_MCP_APP = _resolve_default_mcp_app()
+DEFAULT_VENV_PYTHON = _resolve_default_venv_python()
+DEFAULT_PLUGIN_BUILD_DIR = _resolve_default_plugin_build_dir()
 
 for _d in (MANIFEST_DIR, BACKUP_ROOT, TOOLS_ROOT, BUILT_MODS_DIR):
     try:

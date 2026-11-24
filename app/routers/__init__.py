@@ -1,1 +1,1 @@
-"""FastAPI APIRouter modules for ModToolPoC."""
+"""FastAPI APIRouter modules for The Modding Tool."""

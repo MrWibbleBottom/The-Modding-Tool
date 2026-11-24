@@ -884,7 +884,7 @@ export async function buildCompatibleMod() {
           mod_name: document.getElementById("mb-mod-name")?.value || "CustomMod",
           mod_id: document.getElementById("mb-mod-id")?.value || "com.modtool.custommod",
           mod_version: document.getElementById("mb-mod-version")?.value || "1.0.0",
-          author: document.getElementById("mb-author")?.value || "ModToolPoC",
+          author: document.getElementById("mb-author")?.value || "The Modding Tool",
           apply_interval_sec: parseFloat(document.getElementById("mb-interval")?.value || "2.0") || 2.0,
           edits: MOD_BUILDER_RULES,
         };

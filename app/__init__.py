@@ -1,1 +1,1 @@
-"""ModToolPoC / Battleground modular FastAPI application package."""
+"""The Modding Tool modular FastAPI application package."""

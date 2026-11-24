@@ -49,7 +49,6 @@ from app.core.config import (
     MANIFEST_DIR,
     PC_SPECS_CACHE_PATH,
     PLUGIN_DEPLOY_FILES,
-    POC_DIR,
     REPO_CONFIG_PATH,
     RESOURCE_ROOT,
     SCAN_EXCLUSIONS_PATH,
@@ -65,6 +64,7 @@ from app.core.config import (
     clear_pc_specs_cache,
     default_managed_games,
     get_app_data_root,
+    get_bepinex_bridge_roots,
     invalidate_games_cache,
     load_managed_games,
     manifest_path_for_game,
@@ -272,8 +272,9 @@ def _check_local_modding_tools(
     allowed_cli = matrix_entry["allowed_loaders_and_cli"]
     game_loaders = _check_per_game_loaders(root_path, detected_engine)
 
-    bep_host_ok = Path(DEFAULT_MCP_APP).is_file() and (
-        (WORKSPACE_DIR / "bepinex-mcp").is_dir() or (RESOURCE_ROOT / "bepinex-mcp").is_dir()
+    bep_host_ok = Path(DEFAULT_MCP_APP).is_file() or any(
+        r.is_dir() and (r / "mcp" / "ModdersHelperApp.py").is_file()
+        for r in get_bepinex_bridge_roots()
     )
     ue4ss_host_ok = (TOOLS_ROOT / "re_ue4ss").is_dir() or (TOOLS_ROOT / "UE4SS").is_dir()
     godot_host_ok = bool(shutil.which("godot"))

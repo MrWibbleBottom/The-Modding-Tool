@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Modding Tool — Offline</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --panel: #131b26;
+      --panel-alt: #182232;
+      --border: #263449;
+      --border-strong: #354865;
+      --text: #e6edf7;
+      --muted: #8ea0b8;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-border: #3b82f6;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --code-bg: #090d13;
+    }
+    body.offline-body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at top, #152033 0%, var(--bg) 65%);
+      color: var(--text);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .offline-card {
+      width: 100%;
+      max-width: 560px;
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      padding: 28px;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .offline-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .offline-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .offline-brand h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .offline-desc {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .offline-status-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .offline-status-meta {
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .offline-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .offline-actions button {
+      flex: 1 1 180px;
+      min-height: 40px;
+      font-size: 0.88rem;
+    }
+  </style>
+</head>
+<body class="offline-body">
+  <main class="offline-card">
+    <div class="offline-head">
+      <div class="offline-brand">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="2" y="2" width="20" height="20" rx="5" fill="#1e293b" stroke="#3b82f6" stroke-width="1.6"/>
+          <path d="M8 12h8M12 8v8" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <h1>The Modding Tool — Offline</h1>
+      </div>
+      <span id="offline-status-pill" class="pill no">Server Offline</span>
+    </div>
+
+    <p class="offline-desc">
+      The local FastAPI backend on <code>http://127.0.0.1:8765</code> is currently stopped or unreachable.
+      Use <strong>Start Server</strong> to launch it via the registered <code>moddingtool://</code> handler,
+      or click <strong>Retry Connection</strong> if you started it manually.
+    </p>
+
+    <div class="offline-status-box">
+      <div id="offline-status-text" style="font-size:0.84rem; color:#e2e8f0; font-weight:600;">
+        Waiting for server on http://127.0.0.1:8765...
+      </div>
+      <div id="offline-poll-meta" class="offline-status-meta">Polling /api/health every 1.5s</div>
+    </div>
+
+    <div class="offline-actions">
+      <button id="btn-start-server" class="success" type="button" onclick="startServer()">
+        Start Server
+      </button>
+      <button id="btn-retry-connection" class="secondary" type="button" onclick="retryConnection()">
+        Retry Connection
+      </button>
+    </div>
+
+    <div class="hint" style="margin-top:4px;">
+      This control page is served from the local Service Worker cache so you can start or reconnect to
+      The Modding Tool anytime without keeping a terminal open.
+    </div>
+  </main>
+
+  <script>
+    const HEALTH_URL = "/api/health";
+    let pollCount = 0;
+    let checking = false;
+    let launching = false;
+
+    function updateStatus(state, pillText, message) {
+      const pill = document.getElementById("offline-status-pill");
+      const text = document.getElementById("offline-status-text");
+      const meta = document.getElementById("offline-poll-meta");
+      if (pill) {
+        pill.className = `pill ${state}`;
+        pill.textContent = pillText;
+      }
+      if (text && message) {
+        text.textContent = message;
+      }
+      if (meta) {
+        meta.textContent = `Check #${pollCount} · Polling /api/health every 1.5s`;
+      }
+    }
+
+    async function checkHealth(manual = false) {
+      if (checking) return;
+      checking = true;
+      pollCount += 1;
+      if (manual) {
+        updateStatus("warn", "Checking...", "Checking http://127.0.0.1:8765/api/health...");
+      }
+      try {
+        const resp = await fetch(HEALTH_URL, { cache: "no-store" });
+        if (resp.status === 200) {
+          updateStatus("yes", "Server Online", "Server is online! Redirecting to The Modding Tool...");
+          window.location.replace("/");
+          return;
+        }
+        updateStatus("no", "Server Offline", `Server returned HTTP ${resp.status}. Waiting for 200 OK...`);
+      } catch {
+        if (launching) {
+          updateStatus("warn", "Starting...", "Launch signal sent (moddingtool://start). Waiting for server...");
+        } else {
+          updateStatus("no", "Server Offline", "Waiting for server on http://127.0.0.1:8765...");
+        }
+      } finally {
+        checking = false;
+      }
+    }
+
+    function startServer() {
+      launching = true;
+      updateStatus("warn", "Starting...", "Launching server via moddingtool://start...");
+      window.location.href = "moddingtool://start";
+    }
+
+    function retryConnection() {
+      checkHealth(true);
+    }
+
+    setInterval(() => checkHealth(false), 1500);
+  </script>
+</body>
+</html>

@@ -1,1 +1,1 @@
-"""Core utilities, configuration, security, and audit logging for ModToolPoC."""
+"""Core utilities, configuration, security, and audit logging for The Modding Tool."""

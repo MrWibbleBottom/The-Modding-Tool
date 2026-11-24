@@ -1,10 +1,11 @@
 """
-Automated smoke tests for ModToolPoC FastAPI controller, caching/ETag,
+Automated smoke tests for The Modding Tool FastAPI controller, caching/ETag,
 mod builder (including Harmony hooks), version manager, and backup restore.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -40,11 +41,17 @@ class AppSmokeTests(unittest.TestCase):
             "cmd-palette-overlay",
             "app-loading-overlay",
             "app-restarting-overlay",
+            "scan-log-panel",
+            "btn-toggle-scan-log",
+            "btn-copy-scan-log",
+            "btn-close-scan-log",
             "/static/app.css",
             "/static/js/main.js",
             'name="modtool-session-token"',
         ):
             self.assertIn(marker, html)
+        self.assertNotIn("scan-progress-wrap", html)
+        self.assertNotIn("scan-progress-bar", html)
 
     def test_static_assets_and_health(self) -> None:
         r_css = self.client.get("/static/app.css")
@@ -403,11 +410,694 @@ class AppSmokeTests(unittest.TestCase):
         idx = backup_manager.load_index()
         versions = idx.get("versions", [])
         self.assertGreaterEqual(len(versions), 1)
-        latest_id = versions[-1]["version_id"]
+        latest = versions[-1]
+        latest_id = latest["version_id"]
+        manifest = json.loads((backup_manager.BACKUPS_DIR / latest["folder"] / "manifest.json").read_text(encoding="utf-8"))
+        expected = manifest.get("files", {})
+        self.assertGreaterEqual(len(expected), 1)
         with tempfile.TemporaryDirectory() as tmp:
             backup_manager.restore_version(latest_id, Path(tmp))
-            self.assertTrue((Path(tmp) / "poc-ui" / "controller.py").is_file())
-            self.assertTrue((Path(tmp) / "poc-ui" / "index.html").is_file())
+            for rel, meta in expected.items():
+                restored = Path(tmp) / rel
+                self.assertTrue(restored.is_file(), rel)
+                self.assertEqual(backup_manager.sha256_file(restored), meta["sha256"], rel)
+
+    def test_appdata_path_and_legacy_migration(self) -> None:
+        import os
+        from unittest.mock import patch
+        from app.core import config as core_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local_app = Path(tmp)
+            legacy_dir = local_app / "ModToolPoC"
+            legacy_dir.mkdir()
+            (legacy_dir / "managed_games.json").write_text('{"games": []}', encoding="utf-8")
+            (legacy_dir / "audit.jsonl").write_text('{"action": "legacy"}\n', encoding="utf-8")
+
+            env_patch = {"LOCALAPPDATA": str(local_app)}
+            with patch.dict(os.environ, env_patch, clear=False):
+                os.environ.pop("MODTOOL_DATA_DIR", None)
+                resolved = core_config.get_app_data_root()
+                self.assertEqual(resolved, local_app / "TheModdingTool")
+                self.assertTrue((resolved / "managed_games.json").is_file())
+                self.assertTrue((resolved / "audit.jsonl").is_file())
+
+                # Second call must not overwrite newer files in TheModdingTool
+                (resolved / "managed_games.json").write_text('{"games": ["updated"]}', encoding="utf-8")
+                self.assertFalse(core_config.migrate_legacy_appdata(resolved, legacy_dir))
+                self.assertIn("updated", (resolved / "managed_games.json").read_text(encoding="utf-8"))
+
+    def test_steam_reference_csv_and_packaging_config(self) -> None:
+        from app.routers import library as library_router
+        import package_windows
+
+        self.assertEqual(library_router.STEAM_REF_CSV.parts[-3:], ("app", "data", "steam_games_reference.csv"))
+        rows = library_router.load_steam_reference_sheet()
+        self.assertGreater(len(rows), 0)
+
+        cmd = package_windows.build_pyinstaller_command()
+        self.assertIn("TheModdingTool", cmd)
+        self.assertIn("--icon", cmd)
+        self.assertTrue(any("app/data" in arg and "steam_games_reference.csv" in arg for arg in cmd))
+
+    def test_branding_upload_pillow_cropping(self) -> None:
+        import io
+        from PIL import Image
+        from app.routers import branding as branding_router
+
+        buf = io.BytesIO()
+        Image.new("RGBA", (400, 200), (20, 120, 220, 255)).save(buf, format="PNG")
+        raw = buf.getvalue()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            fav_png = branding_router._save_processed_favicon(raw, ".png", tmp_dir)
+            self.assertEqual(fav_png.name, "favicon.png")
+            with Image.open(fav_png) as im_png:
+                self.assertEqual(im_png.size, (64, 64))
+            ico_path = tmp_dir / "app.ico"
+            self.assertTrue(ico_path.is_file())
+            with Image.open(ico_path) as im_ico:
+                self.assertEqual(im_ico.format, "ICO")
+
+            banner_png = branding_router._save_processed_banner(raw, ".png", tmp_dir / "banner")
+            self.assertEqual(banner_png.name, "banner.png")
+            with Image.open(banner_png) as im_ban:
+                self.assertEqual(im_ban.size, (1500, 300))
+
+    def test_bepinex_bridge_discovery_paths(self) -> None:
+        from unittest.mock import patch
+        from app.core import config as core_config
+        from app.routers import asset_audit
+
+        self.assertEqual(
+            Path(core_config.DEFAULT_MCP_APP).parts[-4:],
+            ("bridges", "bepinex-mcp", "mcp", "ModdersHelperApp.py"),
+        )
+        self.assertTrue(Path(core_config.DEFAULT_MCP_APP).is_file())
+        self.assertEqual(
+            Path(core_config.DEFAULT_VENV_PYTHON),
+            core_config.WORKSPACE_DIR / ".venv" / "Scripts" / "python.exe",
+        )
+        roots = core_config.get_bepinex_bridge_roots()
+        self.assertEqual(roots[0], core_config.WORKSPACE_DIR / "bridges" / "bepinex-mcp")
+        self.assertEqual(roots[-1], core_config.TOOLS_ROOT / "bepinex-mcp")
+
+        # Verify %LOCALAPPDATA%\TheModdingTool\tools\bepinex-mcp\ fallback works when workspace bridge is absent
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_ws = Path(tmp) / "ws"
+            fake_tools = Path(tmp) / "tools"
+            fake_game = Path(tmp) / "game"
+            (fake_ws).mkdir()
+            (fake_game).mkdir()
+            fallback_mcp = fake_tools / "bepinex-mcp" / "mcp" / "ModdersHelperApp.py"
+            fallback_mcp.parent.mkdir(parents=True)
+            fallback_mcp.write_text("# stub", encoding="utf-8")
+
+            with (
+                patch.object(asset_audit, "WORKSPACE_DIR", fake_ws),
+                patch.object(asset_audit, "RESOURCE_ROOT", fake_ws),
+                patch.object(asset_audit, "TOOLS_ROOT", fake_tools),
+                patch.object(asset_audit, "DEFAULT_MCP_APP", str(fake_ws / "missing.py")),
+                patch.object(core_config, "WORKSPACE_DIR", fake_ws),
+                patch.object(core_config, "RESOURCE_ROOT", fake_ws),
+                patch.object(core_config, "TOOLS_ROOT", fake_tools),
+            ):
+                tools, _ = asset_audit._check_local_modding_tools(fake_game, "unity_il2cpp")
+                self.assertTrue(tools["bepinex-mcp"]["host_available"])
+
+    def test_offline_page_service_worker_and_ui_controls(self) -> None:
+        r_off = self.client.get("/offline")
+        self.assertEqual(r_off.status_code, 200)
+        for marker in (
+            "The Modding Tool — Offline",
+            "moddingtool://start",
+            "Start Server",
+            "Retry Connection",
+            "/api/health",
+        ):
+            self.assertIn(marker, r_off.text)
+
+        r_sw = self.client.get("/sw.js")
+        self.assertEqual(r_sw.status_code, 200)
+        self.assertEqual(r_sw.headers.get("service-worker-allowed"), "/")
+        self.assertIn("javascript", r_sw.headers.get("content-type", "").lower())
+        self.assertIn("/offline", r_sw.text)
+        self.assertIn("/static/app.css", r_sw.text)
+
+        r_idx = self.client.get("/")
+        self.assertEqual(r_idx.status_code, 200)
+        for ui_marker in (
+            "btn-header-stop-server",
+            "btn-am-stop-server",
+            "btn-register-protocol",
+            "stopAppServer()",
+            "registerProtocolLauncher()",
+        ):
+            self.assertIn(ui_marker, r_idx.text)
+
+        main_js = self.client.get("/static/js/main.js").text
+        self.assertIn("/sw.js", main_js)
+
+        app_mgmt_js = self.client.get("/static/js/app_mgmt.js").text
+        self.assertIn("/api/system/shutdown", app_mgmt_js)
+        self.assertIn("/api/system/register-protocol", app_mgmt_js)
+        self.assertIn('"/offline"', app_mgmt_js)
+
+        bat_text = (ROOT / "start_app.bat").read_text(encoding="utf-8")
+        self.assertIn("--no-browser", bat_text)
+        self.assertIn("8765", bat_text)
+
+    def test_system_shutdown_and_protocol_registration(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from app.core import audit as core_audit
+        from app.routers import system as system_router
+
+        self.assertEqual(self.client.post("/api/system/shutdown").status_code, 403)
+        self.assertEqual(self.client.post("/api/system/register-protocol").status_code, 403)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            written_keys: list[tuple[str, str, object]] = []
+
+            class FakeRegKey:
+                def __init__(self, subkey: str) -> None:
+                    self.subkey = subkey
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+            fake_winreg = SimpleNamespace(
+                HKEY_CURRENT_USER="HKCU",
+                KEY_SET_VALUE=2,
+                REG_SZ=1,
+                CreateKeyEx=lambda root, subkey, res, access: FakeRegKey(subkey),
+                SetValueEx=lambda key, name, reserved, reg_type, value: written_keys.append(
+                    (key.subkey, name, value)
+                ),
+            )
+
+            with (
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+                patch.object(system_router, "_schedule_process_shutdown") as mock_sched,
+                patch.dict(sys.modules, {"winreg": fake_winreg}),
+                patch.object(sys, "platform", "win32"),
+            ):
+                r_shut = self.client.post(
+                    "/api/system/shutdown",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_shut.status_code, 200)
+                self.assertEqual(r_shut.json(), {"ok": True})
+                mock_sched.assert_called_once()
+
+                r_proto = self.client.post(
+                    "/api/system/register-protocol",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_proto.status_code, 200)
+                pdata = r_proto.json()
+                self.assertTrue(pdata.get("ok"))
+                self.assertEqual(pdata.get("registry_path"), r"HKCU\Software\Classes\moddingtool")
+                self.assertIn("start_app.bat", pdata.get("command", ""))
+                self.assertIn("--no-browser", pdata.get("command", ""))
+                self.assertNotIn("%1", pdata.get("command", ""))
+
+            self.assertIn((r"Software\Classes\moddingtool", "URL Protocol", ""), written_keys)
+            cmd_entries = [
+                v for k, n, v in written_keys
+                if k == r"Software\Classes\moddingtool\shell\open\command" and n == ""
+            ]
+            self.assertEqual(len(cmd_entries), 1)
+            self.assertIn("--no-browser", str(cmd_entries[0]))
+            self.assertNotIn("%1", str(cmd_entries[0]))
+
+            logged = [json.loads(ln) for ln in temp_audit.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            self.assertTrue(any(e.get("action") == "SERVER_STOPPED" for e in logged))
+            self.assertTrue(any(e.get("action") == "app.protocol.register" for e in logged))
+
+    def test_unreal_metadata_rescan_and_ini_settings(self) -> None:
+        from unittest.mock import patch
+        from app.core import audit as core_audit
+        from app.core import config as core_config
+        from app.routers import library as library_router
+        from app.routers import system as system_router
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            game_dir = tmp_dir / "UnrealSampleGame"
+            (game_dir / "SampleProj" / "Binaries" / "Win64").mkdir(parents=True)
+            (game_dir / "SampleProj" / "Content" / "Paks").mkdir(parents=True)
+            (game_dir / "SampleProj" / "Config").mkdir(parents=True)
+            (game_dir / "SampleProj" / "Binaries" / "Win64" / "SampleProj-Win64-Shipping.exe").write_bytes(b"MZ")
+            (game_dir / "SampleProj" / "Content" / "Paks" / "pakchunk0-Windows.pak").write_bytes(b"PAK0")
+
+            gus_ini = tmp_dir / "GameUserSettings.ini"
+            gus_ini.write_text(
+                "[/Script/Engine.GameUserSettings]\n"
+                "ResolutionSizeX=1920\n"
+                "ResolutionSizeY=1080\n"
+                "FullscreenMode=1\n"
+                "bUseVSync=False\n"
+                "FrameRateLimit=120.000000\n"
+                "[ScalabilityGroups]\n"
+                "sg.ResolutionQuality=100\n"
+                "sg.ViewDistanceQuality=2\n"
+                "sg.AntiAliasingQuality=2\n"
+                "sg.ShadowQuality=2\n"
+                "sg.GlobalIlluminationQuality=2\n"
+                "sg.ReflectionQuality=2\n"
+                "sg.PostProcessQuality=2\n"
+                "sg.TextureQuality=2\n"
+                "sg.EffectsQuality=2\n"
+                "sg.FoliageQuality=2\n"
+                "sg.ShadingQuality=2\n"
+                "sg.LandscapeQuality=2\n",
+                encoding="utf-8",
+            )
+
+            temp_games_store = tmp_dir / "managed_games.json"
+            temp_games_store.write_text(
+                json.dumps(
+                    {
+                        "active_game_id": "unreal_sample",
+                        "selected_id": "unreal_sample",
+                        "games": [
+                            {
+                                "id": "unreal_sample",
+                                "name": "Unreal Sample Game",
+                                "title": "Unreal Sample Game",
+                                "game_dir": str(game_dir),
+                                "runtime": "Unreal_Engine",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_specs = {
+                "cpu": {"name": "Test CPU", "physical_cores": 8, "logical_threads": 16},
+                "gpu": {"name": "Test GPU", "vram_total_gb": 12.0},
+                "ram": {"total_gb": 32.0, "available_gb": 20.0},
+                "display": {"width": 2560, "height": 1440, "resolution_label": "2560x1440", "refresh_rate_hz": 144},
+                "tier": {"name": "Upper-Mid"},
+            }
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "scrape_pc_specs", return_value=fake_specs),
+                patch.object(system_router, "scrape_pc_specs", return_value=fake_specs),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                r_rescan = self.client.post(
+                    "/api/games/rescan",
+                    json={"game_id": "unreal_sample"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_rescan.status_code, 200)
+                rescan_data = r_rescan.json()
+                self.assertEqual(rescan_data.get("status"), "ok")
+                cached_info = rescan_data.get("game", {}).get("cached_modding_info", {})
+                self.assertTrue(cached_info.get("is_unreal_engine"))
+
+                r_ue = self.client.post(
+                    "/api/games/unreal-settings",
+                    json={
+                        "game_id": "unreal_sample",
+                        "custom_ini_path": str(gus_ini),
+                        "reference_tier_id": "tier_mid_8gb_3000_4060",
+                    },
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_ue.status_code, 200)
+                ue_data = r_ue.json()
+                self.assertEqual(ue_data.get("status"), "ok")
+                ue_settings = ue_data.get("unreal_settings", {})
+                self.assertTrue(ue_settings.get("ini_found"))
+                self.assertEqual(
+                    ue_settings.get("summary_metrics", {}).get("average_scalability_label"),
+                    "High (2)",
+                )
+
+    def test_unity_bridge_discovery_and_all_router_endpoints(self) -> None:
+        from unittest.mock import patch
+        from app.core import audit as core_audit
+        from app.core import config as core_config
+        from app.routers import branding as branding_router
+        from app.routers import library as library_router
+        from app.routers import mcp_bridge as mcp_router
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+            temp_ui_cfg = tmp_dir / "app_ui_config.json"
+            temp_ui_settings = tmp_dir / "ui_settings.json"
+            temp_built_mods = tmp_dir / "built_mods"
+            temp_games_store = tmp_dir / "managed_games.json"
+
+            # Mock Unity IL2CPP game for fingerprint & bridge discovery
+            unity_game = tmp_dir / "UnityIl2CppSample"
+            (unity_game / "UnitySample_Data" / "il2cpp_data" / "Metadata").mkdir(parents=True)
+            (unity_game / "GameAssembly.dll").write_bytes(b"MZ-IL2CPP")
+            (unity_game / "UnitySample_Data" / "il2cpp_data" / "Metadata" / "global-metadata.dat").write_bytes(b"META")
+
+            # Mock Unreal game for /api/mods/build (uses make_slug + inspect_game_modding_info)
+            ue_game = tmp_dir / "UnrealModSample"
+            (ue_game / "Sample" / "Binaries" / "Win64").mkdir(parents=True)
+            (ue_game / "Sample" / "Content" / "Paks").mkdir(parents=True)
+            (ue_game / "Sample" / "Binaries" / "Win64" / "Sample-Win64-Shipping.exe").write_bytes(b"MZ")
+            (ue_game / "Sample" / "Content" / "Paks" / "pakchunk0-Windows.pak").write_bytes(b"PAK0")
+
+            temp_games_store.write_text(
+                json.dumps(
+                    {
+                        "active_game_id": "ue_mod_sample",
+                        "selected_id": "ue_mod_sample",
+                        "games": [
+                            {
+                                "id": "ue_mod_sample",
+                                "name": "Unreal Mod Sample",
+                                "title": "Unreal Mod Sample",
+                                "game_dir": str(ue_game),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+                patch.object(branding_router, "APP_UI_CONFIG_PATH", temp_ui_cfg),
+                patch.object(branding_router, "UI_SETTINGS_PATH", temp_ui_settings),
+                patch.object(mcp_router, "BUILT_MODS_DIR", temp_built_mods),
+                patch.object(mcp_router, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+            ):
+                # 1. library router
+                self.assertEqual(self.client.get("/api/games").status_code, 200)
+                self.assertEqual(self.client.get("/api/games/scan-progress").status_code, 200)
+                self.assertEqual(self.client.get("/api/library").status_code, 200)
+
+                # 2. asset_audit router (+ bridges/bepinex-mcp discovery)
+                r_guide = self.client.get("/api/game/moddability-guide")
+                self.assertEqual(r_guide.status_code, 200)
+                r_assets = self.client.post(
+                    "/api/game/analyze-assets",
+                    json={"root_path": str(unity_game)},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_assets.status_code, 200)
+                assets_data = r_assets.json()
+                self.assertEqual(assets_data.get("detected_engine"), "unity_il2cpp")
+                self.assertTrue(assets_data.get("tools", {}).get("bepinex-mcp", {}).get("host_available"))
+
+                # 3. mcp_bridge router
+                r_fp = self.client.post(
+                    "/api/fingerprint",
+                    json={"game_dir": str(unity_game)},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_fp.status_code, 200)
+                self.assertTrue(r_fp.json().get("is_unity_il2cpp"))
+
+                r_build = self.client.post(
+                    "/api/mods/build",
+                    json={"game_id": "ue_mod_sample", "game_dir": str(ue_game), "mod_name": "Smoke Unreal Mod"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_build.status_code, 200)
+                self.assertEqual(r_build.json().get("status"), "ok")
+
+                # 4. git_sync router
+                self.assertEqual(self.client.get("/api/app/backups").status_code, 200)
+                self.assertEqual(self.client.get("/api/app/repo-config").status_code, 200)
+                self.assertEqual(self.client.get("/api/app/git-status").status_code, 200)
+
+                # 5. branding router
+                self.assertEqual(self.client.get("/api/app-ui-config").status_code, 200)
+                r_ui_post = self.client.post(
+                    "/api/app-ui-config",
+                    json={"app_name": "The Modding Tool"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_ui_post.status_code, 200)
+                self.assertEqual(self.client.get("/api/ui/banner/settings").status_code, 200)
+                r_ban_post = self.client.post(
+                    "/api/ui/banner/settings",
+                    json={"banner_enabled": True, "banner_fit": "contain"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_ban_post.status_code, 200)
+
+                # 6. system router
+                self.assertEqual(self.client.get("/api/defaults").status_code, 200)
+                self.assertEqual(self.client.get("/api/app/diagnostics").status_code, 200)
+                r_tools = self.client.get("/api/app/tools/status")
+                self.assertEqual(r_tools.status_code, 200)
+                tools_by_id = {t["id"]: t for t in r_tools.json().get("tools", [])}
+                self.assertIn("bridges\\bepinex-mcp", tools_by_id["bepinex_mcp_plugin"]["path"])
+                self.assertEqual(self.client.get("/api/app/dev-mode").status_code, 200)
+
+    def test_non_game_exclusions_and_unreal_editor_ini_filter(self) -> None:
+        import os
+        from unittest.mock import patch
+        from app.core import audit as core_audit
+        from app.core import config as core_config
+        from app.routers import library as library_router
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+
+            # 1. Mock Steam library with 228980, Dedicated Server, and a real game
+            steam_root = tmp_dir / "SteamRoot"
+            steamapps = steam_root / "steamapps"
+            common = steamapps / "common"
+            (common / "Steamworks Shared").mkdir(parents=True)
+            (common / "Steamworks Shared" / "redist.exe").write_bytes(b"MZ")
+            (common / "Sample Dedicated Server").mkdir(parents=True)
+            (common / "Sample Dedicated Server" / "server.exe").write_bytes(b"MZ")
+            (common / "ValidRealGame").mkdir(parents=True)
+            (common / "ValidRealGame" / "ValidRealGame.exe").write_bytes(b"MZ")
+
+            (steamapps / "appmanifest_228980.acf").write_text(
+                '"AppState"\n{\n\t"appid"\t\t"228980"\n\t"name"\t\t"Steamworks Common Redistributables"\n\t"StateFlags"\t\t"4"\n\t"installdir"\t\t"Steamworks Shared"\n}\n',
+                encoding="utf-8",
+            )
+            (steamapps / "appmanifest_999001.acf").write_text(
+                '"AppState"\n{\n\t"appid"\t\t"999001"\n\t"name"\t\t"Sample Dedicated Server"\n\t"StateFlags"\t\t"4"\n\t"installdir"\t\t"Sample Dedicated Server"\n}\n',
+                encoding="utf-8",
+            )
+            (steamapps / "appmanifest_999002.acf").write_text(
+                '"AppState"\n{\n\t"appid"\t\t"999002"\n\t"name"\t\t"Valid Real Game"\n\t"StateFlags"\t\t"4"\n\t"installdir"\t\t"ValidRealGame"\n}\n',
+                encoding="utf-8",
+            )
+
+            with patch.object(library_router, "_locate_steam_root", return_value=steam_root):
+                steam_entries = library_router.scan_steam_installed()
+            steam_titles = {e["title"] for e in steam_entries}
+            self.assertEqual(steam_titles, {"Valid Real Game"})
+
+            # 2. Direct is_non_game_entry & custom-folder /api/games/scan checks
+            self.assertTrue(library_router.is_non_game_entry("228980", "Steamworks Common Redistributables", ""))
+            self.assertTrue(library_router.is_non_game_entry(None, "My Game Dedicated Server", ""))
+
+            scan_root = tmp_dir / "ScanLibrary"
+            ue_editor_dir = scan_root / "EngineInstall"
+            (ue_editor_dir / "Engine" / "Binaries" / "Win64").mkdir(parents=True)
+            (ue_editor_dir / "Engine" / "Binaries" / "Win64" / "UnrealEditor.exe").write_bytes(b"MZ")
+
+            ue_named_dir = scan_root / "Unreal Engine"
+            (ue_named_dir / "Binaries").mkdir(parents=True)
+            (ue_named_dir / "Binaries" / "Tool.exe").write_bytes(b"MZ")
+
+            ded_dir = scan_root / "Palworld Dedicated Server"
+            ded_dir.mkdir(parents=True)
+            (ded_dir / "PalServer.exe").write_bytes(b"MZ")
+
+            redist_dir = scan_root / "Steamworks Common Redistributables"
+            redist_dir.mkdir(parents=True)
+            (redist_dir / "helper.exe").write_bytes(b"MZ")
+
+            real_ue_game = scan_root / "ValidUnrealGame"
+            (real_ue_game / "ValidProj" / "Binaries" / "Win64").mkdir(parents=True)
+            (real_ue_game / "ValidProj" / "Content" / "Paks").mkdir(parents=True)
+            (real_ue_game / "ValidProj" / "Binaries" / "Win64" / "ValidProj-Win64-Shipping.exe").write_bytes(b"MZ")
+            (real_ue_game / "ValidProj" / "Content" / "Paks" / "pakchunk0-Windows.pak").write_bytes(b"PAK0")
+
+            self.assertTrue(library_router.is_non_game_entry(None, "EngineInstall", ue_editor_dir))
+            self.assertFalse(library_router.is_non_game_entry(None, "ValidUnrealGame", real_ue_game))
+
+            temp_games_store = tmp_dir / "managed_games.json"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                r_scan = self.client.post(
+                    "/api/games/scan",
+                    json={"custom_path": str(scan_root), "auto_populate": False},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_scan.status_code, 200)
+                scan_data = r_scan.json()
+                discovered_dirs = {Path(d["game_dir"]).name for d in scan_data.get("discovered", [])}
+                self.assertEqual(discovered_dirs, {"ValidUnrealGame"})
+
+            # 3. discover_local_unreal_ini_profiles excludes non-game LOCALAPPDATA roots & WindowsEditor
+            fake_local = tmp_dir / "LocalAppData"
+            ue_editor_ini = fake_local / "UnrealEngine" / "5.4" / "Saved" / "Config" / "WindowsEditor" / "GameUserSettings.ini"
+            ue_editor_ini.parent.mkdir(parents=True)
+            ue_editor_ini.write_text("[/Script/Engine.GameUserSettings]\nResolutionSizeX=1920\n", encoding="utf-8")
+
+            ue_root_win_ini = fake_local / "UnrealEngine" / "Saved" / "Config" / "Windows" / "GameUserSettings.ini"
+            ue_root_win_ini.parent.mkdir(parents=True)
+            ue_root_win_ini.write_text("[/Script/Engine.GameUserSettings]\nResolutionSizeX=1920\n", encoding="utf-8")
+
+            game_editor_only_ini = fake_local / "EditorOnlyProj" / "Saved" / "Config" / "WindowsEditor" / "GameUserSettings.ini"
+            game_editor_only_ini.parent.mkdir(parents=True)
+            game_editor_only_ini.write_text("[/Script/Engine.GameUserSettings]\nResolutionSizeX=1920\n", encoding="utf-8")
+
+            valid_game_ini = fake_local / "DaysGoneClone" / "Saved" / "Config" / "WindowsNoEditor" / "GameUserSettings.ini"
+            valid_game_ini.parent.mkdir(parents=True)
+            valid_game_ini.write_text("[/Script/Engine.GameUserSettings]\nResolutionSizeX=2560\n", encoding="utf-8")
+
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(fake_local)}, clear=False):
+                profiles = library_router.discover_local_unreal_ini_profiles()
+            self.assertEqual(len(profiles), 1)
+            self.assertEqual(profiles[0]["project_name"], "DaysGoneClone")
+            self.assertEqual(profiles[0]["platform_folder"], "WindowsNoEditor")
+
+    def test_load_game_switches_full_profile_and_ui_wiring(self) -> None:
+        from unittest.mock import patch
+        from app.core import audit as core_audit
+        from app.core import config as core_config
+        from app.routers import library as library_router
+        from app.routers import system as system_router
+
+        html = self.client.get("/").text
+        for marker in (
+            "header-quick-load",
+            "global-game-select",
+            "onGlobalGameSelected()",
+            "info-slug-badge",
+            "info-engine-badge",
+        ):
+            self.assertIn(marker, html)
+
+        lib_js = self.client.get("/static/js/library.js").text
+        self.assertIn("export function renderActiveGamePanel", lib_js)
+        self.assertIn("import { ENTITIES, VARIABLES, syncModBuilderWithGame }", lib_js)
+        self.assertIn("renderActiveGamePanel(localGame", lib_js)
+        self.assertIn("renderActiveGamePanel(data.game)", lib_js)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            game_a = tmp_dir / "GameA_Unity"
+            (game_a / "GameA_Data" / "il2cpp_data" / "Metadata").mkdir(parents=True)
+            (game_a / "GameAssembly.dll").write_bytes(b"MZ-IL2CPP")
+            (game_a / "GameA_Data" / "il2cpp_data" / "Metadata" / "global-metadata.dat").write_bytes(b"META")
+            (game_a / "GameA.exe").write_bytes(b"MZ")
+
+            game_b = tmp_dir / "GameB_Unreal"
+            (game_b / "ProjB" / "Binaries" / "Win64").mkdir(parents=True)
+            (game_b / "ProjB" / "Content" / "Paks").mkdir(parents=True)
+            (game_b / "ProjB" / "Binaries" / "Win64" / "ProjB-Win64-Shipping.exe").write_bytes(b"MZ")
+            (game_b / "ProjB" / "Content" / "Paks" / "pakchunk0-Windows.pak").write_bytes(b"PAK0")
+
+            temp_games_store = tmp_dir / "managed_games.json"
+            temp_games_store.write_text(
+                json.dumps(
+                    {
+                        "active_game_id": "game_a",
+                        "selected_id": "game_a",
+                        "games": [
+                            {"id": "game_a", "name": "Alpha Unity Game", "game_dir": str(game_a), "runtime": "Unity_IL2CPP"},
+                            {"id": "game_b", "name": "Beta Unreal Game", "game_dir": str(game_b), "runtime": "Unreal Engine 4/5"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_specs = {
+                "cpu": {"name": "Test CPU", "physical_cores": 8, "logical_threads": 16},
+                "gpu": {"name": "Test GPU", "vram_total_gb": 12.0},
+                "ram": {"total_gb": 32.0, "available_gb": 20.0},
+                "display": {"width": 2560, "height": 1440, "resolution_label": "2560x1440", "refresh_rate_hz": 144},
+                "tier": {"name": "Upper-Mid"},
+            }
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "scrape_pc_specs", return_value=fake_specs),
+                patch.object(system_router, "scrape_pc_specs", return_value=fake_specs),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                r_a = self.client.post(
+                    "/api/games/select",
+                    json={"game_id": "game_a"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_a.status_code, 200)
+                da = r_a.json()
+                self.assertEqual(da.get("active_game_id"), "game_a")
+                self.assertEqual(da.get("game", {}).get("detected_engine"), "unity_il2cpp")
+                self.assertTrue(da.get("game", {}).get("metadata_scraped"))
+
+                r_b = self.client.post(
+                    "/api/games/load",
+                    json={"game_id": "game_b"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_b.status_code, 200)
+                db = r_b.json()
+                self.assertEqual(db.get("active_game_id"), "game_b")
+                gb = db.get("game", {})
+                self.assertEqual(gb.get("id"), "game_b")
+                self.assertEqual(gb.get("name"), "Beta Unreal Game")
+                self.assertEqual(gb.get("game_dir"), str(game_b))
+                self.assertTrue(gb.get("metadata_scraped"))
+                self.assertEqual(gb.get("detected_engine"), "unreal")
+                self.assertTrue(gb.get("modding_info", {}).get("is_unreal_engine"))
+                self.assertGreaterEqual(gb.get("modding_info", {}).get("pak_count", 0), 1)
+
+                r_list = self.client.get("/api/games")
+                self.assertEqual(r_list.status_code, 200)
+                self.assertEqual(r_list.json().get("active_game_id"), "game_b")
+                core_config.invalidate_games_cache()
 
 
 if __name__ == "__main__":

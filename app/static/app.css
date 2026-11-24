@@ -74,43 +74,6 @@ header h1 {
   gap: 8px;
   flex-wrap: wrap;
 }
-.banner-menu-wrap {
-  position: relative;
-  display: inline-flex;
-}
-.banner-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 210px;
-  background: #131b29;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 6px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
-  display: none;
-  flex-direction: column;
-  gap: 4px;
-  z-index: 120;
-}
-.banner-dropdown.open {
-  display: flex;
-}
-.banner-dropdown button {
-  width: 100%;
-  justify-content: flex-start;
-  text-align: left;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text);
-  padding: 6px 10px;
-  font-size: 0.78rem;
-  border-radius: 5px;
-}
-.banner-dropdown button:hover {
-  background: #1f2b3f;
-  border-color: var(--border);
-}
 #app-banner-slot {
   width: 100%;
   height: clamp(110px, 14vw, 220px);
@@ -860,4 +823,55 @@ body.compact td, body.compact th { padding: 5px 8px; }
   font-size: 0.74rem;
   color: #fecaca;
   border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* Compact closeable scan output log panel */
+.scan-log-panel[hidden] {
+  display: none;
+}
+.scan-log-panel {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--code-bg);
+  overflow: hidden;
+}
+.scan-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(24, 34, 50, 0.85);
+  border-bottom: 1px solid var(--border);
+}
+.scan-log-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #93c5fd;
+  letter-spacing: 0.02em;
+}
+.scan-log-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.scan-log-actions .btn-sm {
+  padding: 2px 8px;
+  min-height: 22px;
+  font-size: 0.71rem;
+}
+.scan-log-close {
+  font-size: 0.9rem !important;
+  line-height: 1;
+  padding: 2px 7px !important;
+}
+.scan-log-pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  padding: 9px 11px;
+  max-height: 200px !important;
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.4;
 }

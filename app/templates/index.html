@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="modtool-session-token" content="__SESSION_TOKEN__" />
-  <title>Unity IL2CPP Modding Manager &amp; Live MCP Console (bepinex-mcp)</title>
+  <title>The Modding Tool</title>
   <link id="app-favicon" rel="icon" href="/api/app-ui-config/asset/favicon" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
@@ -56,17 +56,14 @@
         </div>
         <div class="header-controls">
           <button class="secondary btn-sm" onclick="openCommandPalette()" title="Open Command Palette (Ctrl+K)">Search / Actions (Ctrl+K)</button>
-          <div class="banner-menu-wrap" id="banner-menu-wrap">
-            <button class="secondary btn-sm" id="btn-banner-menu" onclick="toggleBannerMenu(event)">Banner</button>
-            <div class="banner-dropdown" id="banner-dropdown">
-              <button onclick="triggerBannerUpload()">Load Banner Image...</button>
-              <button id="btn-banner-fit-toggle" onclick="toggleBannerFit()">Fit: Full (Contain)</button>
-              <button id="btn-banner-vis-toggle" onclick="toggleBannerVisibility()">Show / Hide Banner</button>
-            </div>
+          <div id="header-quick-load" style="display:flex; align-items:center; gap:6px;">
+            <label for="global-game-select" style="margin:0; font-size:0.72rem; color:var(--muted); white-space:nowrap;">Quick Load:</label>
+            <select id="global-game-select" onchange="onGlobalGameSelected()" aria-label="Quick Load Game" style="max-width:250px; padding:4px 8px; font-size:0.76rem;"></select>
           </div>
-          <span class="badge" id="active-game-badge">Loaded: Battleground</span>
+          <span class="badge" id="active-game-badge">Loaded: Battlemarked</span>
           <span class="badge" id="resolution-badge" style="display:none;">Display</span>
           <span class="badge" id="server-badge">127.0.0.1:8765</span>
+          <button class="danger btn-sm" id="btn-header-stop-server" onclick="stopAppServer()" title="Stop the local server and open the Offline Control Page">Stop Server</button>
         </div>
       </div>
 
@@ -82,7 +79,7 @@
         </button>
         <button class="tab-btn" id="tab-btn-game" onclick="switchTab('game')">
           <span id="tab-label-game">Active Game</span>
-          <span class="badge" id="game-tab-title-badge">Battleground (Battlemarked)</span>
+          <span class="badge" id="game-tab-title-badge">Demeo x Dungeons &amp; Dragons: Battlemarked</span>
         </button>
         <button class="tab-btn" id="tab-btn-modbuilder" onclick="switchTab('modbuilder')">
           <span id="tab-label-modbuilder">Build a Mod</span>
@@ -128,14 +125,15 @@
     <div class="grid">
       <div class="card full">
         <h2>
-          <span>Game Manager (<code id="games-store-path">%LOCALAPPDATA%\ModToolPoC\managed_games.json</code>)</span>
+          <span>Game Manager (<code id="games-store-path">%LOCALAPPDATA%\TheModdingTool\managed_games.json</code>)</span>
           <div class="btn-group">
             <button class="success" id="btn-game-scan" onclick="scanPlatforms('')">Game scan</button>
             <button id="btn-scan-game-info" onclick="scanAllGamesInfo()">Game info</button>
             <button class="secondary" id="btn-prewarm-icons" onclick="prewarmAllGameIcons()">Pre-warm Icons</button>
-            <button class="secondary" onclick="pruneNonGames()">Prune Non-Games</button>
+            <button class="secondary" id="btn-prune-non-games" onclick="pruneNonGames()">Prune Non-Games</button>
             <button class="secondary" onclick="browseAndScan()">Browse</button>
             <button class="secondary" onclick="toggleGameEditor()">Add/Edit Game</button>
+            <button class="secondary btn-sm" id="btn-toggle-scan-log" type="button" onclick="toggleScanOutputLog()">Show Game Scan Log</button>
           </div>
         </h2>
         <div class="hint">
@@ -146,10 +144,10 @@
         <div class="row" style="align-items: end;">
           <div>
             <label>Custom Library or Game Folder Path (Optional — leave blank to scan all installed PC platforms)</label>
-            <div style="display:flex; gap:8px;">
-              <input id="scan-custom-path" type="text" placeholder="e.g. C:\Program Files (x86)\Steam\steamapps\common or D:\Games" />
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <input id="scan-custom-path" type="text" style="flex:1; min-width:220px;" placeholder="e.g. C:\Program Files (x86)\Steam\steamapps\common or D:\Games" />
               <button class="secondary" onclick="browseIntoInput('scan-custom-path')">Browse</button>
-              <button onclick="scanCustomPathInput()">Scan Path</button>
+              <button id="btn-scan-path" onclick="scanCustomPathInput()">Scan Path</button>
             </div>
           </div>
           <div>
@@ -191,16 +189,16 @@
             </select>
           </div>
         </div>
-        <div id="scan-progress-wrap" style="display:none; margin:10px 0; padding:10px 12px; background:var(--panel-alt); border:1px solid var(--border); border-radius:6px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.82rem; margin-bottom:6px;">
-            <span id="scan-progress-label" style="color:var(--text); font-weight:600;">Scanning...</span>
-            <span id="scan-progress-pct" style="color:#93c5fd; font-family:Consolas, monospace;">0% (0 / 0)</span>
+        <div id="scan-log-panel" class="scan-log-panel" hidden>
+          <div class="scan-log-header">
+            <span class="scan-log-title">Scan Output Log</span>
+            <div class="scan-log-actions">
+              <button type="button" class="secondary btn-sm" id="btn-copy-scan-log" onclick="copyScanOutputLog()">Copy</button>
+              <button type="button" class="secondary btn-sm scan-log-close" id="btn-close-scan-log" onclick="closeScanOutputLog()" aria-label="Close Scan Output Log" title="Close">&times;</button>
+            </div>
           </div>
-          <div style="width:100%; height:10px; background:#0b0f17; border:1px solid var(--border); border-radius:999px; overflow:hidden;">
-            <div id="scan-progress-bar" style="width:0%; height:100%; background:var(--accent); transition:width 0.18s ease;"></div>
-          </div>
+          <pre id="scan-output" class="scan-log-pre"></pre>
         </div>
-        <pre id="scan-output" style="display:none; max-height:160px;"></pre>
 
         <!-- FILTER & SORT CONTROLS FOR MANAGED GAMES LIST -->
         <div class="filter-bar">
@@ -289,7 +287,7 @@
               </div>
               <div>
                 <label>Display Name</label>
-                <input id="gm-name" type="text" value="Battleground (Battlemarked)" />
+                <input id="gm-name" type="text" value="Demeo x Dungeons &amp; Dragons: Battlemarked" />
               </div>
             </div>
             <div class="row">
@@ -321,7 +319,7 @@
             <div class="row">
               <div>
                 <label>Compiled Plugin Build Output Directory</label>
-                <input id="gm-plugin-dir" type="text" value="d:\Downloads\Battleground\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+                <input id="gm-plugin-dir" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
               </div>
               <div>
                 <label>Notes</label>
@@ -371,7 +369,7 @@
           </div>
         </h2>
         <div class="hint" id="lib-status-bar">
-          Normalized <code>GameEntry</code> catalog persisted in <code>%LOCALAPPDATA%\ModToolPoC\library_cache.json</code>. Click <strong>Scan Installed</strong> to discover Steam, Epic, GOG, and manual folders.
+          Normalized <code>GameEntry</code> catalog persisted in <code>%LOCALAPPDATA%\TheModdingTool\library_cache.json</code>. Click <strong>Scan Installed</strong> to discover Steam, Epic, GOG, and manual folders.
         </div>
 
         <!-- ADD FOLDER SUBPANEL -->
@@ -495,7 +493,9 @@
       <div class="info-panel-header">
         <h2>
           <span>Game Info &amp; Modding Requirements:</span>
-          <span id="info-title" style="color:#fff;">Battleground (Battlemarked)</span>
+          <span id="info-title" style="color:#fff;">Demeo x Dungeons &amp; Dragons: Battlemarked</span>
+          <span class="badge" id="info-slug-badge">battleground</span>
+          <span class="badge" id="info-engine-badge">Unity</span>
         </h2>
         <div class="btn-group">
           <span class="pill no" id="info-missing-badge" style="display:none;">Missing on Disk (Showing Cached Info)</span>
@@ -590,7 +590,7 @@
 
       <!-- RELEVANT MODDING APPS & ONE-CLICK INSTALLERS -->
       <div class="crucial-steps-header" style="margin-top: 16px;">
-        <span>Relevant Modding Apps &amp; Installers (<code id="tools-root-label">%LOCALAPPDATA%\ModToolPoC\tools</code> &amp; Game Folder)</span>
+        <span>Relevant Modding Apps &amp; Installers (<code id="tools-root-label">%LOCALAPPDATA%\TheModdingTool\tools</code> &amp; Game Folder)</span>
         <div class="btn-group" style="text-transform:none; font-weight:400;">
           <select id="tools-filter-mode" style="padding:4px 10px; font-size:0.76rem; width:auto;" onchange="renderCurrentGameModdingApps()">
             <option value="recommended" selected>Recommended Apps for This Game</option>
@@ -718,7 +718,7 @@
       </div>
       <div>
         <label>Compiled BepInExMCP.IL2CPP Build Output Directory</label>
-        <input id="prov-plugin-dir" type="text" value="d:\Downloads\Battleground\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+        <input id="prov-plugin-dir" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
       </div>
       <div class="btn-row">
         <button class="success" onclick="runProvision()">Provision &amp; Backup</button>
@@ -736,12 +736,12 @@
       </div>
       <div class="row">
         <div>
-          <label>bepinex-mcp .venv Python Executable</label>
-          <input id="mcp-python" type="text" value="d:\Downloads\Battleground\bepinex-mcp\.venv\Scripts\python.exe" />
+          <label>Python Executable (.venv)</label>
+          <input id="mcp-python" type="text" value="d:\Downloads\The-Modding-Tool\.venv\Scripts\python.exe" />
         </div>
         <div>
           <label>ModdersHelperApp.py Path</label>
-          <input id="mcp-app" type="text" value="d:\Downloads\Battleground\bepinex-mcp\mcp\ModdersHelperApp.py" />
+          <input id="mcp-app" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\mcp\ModdersHelperApp.py" />
         </div>
       </div>
 
@@ -1006,7 +1006,7 @@
     <div class="grid">
       <div class="card full">
         <h2>
-          <span>Build a Compatible Standalone Mod (<code id="mb-target-game-label">Battleground (Battlemarked)</code>)</span>
+          <span>Build a Compatible Standalone Mod (<code id="mb-target-game-label">Demeo x Dungeons &amp; Dragons: Battlemarked</code>)</span>
           <div class="btn-group">
             <span class="pill yes" id="mb-compat-badge">BepInEx 6 Unity.IL2CPP</span>
             <button class="success" id="btn-build-mod" onclick="buildCompatibleMod()">Build Compatible Mod</button>
@@ -1038,7 +1038,7 @@
             </div>
             <div>
               <label>Author</label>
-              <input id="mb-author" type="text" value="ModToolPoC" />
+              <input id="mb-author" type="text" value="The Modding Tool" />
             </div>
           </div>
           <div>
@@ -1115,7 +1115,7 @@
     <div class="grid">
       <div class="card full">
         <h2>
-          <span>PC Hardware &amp; OS Specifications (<code>%LOCALAPPDATA%\ModToolPoC\pc_specs.json</code>)</span>
+          <span>PC Hardware &amp; OS Specifications (<code>%LOCALAPPDATA%\TheModdingTool\pc_specs.json</code>)</span>
           <div class="btn-group">
             <span class="badge" id="pc-scraped-at-badge">Not scraped yet</span>
             <button class="success btn-sm" id="btn-rescan-specs" onclick="loadPcSpecs(true)">Refresh PC Specs</button>
@@ -1230,7 +1230,7 @@
     <div class="grid">
       <div class="card full">
         <h2>
-          <span>Audit Log (<code id="audit-path">%LOCALAPPDATA%\ModToolPoC\audit.jsonl</code>)</span>
+          <span>Audit Log (<code id="audit-path">%LOCALAPPDATA%\TheModdingTool\audit.jsonl</code>)</span>
           <div class="btn-group">
             <button class="btn-sm" id="btn-log-cat-game" onclick="switchLogCategory('game')">Game Management (<span id="log-game-count-badge">0</span>)</button>
             <button class="secondary btn-sm" id="btn-log-cat-app" onclick="switchLogCategory('app')">App Management (<span id="log-app-count-badge">0</span>)</button>
@@ -1278,7 +1278,7 @@
           </div>
         </h2>
         <div class="hint">
-          Packages the entire app (UI, backend, MCP bridge, pre-built plugins, and Windows self-bootstrapping launcher) into a standalone <code>ModToolPoC-Win64.zip</code> download for any Windows 10/11 PC.
+          Packages the entire app (UI, backend, MCP bridge, pre-built plugins, and Windows self-bootstrapping launcher) into a standalone <code>TheModdingTool.zip</code> download for any Windows 10/11 PC.
         </div>
         <pre id="am-export-log" style="max-height:110px;">Ready to package and download portable Windows build.</pre>
       </div>
@@ -1325,7 +1325,7 @@
         </div>
         <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
           <div style="flex:1; min-width:200px;">
-            <label for="gh-snapshots-select">Local Snapshots (<code>%LOCALAPPDATA%\ModToolPoC\app_backups\</code>)</label>
+            <label for="gh-snapshots-select">Local Snapshots (<code>%LOCALAPPDATA%\TheModdingTool\app_backups\</code>)</label>
             <select id="gh-snapshots-select"></select>
           </div>
           <button class="danger btn-sm" onclick="rollbackToSnapshot()">Rollback to Snapshot</button>
@@ -1375,8 +1375,10 @@
             <button class="secondary btn-sm" onclick="openAppMgmtFolder('backups')">Open Backups</button>
             <button class="secondary btn-sm" onclick="clearBuiltModsCache()">Clear Mod Cache</button>
             <button class="secondary btn-sm" id="btn-toggle-watcher" onclick="toggleBackupWatcher()">Auto-Watcher: Checking...</button>
+            <button class="secondary btn-sm" id="btn-register-protocol" onclick="registerProtocolLauncher()">Register moddingtool:// Launcher</button>
             <button class="danger btn-sm" onclick="flushAllAppCaches()">Flush All Cache &amp; Data</button>
             <button class="danger btn-sm" onclick="restartAppServer()">Restart App</button>
+            <button class="danger btn-sm" id="btn-am-stop-server" onclick="stopAppServer()">Stop Server</button>
           </div>
         </h2>
         <div class="info-grid" style="grid-template-columns: repeat(2, 1fr); gap:8px;">
@@ -1474,7 +1476,7 @@
           </div>
         </h2>
         <div class="hint">
-          Changes preview live as you type or toggle. Click <strong>Save Changes</strong> to persist your layout to <code>%LOCALAPPDATA%\ModToolPoC\app_ui_config.json</code>.
+          Changes preview live as you type or toggle. Click <strong>Save Changes</strong> to persist your layout to <code>%LOCALAPPDATA%\TheModdingTool\app_ui_config.json</code>.
         </div>
 
         <div class="row">
@@ -1716,7 +1718,7 @@
           <div class="info-item">
             <div class="k">Provision &amp; Clean Restore</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Verifies the BepInEx 6 IL2CPP archive SHA-256, backs up any colliding files into <code>%LOCALAPPDATA%\ModToolPoC</code>, extracts BepInEx and <code>BepInExMCP.IL2CPP.dll</code>, and writes a manifest so <strong>Clean Restore</strong> can revert every deployed file cleanly.
+              Verifies the BepInEx 6 IL2CPP archive SHA-256, backs up any colliding files into <code>%LOCALAPPDATA%\TheModdingTool</code>, extracts BepInEx and <code>BepInExMCP.IL2CPP.dll</code>, and writes a manifest so <strong>Clean Restore</strong> can revert every deployed file cleanly.
             </div>
           </div>
           <div class="info-item">
@@ -1755,7 +1757,7 @@
           <div class="info-item">
             <div class="k">Audit Log</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Records every scan, fingerprint, provision, restore, mod build, backup, and setting change with timestamps, status, SHA-256 digests, and expandable detail summaries in <code>%LOCALAPPDATA%\ModToolPoC\audit.jsonl</code>.
+              Records every scan, fingerprint, provision, restore, mod build, backup, and setting change with timestamps, status, SHA-256 digests, and expandable detail summaries in <code>%LOCALAPPDATA%\TheModdingTool\audit.jsonl</code>.
             </div>
           </div>
         </div>
@@ -1767,7 +1769,7 @@
           <div class="info-item">
             <div class="k">Portable App Export</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Packages the app, MCP bridge, pre-built plugins, branding folders, and <code>Launch_ModToolPoC.bat</code> into a downloadable <code>ModToolPoC-Win64.zip</code> for other Windows 10/11 PCs.
+              Packages the app, MCP bridge, pre-built plugins, branding folders, and <code>Launch_TheModdingTool.bat</code> into a downloadable <code>TheModdingTool.zip</code> for other Windows 10/11 PCs.
             </div>
           </div>
           <div class="info-item">
