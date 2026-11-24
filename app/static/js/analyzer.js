@@ -1,12 +1,8 @@
-import { apiFetch, apiGet, apiPost, state } from "./api.js";
+import { apiFetch, apiGet, apiPost, runTrackedAction, state } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
 
 export async function loadPcSpecs(forceScan = false) {
   const btn = document.getElementById("btn-rescan-specs");
-  if (btn && forceScan) {
-    btn.disabled = true;
-    btn.textContent = "Scraping Hardware...";
-  }
   if (!forceScan && !state.pcSpecsData) {
     try {
       const cachedSpecsRaw = localStorage.getItem("modtool_cache_pc_specs");
@@ -26,17 +22,19 @@ export async function loadPcSpecs(forceScan = false) {
       }
     } catch {}
   }
-  try {
+
+  const runFetchAndRender = async () => {
     let specs = null;
     let refArray = [];
     let matchedTier = {};
     if (forceScan) {
       const res = await apiPost("/api/pc-specs/scan", {});
-      if (res.ok && res.data.specs) {
-        specs = res.data.specs;
-        refArray = res.data.unreal_reference_array || [];
-        matchedTier = res.data.matched_reference_tier || {};
-        try { localStorage.setItem("modtool_cache_pc_specs", JSON.stringify(res.data)); } catch {}
+      const data = res?.data ?? res;
+      if (data?.specs) {
+        specs = data.specs;
+        refArray = data.unreal_reference_array || [];
+        matchedTier = data.matched_reference_tier || {};
+        try { localStorage.setItem("modtool_cache_pc_specs", JSON.stringify(data)); } catch {}
       }
     } else {
       const res = await apiFetch("/api/pc-specs");
@@ -145,13 +143,25 @@ export async function loadPcSpecs(forceScan = false) {
     if (forceScan && state.lastRenderedGame) {
       await rescanActiveGameMetadata();
     }
+    return specs;
+  };
+
+  if (forceScan) {
+    try {
+      await runTrackedAction(btn, runFetchAndRender, {
+        pendingText: "Scraping PC hardware & GPU specifications...",
+        successText: "PC specifications refreshed",
+      });
+    } catch (err) {
+      console.error("Failed to refresh PC specs:", err);
+    }
+    return;
+  }
+
+  try {
+    await runFetchAndRender();
   } catch (err) {
     console.error("Failed to load PC specs:", err);
-  } finally {
-    if (btn && forceScan) {
-      btn.disabled = false;
-      btn.textContent = "Refresh PC Specs";
-    }
   }
 }
 
@@ -204,44 +214,40 @@ export async function runAssetModdabilityScan() {
   const pill = document.getElementById("asset-analyzer-summary-pill");
   const matrix = document.getElementById("asset-traffic-light-matrix");
   const rootPath = (document.getElementById("fp-game-dir")?.value || "").trim();
-  if (btn) { btn.disabled = true; btn.textContent = "Scanning..."; }
+  const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   try {
-    let r = null;
-    try {
-      r = await apiPost("/api/game/analyze-assets", {
-        game_id: state.activeGameId || "",
-        root_path: rootPath
-      });
-    } catch (err) {
-      if (matrix) matrix.innerHTML = `<div class="step-card missing"><div class="step-card-title">Asset Scan Failed</div><div class="step-card-detail">${err?.message || "Could not analyze game directory."}</div></div>`;
-      return;
-    }
-    state.lastAssetAudit = r;
-    const s = r.summary || { green: 0, amber: 0, red: 0 };
-    if (pill) {
-      pill.className = s.green > 0 ? "pill yes" : (s.amber > 0 ? "pill warn" : "pill no");
-      pill.textContent = `${r.engine} | ${s.green} Green · ${s.amber} Amber · ${s.red} Red`;
-    }
-    const mbText = document.getElementById("mb-asset-audit-text");
-    if (mbText) {
-      mbText.innerHTML = `Asset Audit (<strong>${r.title}</strong> · <code>${r.engine}</code>): <span style="color:#4ade80;">${s.green} Green</span> · <span style="color:#fbbf24;">${s.amber} Amber</span> · <span style="color:#f87171;">${s.red} Red</span>`;
-    }
-    const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const colorMap = {
-      green: { bg: "#16a34a", cls: "ok", label: "GREEN" },
-      amber: { bg: "#d97706", cls: "pending", label: "AMBER" },
-      red: { bg: "#dc2626", cls: "missing", label: "RED" }
-    };
-    const layers = Array.isArray(r.layers) ? r.layers : [];
-    const compatTools = (Array.isArray(r.available_tools) ? r.available_tools : []).filter(t => t && t.engine_compatible === true);
-    if (matrix) {
-      const layerCards = layers.map(l => {
-        const cm = colorMap[l.status] || colorMap.amber;
-        const sampleTxt = Array.isArray(l.detected_items) && l.detected_items.length
-          ? l.detected_items.slice(0, 5).map(x => `<code>${esc(x)}</code>`).join(", ")
-          : "None";
-        const reqTools = Array.isArray(l.required_tools) ? l.required_tools.join(", ") : "";
-        return `<div class="step-card ${cm.cls}">
+    await runTrackedAction(
+      btn,
+      async () => {
+        const r = await apiPost("/api/game/analyze-assets", {
+          game_id: state.activeGameId || "",
+          root_path: rootPath,
+        });
+        state.lastAssetAudit = r;
+        const s = r.summary || { green: 0, amber: 0, red: 0 };
+        if (pill) {
+          pill.className = s.green > 0 ? "pill yes" : (s.amber > 0 ? "pill warn" : "pill no");
+          pill.textContent = `${r.engine} | ${s.green} Green · ${s.amber} Amber · ${s.red} Red`;
+        }
+        const mbText = document.getElementById("mb-asset-audit-text");
+        if (mbText) {
+          mbText.innerHTML = `Asset Audit (<strong>${esc(r.title)}</strong> · <code>${esc(r.engine)}</code>): <span style="color:#4ade80;">${s.green} Green</span> · <span style="color:#fbbf24;">${s.amber} Amber</span> · <span style="color:#f87171;">${s.red} Red</span>`;
+        }
+        const colorMap = {
+          green: { bg: "#16a34a", cls: "ok", label: "GREEN" },
+          amber: { bg: "#d97706", cls: "pending", label: "AMBER" },
+          red: { bg: "#dc2626", cls: "missing", label: "RED" },
+        };
+        const layers = Array.isArray(r.layers) ? r.layers : [];
+        const compatTools = (Array.isArray(r.available_tools) ? r.available_tools : []).filter(t => t && t.engine_compatible === true);
+        if (matrix) {
+          const layerCards = layers.map(l => {
+            const cm = colorMap[l.status] || colorMap.amber;
+            const sampleTxt = Array.isArray(l.detected_items) && l.detected_items.length
+              ? l.detected_items.slice(0, 5).map(x => `<code>${esc(x)}</code>`).join(", ")
+              : "None";
+            const reqTools = Array.isArray(l.required_tools) ? l.required_tools.join(", ") : "";
+            return `<div class="step-card ${cm.cls}">
           <div class="step-card-top">
             <span class="step-card-title">${esc(l.layer_name)}</span>
             <span class="pill" style="background:${cm.bg}; color:#fff; border-color:${cm.bg};">${cm.label} (${l.file_count || 0})</span>
@@ -250,14 +256,14 @@ export async function runAssetModdabilityScan() {
           <div style="font-size:0.74rem; color:#e2e8f0; margin-top:3px;">${esc(l.what_can_change)}</div>
           <div class="step-card-detail" style="margin-top:4px;">Samples: ${sampleTxt}</div>
         </div>`;
-      }).join("");
-      const toolCards = compatTools.map(t => {
-        const badgeCls = t.installed_in_game ? "yes" : (t.host_available ? "warn" : "na");
-        const badgeLabel = t.installed_in_game
-          ? "Ready in Game"
-          : (t.host_available ? "Host Tool Ready (Not Installed in Game)" : "Recommended (Not Installed)");
-        const cardCls = t.installed_in_game ? "ok" : (t.host_available ? "pending" : "na");
-        return `<div class="step-card ${cardCls}">
+          }).join("");
+          const toolCards = compatTools.map(t => {
+            const badgeCls = t.installed_in_game ? "yes" : (t.host_available ? "warn" : "na");
+            const badgeLabel = t.installed_in_game
+              ? "Ready in Game"
+              : (t.host_available ? "Host Tool Ready (Not Installed in Game)" : "Recommended (Not Installed)");
+            const cardCls = t.installed_in_game ? "ok" : (t.host_available ? "pending" : "na");
+            return `<div class="step-card ${cardCls}">
           <div class="step-card-top">
             <span class="step-card-title">${esc(t.name)}</span>
             <span class="pill ${badgeCls}">${badgeLabel}</span>
@@ -265,14 +271,26 @@ export async function runAssetModdabilityScan() {
           <div style="font-size:0.74rem; color:#cbd5e1; margin-top:3px;">${esc(t.detail || t.install_hint || "")}</div>
           ${t.install_hint && !t.installed_in_game ? `<div class="step-card-detail" style="margin-top:4px;">Hint: ${esc(t.install_hint)}</div>` : ""}
         </div>`;
-      }).join("");
-      matrix.innerHTML = layerCards + toolCards;
+          }).join("");
+          matrix.innerHTML = layerCards + toolCards;
+        }
+        if (r.guide) {
+          renderModdabilityGuideGrid(Object.values(r.guide), r.triggered_blockers || []);
+        }
+        loadLogs();
+        return r;
+      },
+      {
+        pendingText: "Scanning game directory and moddability layers...",
+        successText: (r) => {
+          const s = r?.summary || { green: 0, amber: 0, red: 0 };
+          return `Asset scan complete (${r?.engine || "Unknown"}: ${s.green} Green, ${s.amber} Amber, ${s.red} Red)`;
+        },
+      },
+    );
+  } catch (err) {
+    if (matrix) {
+      matrix.innerHTML = `<div class="step-card missing"><div class="step-card-title">Asset Scan Failed</div><div class="step-card-detail">${esc(err?.message || "Could not analyze game directory.")}</div></div>`;
     }
-    if (r.guide) {
-      renderModdabilityGuideGrid(Object.values(r.guide), r.triggered_blockers || []);
-    }
-    loadLogs();
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Scan Game Assets"; }
   }
 }

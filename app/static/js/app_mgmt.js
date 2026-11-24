@@ -1,4 +1,10 @@
-import { apiFetch, apiGet, apiPost, state } from "./api.js";
+import { apiFetch, apiGet, apiPost, runTrackedAction, state } from "./api.js";
+
+function _resolveAppMgmtBtn(fallbackId = "") {
+  const evTarget = typeof window !== "undefined" ? window.event?.target : null;
+  const fromEvent = evTarget && typeof evTarget.closest === "function" ? evTarget.closest("button") : null;
+  return fromEvent || (fallbackId ? document.getElementById(fallbackId) : null);
+}
 
 
 export async function switchLogCategory(category) {
@@ -351,54 +357,71 @@ export function _resizeImageForUpload(file, kind) {
 export async function uploadAppAsset(kind, event) {
   const file = event.target?.files?.[0];
   if (!file) return;
+  const uploadBtn = event.target?.parentElement?.querySelector("button") || _resolveAppMgmtBtn("");
   const logEl = document.getElementById("ae-status-log");
   try {
-    const resizedDataUrl = await _resizeImageForUpload(file, kind);
-    const resp = await apiPost("/api/app-ui-config/upload-asset", {
-      kind,
-      filename: file.name,
-      data_url: resizedDataUrl,
-    });
-    if (!resp.ok) {
-      throw new Error(resp.data?.detail || "Upload failed");
-    }
-    const payload = resp.data || {};
-    const inputId = kind === "banner" ? "ae-banner-url" : "ae-favicon-url";
-    const inputEl = document.getElementById(inputId);
-    if (inputEl && payload.url) {
-      inputEl.value = payload.url;
-    }
-    onAppEditorInput();
-    await saveAppUiConfig();
-    if (logEl) logEl.textContent = `Uploaded, resized, and saved ${kind} (${file.name}).`;
+    await runTrackedAction(
+      uploadBtn,
+      async () => {
+        const resizedDataUrl = await _resizeImageForUpload(file, kind);
+        const resp = await apiPost("/api/app-ui-config/upload-asset", {
+          kind,
+          filename: file.name,
+          data_url: resizedDataUrl,
+        });
+        const payload = resp?.data ?? resp ?? {};
+        const inputId = kind === "banner" ? "ae-banner-url" : "ae-favicon-url";
+        const inputEl = document.getElementById(inputId);
+        if (inputEl && payload.url) {
+          inputEl.value = payload.url;
+        }
+        onAppEditorInput();
+        await _persistAppUiConfig();
+        if (logEl) logEl.textContent = `Uploaded, resized, and saved ${kind} (${file.name}).`;
+        return payload;
+      },
+      {
+        pendingText: `Uploading ${kind} (${file.name})...`,
+        successText: `Uploaded and saved ${kind} (${file.name})`,
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Upload failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Upload failed: ${err?.message || err}`;
+  } finally {
+    event.target.value = "";
   }
-  event.target.value = "";
 }
 
 export async function removeAppAsset(kind) {
+  const btn = _resolveAppMgmtBtn("");
   const logEl = document.getElementById("ae-status-log");
   const inputId = kind === "banner" ? "ae-banner-url" : "ae-favicon-url";
   const el = document.getElementById(inputId);
   if (el) el.value = "";
   onAppEditorInput();
   try {
-    const resp = await apiPost("/api/app-ui-config/remove-asset", { kind });
-    if (!resp.ok) {
-      throw new Error(resp.data?.detail || "Remove failed");
-    }
-    const data = resp.data || {};
-    if (data.config) {
-      APP_UI_CONFIG = data.config;
-      applyAppUiConfig(APP_UI_CONFIG);
-      populateAppEditorForm(APP_UI_CONFIG);
-      try { localStorage.setItem("modtool_app_ui_config", JSON.stringify(APP_UI_CONFIG)); } catch {}
-    }
-    if (logEl) logEl.textContent = `Removed ${kind} and saved settings.`;
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const resp = await apiPost("/api/app-ui-config/remove-asset", { kind });
+        const data = resp?.data ?? resp ?? {};
+        if (data.config) {
+          APP_UI_CONFIG = data.config;
+          applyAppUiConfig(APP_UI_CONFIG);
+          populateAppEditorForm(APP_UI_CONFIG);
+          try { localStorage.setItem("modtool_app_ui_config", JSON.stringify(APP_UI_CONFIG)); } catch {}
+        }
+        if (logEl) logEl.textContent = `Removed ${kind} and saved settings.`;
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: `Removing custom ${kind}...`,
+        successText: `Removed custom ${kind}`,
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Remove failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Remove failed: ${err?.message || err}`;
   }
 }
 
@@ -442,32 +465,53 @@ export async function loadAppUiConfig() {
   }
 }
 
-export async function saveAppUiConfig() {
+async function _persistAppUiConfig() {
   APP_UI_CONFIG = readAppEditorForm();
   applyAppUiConfig(APP_UI_CONFIG);
   try { localStorage.setItem("modtool_app_ui_config", JSON.stringify(APP_UI_CONFIG)); } catch {}
   const logEl = document.getElementById("ae-status-log");
+  const data = await apiPost("/api/app-ui-config", { config: APP_UI_CONFIG });
+  if (logEl) logEl.textContent = `Saved App Editor settings to ${data.config_path} (SHA-256: ${data.sha256})`;
+  loadLogs();
+  return data;
+}
+
+export async function saveAppUiConfig() {
+  const btn = _resolveAppMgmtBtn("");
+  const logEl = document.getElementById("ae-status-log");
   try {
-    const data = await apiPost("/api/app-ui-config", { config: APP_UI_CONFIG });
-    if (logEl) logEl.textContent = `Saved App Editor settings to ${data.config_path} (SHA-256: ${data.sha256})`;
-    loadLogs();
+    await runTrackedAction(btn, _persistAppUiConfig, {
+      pendingText: "Saving App UI configuration...",
+      successText: "Saved App UI configuration",
+    });
   } catch (err) {
-    if (logEl) logEl.textContent = `Save failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Save failed: ${err?.message || err}`;
   }
 }
 
 export async function resetAppUiConfig() {
+  const btn = _resolveAppMgmtBtn("");
   const logEl = document.getElementById("ae-status-log");
   try {
-    const data = await apiPost("/api/app-ui-config/reset", {});
-    APP_UI_CONFIG = data.config || JSON.parse(JSON.stringify(DEFAULT_APP_UI_CONFIG));
-    applyAppUiConfig(APP_UI_CONFIG);
-    populateAppEditorForm(APP_UI_CONFIG);
-    try { localStorage.removeItem("modtool_app_ui_config"); } catch {}
-    if (logEl) logEl.textContent = "Reset App Editor settings to defaults.";
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const data = await apiPost("/api/app-ui-config/reset", {});
+        APP_UI_CONFIG = data.config || JSON.parse(JSON.stringify(DEFAULT_APP_UI_CONFIG));
+        applyAppUiConfig(APP_UI_CONFIG);
+        populateAppEditorForm(APP_UI_CONFIG);
+        try { localStorage.removeItem("modtool_app_ui_config"); } catch {}
+        if (logEl) logEl.textContent = "Reset App Editor settings to defaults.";
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Resetting App UI settings to defaults...",
+        successText: "Reset App UI settings to defaults",
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Reset failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Reset failed: ${err?.message || err}`;
   }
 }
 
@@ -518,31 +562,32 @@ let LAST_APP_DIAGNOSTICS = null;
 let LAST_BACKUPS_DIR = "";
 
 export async function exportPortableAppZip() {
-  const btn = document.getElementById("btn-export-app");
+  const btn = _resolveAppMgmtBtn("btn-export-app");
   const logEl = document.getElementById("am-export-log");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Packaging...";
-  }
   try {
-    const data = await apiPost("/api/app/export", {});
-    if (logEl) {
-      logEl.textContent = `${data.summary}\nSHA-256: ${data.zip_sha256}\nPath: ${data.zip_path}\nStarting browser download...`;
-    }
-    const a = document.createElement("a");
-    a.href = data.download_url || "/api/app/export/download";
-    a.download = "ModToolPoC-Win64.zip";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const data = await apiPost("/api/app/export", {});
+        if (logEl) {
+          logEl.textContent = `${data.summary}\nSHA-256: ${data.zip_sha256}\nPath: ${data.zip_path}\nStarting browser download...`;
+        }
+        const a = document.createElement("a");
+        a.href = data.download_url || "/api/app/export/download";
+        a.download = "ModToolPoC-Win64.zip";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Packaging portable ModToolPoC-Win64.zip...",
+        successText: (d) => d?.summary || "Exported ModToolPoC-Win64.zip",
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Export failed: ${err.message || err}`;
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Export App (.zip)";
-    }
+    if (logEl) logEl.textContent = `Export failed: ${err?.message || err}`;
   }
 }
 
@@ -622,30 +667,52 @@ export async function loadAppBackups() {
 }
 
 export async function saveAppSnapshot(forceBaseline) {
+  const btn = _resolveAppMgmtBtn("");
   const reason = document.getElementById("am-backup-reason")?.value || "Manual save from App Management";
   const logEl = document.getElementById("am-backup-log");
   try {
-    const data = await apiPost("/api/app/backup/save", { reason, force_baseline: Boolean(forceBaseline) });
-    if (logEl) logEl.textContent = data.summary || "Snapshot saved.";
-    await loadAppBackups();
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const data = await apiPost("/api/app/backup/save", { reason, force_baseline: Boolean(forceBaseline) });
+        if (logEl) logEl.textContent = data.summary || "Snapshot saved.";
+        await loadAppBackups();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: forceBaseline ? "Saving full baseline snapshot..." : "Saving incremental app snapshot...",
+        successText: (d) => d?.summary || "Snapshot saved",
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Save failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Save failed: ${err?.message || err}`;
   }
 }
 
 export async function restoreAppBackupVersion(versionId) {
+  const btn = _resolveAppMgmtBtn("");
   if (!confirm(`Restore the entire project to ${versionId}? Any unsaved changes since ${versionId} will be overwritten.`)) {
     return;
   }
   const logEl = document.getElementById("am-backup-log");
   try {
-    const data = await apiPost("/api/app/backup/restore", { version_id: versionId });
-    if (logEl) logEl.textContent = `${data.summary}. Reload the page if UI files changed.`;
-    await loadAppBackups();
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const data = await apiPost("/api/app/backup/restore", { version_id: versionId });
+        if (logEl) logEl.textContent = `${data.summary}. Reload the page if UI files changed.`;
+        await loadAppBackups();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: `Restoring project snapshot ${versionId}...`,
+        successText: (d) => d?.summary || `Restored snapshot ${versionId}`,
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Restore failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Restore failed: ${err?.message || err}`;
   }
 }
 
@@ -678,24 +745,35 @@ export async function loadModdingToolsStatus() {
 }
 
 export async function upgradeModdingTool(toolId) {
+  const btn = _resolveAppMgmtBtn("");
   const logEl = document.getElementById("am-tools-log");
   if (logEl) logEl.textContent = `Upgrading ${toolId} with security verification...`;
   try {
-    const data = await apiPost("/api/app/tools/upgrade", {
-      tool_id: toolId,
-      require_https: Boolean(document.getElementById("am-sec-https")?.checked),
-      require_checksum: Boolean(document.getElementById("am-sec-checksum")?.checked),
-      keep_backup: Boolean(document.getElementById("am-sec-backup")?.checked),
-      expected_sha256: document.getElementById("am-tool-expected-sha")?.value || "",
-      custom_url: document.getElementById("am-tool-custom-url")?.value || "",
-    });
-    if (logEl) {
-      logEl.textContent = `${data.summary}\nSHA-256: ${data.sha256 || "—"}`;
-    }
-    await loadModdingToolsStatus();
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const data = await apiPost("/api/app/tools/upgrade", {
+          tool_id: toolId,
+          require_https: Boolean(document.getElementById("am-sec-https")?.checked),
+          require_checksum: Boolean(document.getElementById("am-sec-checksum")?.checked),
+          keep_backup: Boolean(document.getElementById("am-sec-backup")?.checked),
+          expected_sha256: document.getElementById("am-tool-expected-sha")?.value || "",
+          custom_url: document.getElementById("am-tool-custom-url")?.value || "",
+        });
+        if (logEl) {
+          logEl.textContent = `${data.summary}\nSHA-256: ${data.sha256 || "—"}`;
+        }
+        await loadModdingToolsStatus();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: `Upgrading / verifying ${toolId}...`,
+        successText: (d) => d?.summary || `Upgraded ${toolId}`,
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Upgrade blocked/failed: ${err.message || err}`;
+    if (logEl) logEl.textContent = `Upgrade blocked/failed: ${err?.message || err}`;
   }
 }
 
@@ -763,6 +841,7 @@ export async function loadGitHubRepoConfig() {
 }
 
 export async function saveGitHubRepoConfig() {
+  const btn = _resolveAppMgmtBtn("");
   const logEl = document.getElementById("gh-sync-log");
   let ownerVal = (document.getElementById("gh-owner")?.value || "").trim();
   let repoVal = (document.getElementById("gh-repo")?.value || "").trim();
@@ -774,78 +853,116 @@ export async function saveGitHubRepoConfig() {
       break;
     }
   }
-  const res = await apiPost("/api/app/repo-config", {
-    owner: ownerVal,
-    repo: repoVal,
-    branch: (document.getElementById("gh-branch")?.value || "main").trim(),
-    token: (document.getElementById("gh-token")?.value || "").trim(),
-  });
-  if (res.ok) {
-    if (logEl) logEl.textContent = "Repository settings saved.";
-    await loadGitHubRepoConfig();
-    loadLogs();
-  } else if (logEl) {
-    logEl.textContent = `Save failed: ${res.data?.detail || "Unknown error"}`;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/app/repo-config", {
+          owner: ownerVal,
+          repo: repoVal,
+          branch: (document.getElementById("gh-branch")?.value || "main").trim(),
+          token: (document.getElementById("gh-token")?.value || "").trim(),
+        });
+        const data = res?.data ?? res;
+        if (logEl) logEl.textContent = "Repository settings saved.";
+        await loadGitHubRepoConfig();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Saving GitHub repository configuration...",
+        successText: "GitHub repository settings saved",
+      },
+    );
+  } catch (err) {
+    if (logEl) logEl.textContent = `Save failed: ${err?.message || err}`;
   }
 }
 
 export async function checkGitHubUpdates() {
-  const btn = document.getElementById("btn-gh-check");
+  const btn = _resolveAppMgmtBtn("btn-gh-check");
   const logEl = document.getElementById("gh-sync-log");
   const remEl = document.getElementById("gh-remote-latest");
   const badgeEl = document.getElementById("gh-sync-badge");
-  if (btn) { btn.disabled = true; btn.textContent = "Checking..."; }
   try {
-    const res = await apiPost("/api/app/check-update", {});
-    const d = res.data || {};
-    if (d.status === "ok") {
-      if (remEl) remEl.textContent = `${d.short_sha} — ${d.commit_message || ""}`;
-      if (badgeEl) {
-        badgeEl.className = d.update_available ? "pill warn" : "pill yes";
-        badgeEl.textContent = d.update_available ? "Update Available" : "Up to Date";
-      }
-      if (logEl) logEl.textContent = JSON.stringify(d, null, 2);
-    } else {
-      if (badgeEl) { badgeEl.className = "pill no"; badgeEl.textContent = d.status || "Error"; }
-      if (logEl) logEl.textContent = d.message || "Update check failed.";
-    }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Check GitHub"; }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/app/check-update", {});
+        const d = res?.data ?? res ?? {};
+        if (d.status === "ok") {
+          if (remEl) remEl.textContent = `${d.short_sha} — ${d.commit_message || ""}`;
+          if (badgeEl) {
+            badgeEl.className = d.update_available ? "pill warn" : "pill yes";
+            badgeEl.textContent = d.update_available ? "Update Available" : "Up to Date";
+          }
+          if (logEl) logEl.textContent = JSON.stringify(d, null, 2);
+          return d;
+        }
+        if (badgeEl) { badgeEl.className = "pill no"; badgeEl.textContent = d.status || "Error"; }
+        if (logEl) logEl.textContent = d.message || "Update check failed.";
+        throw new Error(d.message || "Update check failed.");
+      },
+      {
+        pendingText: "Checking GitHub for updates...",
+        successText: (d) => d?.update_available ? `Update available (${d.short_sha})` : "Up to date with GitHub",
+      },
+    );
+  } catch (err) {
+    if (logEl) logEl.textContent = err?.message || "Update check failed.";
   }
 }
 
 export async function pullGitHubSync() {
+  const btn = _resolveAppMgmtBtn("btn-gh-sync");
   if (!confirm("Pull latest files from GitHub? A pre-sync snapshot will be saved first.")) return;
-  const btn = document.getElementById("btn-gh-sync");
   const logEl = document.getElementById("gh-sync-log");
-  if (btn) { btn.disabled = true; btn.textContent = "Syncing..."; }
   try {
-    const res = await apiPost("/api/app/sync", {});
-    if (res.ok) {
-      if (logEl) logEl.textContent = `Synced ${res.data.extracted_count} file(s). Snapshot: ${res.data.snapshot}. Archive SHA-256: ${res.data.archive_sha256}`;
-      await loadGitHubRepoConfig();
-      loadLogs();
-    } else if (logEl) {
-      logEl.textContent = `Sync failed: ${res.data?.detail || "Unknown error"}`;
-    }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Pull / Restore Latest from GitHub"; }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/app/sync", {});
+        const data = res?.data ?? res;
+        if (logEl) logEl.textContent = `Synced ${data.extracted_count} file(s). Snapshot: ${data.snapshot}. Archive SHA-256: ${data.archive_sha256}`;
+        await loadGitHubRepoConfig();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Pulling latest release archive from GitHub...",
+        successText: (d) => `Synced ${d?.extracted_count ?? 0} file(s) from GitHub`,
+      },
+    );
+  } catch (err) {
+    if (logEl) logEl.textContent = `Sync failed: ${err?.message || err}`;
   }
 }
 
 export async function rollbackToSnapshot() {
+  const btn = _resolveAppMgmtBtn("");
   const sel = document.getElementById("gh-snapshots-select");
   const snap = sel?.value || "";
   const logEl = document.getElementById("gh-sync-log");
   if (!snap) return;
   if (!confirm(`Roll back application files to snapshot '${snap}'?`)) return;
-  const res = await apiPost("/api/app/rollback", { snapshot: snap });
-  if (res.ok) {
-    if (logEl) logEl.textContent = `Rolled back ${res.data.restored_count} file(s) from ${snap}. Safety snapshot: ${res.data.safety_snapshot}. Click Reload Server to apply backend changes.`;
-    await loadGitHubRepoConfig();
-    loadLogs();
-  } else if (logEl) {
-    logEl.textContent = `Rollback failed: ${res.data?.detail || "Unknown error"}`;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/app/rollback", { snapshot: snap });
+        const data = res?.data ?? res;
+        if (logEl) logEl.textContent = `Rolled back ${data.restored_count} file(s) from ${snap}. Safety snapshot: ${data.safety_snapshot}. Click Reload Server to apply backend changes.`;
+        await loadGitHubRepoConfig();
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: `Rolling back to snapshot '${snap}'...`,
+        successText: (d) => `Rolled back ${d?.restored_count ?? 0} file(s) from ${snap}`,
+      },
+    );
+  } catch (err) {
+    if (logEl) logEl.textContent = `Rollback failed: ${err?.message || err}`;
   }
 }
 
@@ -906,7 +1023,7 @@ export async function copyGitPushError() {
 }
 
 export async function pushAppToGitHub() {
-  const btn = document.getElementById("btn-gh-push");
+  const btn = _resolveAppMgmtBtn("btn-gh-push");
   const logEl = document.getElementById("gh-sync-log");
   const errBox = document.getElementById("gh-push-error-box");
   const errSum = document.getElementById("gh-push-error-summary");
@@ -914,46 +1031,59 @@ export async function pushAppToGitHub() {
   const msg = (document.getElementById("gh-commit-msg")?.value || "").trim();
   const branch = (document.getElementById("gh-branch")?.value || "main").trim() || "main";
   if (errBox) errBox.style.display = "none";
-  if (btn) { btn.disabled = true; btn.textContent = "Pushing..."; }
   if (logEl) logEl.textContent = "Staging changes, committing, and pushing to GitHub...";
   try {
-    const res = await apiFetch("/api/app/git-push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ commit_message: msg, branch }),
-    });
-    const text = await res.text();
-    let data = {};
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    if (res.ok) {
-      if (logEl) {
-        if (data.status === "up_to_date") {
-          logEl.textContent = data.message || "Everything is already up to date with origin.";
-        } else {
-          logEl.textContent = `Pushed ${data.short_sha || "HEAD"} to ${data.branch} (${data.changed_file_count} changed file(s)).\n${data.output || ""}`;
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiFetch("/api/app/git-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ commit_message: msg, branch }),
+        });
+        const text = await res.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch { data = { raw: text }; }
+        if (!res.ok) {
+          const step = data.step || "push";
+          const code = data.exit_code !== undefined ? data.exit_code : res.status;
+          const hint = data.hint || data.detail || "Git push failed";
+          const details = [data.stderr, data.stdout].filter(Boolean).join("\n\n") || text || "Unknown error";
+          if (logEl) logEl.textContent = `Push failed at '${step}' (exit ${code}): ${hint}`;
+          if (errSum) errSum.textContent = `Step: ${step} · Exit: ${code} — ${hint}`;
+          if (errPre) errPre.textContent = details;
+          if (errBox) errBox.style.display = "block";
+          await loadLogs();
+          const err = new Error(`Step: ${step} · Exit: ${code} — ${hint}`);
+          err.details = details;
+          throw err;
         }
-      }
-      const msgEl = document.getElementById("gh-commit-msg");
-      if (msgEl) msgEl.value = "";
-      await Promise.all([loadGitStatus(), loadGitHubRepoConfig(), loadLogs()]);
-    } else {
-      const step = data.step || "push";
-      const code = data.exit_code !== undefined ? data.exit_code : res.status;
-      const hint = data.hint || data.detail || "Git push failed";
-      const details = [data.stderr, data.stdout].filter(Boolean).join("\n\n") || text || "Unknown error";
-      if (logEl) logEl.textContent = `Push failed at '${step}' (exit ${code}): ${hint}`;
-      if (errSum) errSum.textContent = `Step: ${step} · Exit: ${code} — ${hint}`;
-      if (errPre) errPre.textContent = details;
-      if (errBox) errBox.style.display = "block";
-      await loadLogs();
-    }
+        if (logEl) {
+          if (data.status === "up_to_date") {
+            logEl.textContent = data.message || "Everything is already up to date with origin.";
+          } else {
+            logEl.textContent = `Pushed ${data.short_sha || "HEAD"} to ${data.branch} (${data.changed_file_count} changed file(s)).\n${data.output || ""}`;
+          }
+        }
+        const msgEl = document.getElementById("gh-commit-msg");
+        if (msgEl) msgEl.value = "";
+        await Promise.all([loadGitStatus(), loadGitHubRepoConfig(), loadLogs()]);
+        return data;
+      },
+      {
+        pendingText: `Staging, committing, and pushing to '${branch}'...`,
+        successText: (d) => d?.status === "up_to_date"
+          ? (d.message || "Already up to date with origin")
+          : `Pushed ${d?.short_sha || "HEAD"} to ${d?.branch || branch}`,
+      },
+    );
   } catch (err) {
-    if (logEl) logEl.textContent = `Push failed: ${err?.message || err}`;
-    if (errSum) errSum.textContent = "Git Push Request Error";
-    if (errPre) errPre.textContent = String(err?.message || err);
-    if (errBox) errBox.style.display = "block";
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Push to GitHub"; }
+    if (!err?.details) {
+      if (logEl) logEl.textContent = `Push failed: ${err?.message || err}`;
+      if (errSum) errSum.textContent = "Git Push Request Error";
+      if (errPre) errPre.textContent = String(err?.message || err);
+      if (errBox) errBox.style.display = "block";
+    }
   }
 }
 
@@ -1166,16 +1296,34 @@ export async function loadPersistentBanner() {
 export async function uploadCustomBannerFile(inputEl) {
   const file = inputEl?.files?.[0];
   if (!file) return;
-  const fd = new FormData();
-  fd.append("file", file);
-  const resp = await apiFetch("/api/ui/banner", { method: "POST", body: fd });
-  if (resp.ok) {
-    const data = await resp.json();
-    APP_BANNER_STATE.banner_enabled = data.banner_enabled !== false;
-    APP_BANNER_STATE.banner_file = data.banner_file || "";
-    APP_BANNER_STATE.banner_fit = data.banner_fit === "cover" ? "cover" : "contain";
-    APP_BANNER_STATE.has_banner = true;
-    applyBannerStateToDOM(true);
+  const btn = document.getElementById("btn-banner-menu");
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const fd = new FormData();
+        fd.append("file", file);
+        const resp = await apiFetch("/api/ui/banner", { method: "POST", body: fd });
+        const text = await resp.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch { data = { raw: text }; }
+        if (!resp.ok) {
+          throw new Error(data.detail || text || `HTTP ${resp.status}`);
+        }
+        APP_BANNER_STATE.banner_enabled = data.banner_enabled !== false;
+        APP_BANNER_STATE.banner_file = data.banner_file || "";
+        APP_BANNER_STATE.banner_fit = data.banner_fit === "cover" ? "cover" : "contain";
+        APP_BANNER_STATE.has_banner = true;
+        applyBannerStateToDOM(true);
+        return data;
+      },
+      {
+        pendingText: `Uploading banner (${file.name})...`,
+        successText: `Uploaded banner (${file.name})`,
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
   }
 }
 

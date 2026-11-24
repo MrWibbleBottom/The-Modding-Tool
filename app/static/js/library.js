@@ -1,7 +1,13 @@
-import { apiFetch, apiGet, apiPost, setOutput, state, switchTab } from "./api.js";
+import { apiFetch, apiGet, apiPost, runTrackedAction, setOutput, state, switchTab } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
 import { loadModdabilityGuide } from "./analyzer.js";
 import { syncModBuilderWithGame } from "./mcp.js";
+
+function _resolveLibBtn(fallbackId = "") {
+  const evTarget = typeof window !== "undefined" ? window.event?.target : null;
+  const fromEvent = evTarget && typeof evTarget.closest === "function" ? evTarget.closest("button") : null;
+  return fromEvent || (fallbackId ? document.getElementById(fallbackId) : null);
+}
 
 let SORT_COLUMN = "name";
 let SORT_DIRECTION = "asc";
@@ -27,26 +33,34 @@ export async function loadGameLibrary() {
 }
 
 export async function scanLibraryInstalled(extraRoots = []) {
-  const btn = document.getElementById("btn-lib-scan-installed");
+  const btn = _resolveLibBtn("btn-lib-scan-installed");
   const statusEl = document.getElementById("lib-status-bar");
-  if (btn) { btn.disabled = true; btn.textContent = "Scanning..."; }
   if (statusEl) statusEl.textContent = "Scanning Steam, Epic, GOG, and custom folders + fingerprinting engines...";
   try {
-    const res = await apiPost("/api/library/scan-installed", {
-      custom_roots: extraRoots,
-      save_custom_roots: true
-    });
-    if (res.ok && res.data) {
-      LIBRARY_ENTRIES = Array.isArray(res.data.entries) ? res.data.entries : [];
-      const badge = document.getElementById("library-count-badge");
-      if (badge) badge.textContent = String(LIBRARY_ENTRIES.length);
-      if (statusEl) {
-        statusEl.innerHTML = `Discovered <strong>${res.data.installed_count}</strong> installed game(s) (${res.data.total_count} total in library).`;
-      }
-      renderGameLibraryCards();
-    }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Scan Installed"; }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/library/scan-installed", {
+          custom_roots: extraRoots,
+          save_custom_roots: true,
+        });
+        const data = res?.data ?? res;
+        LIBRARY_ENTRIES = Array.isArray(data?.entries) ? data.entries : [];
+        const badge = document.getElementById("library-count-badge");
+        if (badge) badge.textContent = String(LIBRARY_ENTRIES.length);
+        if (statusEl) {
+          statusEl.innerHTML = `Discovered <strong>${data?.installed_count ?? 0}</strong> installed game(s) (${data?.total_count ?? LIBRARY_ENTRIES.length} total in library).`;
+        }
+        renderGameLibraryCards();
+        return data;
+      },
+      {
+        pendingText: "Scanning Steam, Epic, GOG, and custom libraries...",
+        successText: (d) => `Discovered ${d?.installed_count ?? 0} installed game(s) (${d?.total_count ?? 0} total)`,
+      },
+    );
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Library scan failed: ${err?.message || err}`;
   }
 }
 
@@ -58,28 +72,36 @@ export async function addCustomLibraryFolder() {
 }
 
 export async function importLibraryOwned() {
-  const btn = document.getElementById("btn-lib-run-owned");
+  const btn = _resolveLibBtn("btn-lib-run-owned");
   const statusEl = document.getElementById("lib-status-bar");
-  if (btn) { btn.disabled = true; btn.textContent = "Importing & Enriching..."; }
   if (statusEl) statusEl.textContent = "Importing owned Steam/GOG titles and querying PCGamingWiki metadata...";
   try {
-    const res = await apiPost("/api/library/import-owned", {
-      steam_id: (document.getElementById("lib-steam-id")?.value || "").trim(),
-      steam_api_key: (document.getElementById("lib-steam-key")?.value || "").trim(),
-      include_gog: true,
-      enrich_metadata: true
-    });
-    if (res.ok && res.data) {
-      LIBRARY_ENTRIES = Array.isArray(res.data.entries) ? res.data.entries : [];
-      const badge = document.getElementById("library-count-badge");
-      if (badge) badge.textContent = String(LIBRARY_ENTRIES.length);
-      if (statusEl) {
-        statusEl.innerHTML = `Imported <strong>${res.data.imported_count}</strong> owned/uninstalled title(s) (${res.data.total_count} total in library).`;
-      }
-      renderGameLibraryCards();
-    }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Fetch Owned Libraries (Steam + GOG) & Enrich PCGamingWiki"; }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/library/import-owned", {
+          steam_id: (document.getElementById("lib-steam-id")?.value || "").trim(),
+          steam_api_key: (document.getElementById("lib-steam-key")?.value || "").trim(),
+          include_gog: true,
+          enrich_metadata: true,
+        });
+        const data = res?.data ?? res;
+        LIBRARY_ENTRIES = Array.isArray(data?.entries) ? data.entries : [];
+        const badge = document.getElementById("library-count-badge");
+        if (badge) badge.textContent = String(LIBRARY_ENTRIES.length);
+        if (statusEl) {
+          statusEl.innerHTML = `Imported <strong>${data?.imported_count ?? 0}</strong> owned/uninstalled title(s) (${data?.total_count ?? LIBRARY_ENTRIES.length} total in library).`;
+        }
+        renderGameLibraryCards();
+        return data;
+      },
+      {
+        pendingText: "Importing owned Steam/GOG libraries & enriching PCGamingWiki...",
+        successText: (d) => `Imported ${d?.imported_count ?? 0} owned title(s) (${d?.total_count ?? 0} total)`,
+      },
+    );
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Owned library import failed: ${err?.message || err}`;
   }
 }
 
@@ -233,25 +255,32 @@ export async function scanCustomPathInput() {
 }
 
 let SCAN_PROGRESS_TIMER = null;
+let SCAN_PROGRESS_CALLBACK = null;
 
 export function updateScanProgressUI(data) {
   const wrap = document.getElementById("scan-progress-wrap");
   const label = document.getElementById("scan-progress-label");
   const pctEl = document.getElementById("scan-progress-pct");
   const bar = document.getElementById("scan-progress-bar");
-  if (!wrap || !data) return;
-  wrap.style.display = "block";
+  if (!data) return;
   const pct = Math.max(0, Math.min(100, Number(data.percent || 0)));
   const cur = Number(data.current || 0);
   const tot = Number(data.total || 0);
   const itemText = data.current_item ? ` — ${data.current_item}` : "";
-  if (label) label.textContent = `${data.phase || "Scanning..."}${itemText}`;
+  const phaseMsg = `${data.phase || "Scanning..."}${itemText}`;
+  if (typeof SCAN_PROGRESS_CALLBACK === "function") {
+    SCAN_PROGRESS_CALLBACK(pct, `${phaseMsg} (${pct}%)`);
+  }
+  if (!wrap) return;
+  wrap.style.display = "block";
+  if (label) label.textContent = phaseMsg;
   if (pctEl) pctEl.textContent = `${pct}% (${cur} / ${tot})`;
   if (bar) bar.style.width = `${pct}%`;
 }
 
-export function startScanProgressPolling(initialPhase = "Starting scan...") {
+export function startScanProgressPolling(initialPhase = "Starting scan...", onProgress = null) {
   stopScanProgressPolling();
+  SCAN_PROGRESS_CALLBACK = typeof onProgress === "function" ? onProgress : null;
   updateScanProgressUI({ phase: initialPhase, percent: 0, current: 0, total: 0, current_item: "" });
   SCAN_PROGRESS_TIMER = setInterval(async () => {
     try {
@@ -269,6 +298,7 @@ export function stopScanProgressPolling(finalPhase = "Scan complete") {
     clearInterval(SCAN_PROGRESS_TIMER);
     SCAN_PROGRESS_TIMER = null;
   }
+  SCAN_PROGRESS_CALLBACK = null;
   const bar = document.getElementById("scan-progress-bar");
   const label = document.getElementById("scan-progress-label");
   const pctEl = document.getElementById("scan-progress-pct");
@@ -277,87 +307,101 @@ export function stopScanProgressPolling(finalPhase = "Scan complete") {
   if (pctEl && pctEl.textContent.startsWith("0%")) pctEl.textContent = "100%";
 }
 
+async function _executeScanAllGamesInfo(prefixText = "", onProgress = null) {
+  const out = document.getElementById("scan-output");
+  if (out) {
+    out.style.display = "block";
+    if (!prefixText) {
+      out.textContent = "Scanning game folders on disk and populating Game Info metadata for all found games...";
+    }
+  }
+  startScanProgressPolling("Scraping Game Info metadata...", onProgress);
+  try {
+    const res = await apiPost("/api/games/scan-info", {});
+    const data = res?.data ?? res;
+    const lines = (data?.results || []).map(
+      r => `${r.name} (${r.id}): ${r.status}${r.mcp_category ? ` [${r.mcp_category} | Unity ${r.unity_version || "N/A"} | ${r.modding_readiness}]` : ""}`
+    ).join("\n  ");
+    const infoSummary = `${data?.summary || "Game info scan complete."}\nPopulated Game Info:\n  ${lines || "None"}`;
+    if (out) out.textContent = prefixText ? `${prefixText}\n\n${infoSummary}` : infoSummary;
+    stopScanProgressPolling("Game scan & info complete");
+    await refreshGamesList(true);
+    return data;
+  } catch (err) {
+    stopScanProgressPolling("Game info scan failed");
+    if (out) out.textContent = (prefixText ? `${prefixText}\n\n` : "") + `Game info scan failed: ${err?.message || err}`;
+    throw err;
+  }
+}
+
 export async function scanPlatforms(customPath = "") {
   const out = document.getElementById("scan-output");
-  const scanBtn = document.getElementById("btn-game-scan");
+  const scanBtn = _resolveLibBtn("btn-game-scan");
   const scopeEl = document.getElementById("scan-unity-only");
   const discoveryScope = scopeEl ? scopeEl.value : "all";
   const scopeLabel = scopeEl && scopeEl.selectedOptions[0] ? scopeEl.selectedOptions[0].textContent : discoveryScope;
-  out.style.display = "block";
-  out.textContent = customPath
-    ? `Scanning folder '${customPath}' [Scope: ${scopeLabel}] and auto-populating Game Manager...`
-    : `Scanning PC game platforms (Steam, Epic Games, GOG Galaxy, XboxGames, Ubisoft, EA) [Scope: ${scopeLabel}]...`;
-  if (scanBtn) {
-    scanBtn.disabled = true;
-    scanBtn.textContent = "Scanning...";
+  if (out) {
+    out.style.display = "block";
+    out.textContent = customPath
+      ? `Scanning folder '${customPath}' [Scope: ${scopeLabel}] and auto-populating Game Manager...`
+      : `Scanning PC game platforms (Steam, Epic Games, GOG Galaxy, XboxGames, Ubisoft, EA) [Scope: ${scopeLabel}]...`;
   }
-  startScanProgressPolling("Discovering platform game folders...");
   try {
-    const res = await apiPost("/api/games/scan", {
-      custom_path: customPath,
-      auto_populate: true,
-      unity_only: discoveryScope === "unity_all",
-      discovery_scope: discoveryScope
-    });
-    if (res.ok) {
-      const rootsList = (res.data.scanned_roots || []).map(r => `[${r.platform}] ${r.path}`).join("\n  ");
-      const gamesList = (res.data.discovered || []).map(g => `${g.name} [${g.runtime}] -> ${g.game_dir} (${g.scan_status})`).join("\n  ");
-      const scanSummaryText =
-        `${res.data.summary}\n` +
-        `Scanned Library Roots:\n  ${rootsList || "None"}\n` +
-        `Discovered Games:\n  ${gamesList || "None"}`;
-      out.textContent = `${scanSummaryText}\n\nAutomatically running Game info scan for all found games...`;
-      await scanAllGamesInfo(scanSummaryText);
-    } else {
-      stopScanProgressPolling("Scan failed");
-      out.textContent = JSON.stringify(res.data, null, 2);
-    }
-  } finally {
-    if (scanBtn) {
-      scanBtn.disabled = false;
-      scanBtn.textContent = "Game scan";
-    }
+    await runTrackedAction(
+      scanBtn,
+      async ({ setProgress }) => {
+        startScanProgressPolling("Discovering platform game folders...", setProgress);
+        const res = await apiPost("/api/games/scan", {
+          custom_path: customPath,
+          auto_populate: true,
+          unity_only: discoveryScope === "unity_all",
+          discovery_scope: discoveryScope,
+        });
+        const data = res?.data ?? res;
+        const rootsList = (data?.scanned_roots || []).map(r => `[${r.platform}] ${r.path}`).join("\n  ");
+        const gamesList = (data?.discovered || []).map(g => `${g.name} [${g.runtime}] -> ${g.game_dir} (${g.scan_status})`).join("\n  ");
+        const scanSummaryText =
+          `${data?.summary || "Scan complete."}\n` +
+          `Scanned Library Roots:\n  ${rootsList || "None"}\n` +
+          `Discovered Games:\n  ${gamesList || "None"}`;
+        if (out) out.textContent = `${scanSummaryText}\n\nAutomatically running Game info scan for all found games...`;
+        const infoData = await _executeScanAllGamesInfo(scanSummaryText, setProgress);
+        return { scan: data, info: infoData };
+      },
+      {
+        pendingText: customPath ? `Scanning '${customPath}'...` : "Scanning game platforms & populating Game Info...",
+        successText: (r) => r?.scan?.summary || "Platform & Game Info scan complete",
+        mode: "determinate",
+      },
+    );
+  } catch (err) {
+    stopScanProgressPolling("Scan failed");
+    if (out) out.textContent = `Scan failed: ${err?.message || err}`;
   }
 }
 
 export async function scanAllGamesInfo(prefixText = "") {
-  const out = document.getElementById("scan-output");
-  const btn = document.getElementById("btn-scan-game-info");
-  out.style.display = "block";
-  if (!prefixText) {
-    out.textContent = "Scanning game folders on disk and populating Game Info metadata for all found games...";
-  }
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Scanning...";
-  }
-  startScanProgressPolling("Scraping Game Info metadata...");
+  const btn = _resolveLibBtn("btn-scan-game-info");
   try {
-    const res = await apiPost("/api/games/scan-info", {});
-    if (res.ok) {
-      const lines = (res.data.results || []).map(
-        r => `${r.name} (${r.id}): ${r.status}${r.mcp_category ? ` [${r.mcp_category} | Unity ${r.unity_version || "N/A"} | ${r.modding_readiness}]` : ""}`
-      ).join("\n  ");
-      const infoSummary = `${res.data.summary}\nPopulated Game Info:\n  ${lines || "None"}`;
-      out.textContent = prefixText ? `${prefixText}\n\n${infoSummary}` : infoSummary;
-      stopScanProgressPolling("Game scan & info complete");
-      await refreshGamesList(true);
-    } else {
-      stopScanProgressPolling("Game info scan failed");
-      out.textContent = (prefixText ? `${prefixText}\n\n` : "") + JSON.stringify(res.data, null, 2);
-    }
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Game info";
-    }
+    await runTrackedAction(
+      btn,
+      async ({ setProgress }) => _executeScanAllGamesInfo(prefixText, setProgress),
+      {
+        pendingText: "Scraping Game Info metadata for managed games...",
+        successText: (d) => d?.summary || "Game info scan complete",
+        mode: "determinate",
+      },
+    );
+  } catch {
+    // Error UI and client-error audit handled by runTrackedAction
   }
 }
 
 export async function rescanActiveGameMetadata() {
   const res = await apiPost("/api/games/rescan", { game_id: state.activeGameId });
-  if (res.data && res.data.game) {
-    applyGameSettingsToUI(res.data.game);
+  const data = res?.data ?? res;
+  if (data && data.game) {
+    applyGameSettingsToUI(data.game);
     await refreshGamesList(false);
   }
 }
@@ -931,37 +975,38 @@ export function renderModdingAppsSection(game) {
 
 export async function installModdingTool(toolId) {
   const out = document.getElementById("tools-install-output");
-  const btn = document.getElementById(`btn-tool-${toolId}`);
+  const btn = _resolveLibBtn(`btn-tool-${toolId}`);
   const gameDir = document.getElementById("fp-game-dir")?.value || "";
   if (out) {
     out.style.display = "block";
     out.textContent = `Installing / deploying modding tool '${toolId}'...`;
   }
-  const origText = btn ? btn.textContent : "";
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Installing...";
-  }
   try {
-    const res = await apiPost("/api/tools/install", {
-      tool_id: toolId,
-      game_id: state.activeGameId,
-      game_dir: gameDir
-    });
-    if (out) {
-      out.textContent = res.ok
-        ? `${res.data.message}\nSHA-256: ${res.data.sha256}\nTarget Folder: ${res.data.install_dir}`
-        : `Error installing '${toolId}':\n${JSON.stringify(res.data, null, 2)}`;
-    }
-    if (res.ok && res.data.game) {
-      applyGameSettingsToUI(res.data.game);
-    }
-    await refreshGamesList(false);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = origText;
-    }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/tools/install", {
+          tool_id: toolId,
+          game_id: state.activeGameId,
+          game_dir: gameDir,
+        });
+        const data = res?.data ?? res;
+        if (out) {
+          out.textContent = `${data.message}\nSHA-256: ${data.sha256}\nTarget Folder: ${data.install_dir}`;
+        }
+        if (data?.game) {
+          applyGameSettingsToUI(data.game);
+        }
+        await refreshGamesList(false);
+        return data;
+      },
+      {
+        pendingText: `Installing ${toolId}...`,
+        successText: (d) => d?.message || `Installed ${toolId}`,
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `Error installing '${toolId}': ${err?.message || err}`;
   }
 }
 
@@ -970,7 +1015,7 @@ export async function installAllRecommendedTools() {
   if (!game) return;
   const apps = ((game.modding_info || {}).modding_apps || []).filter(a => a.recommended);
   const out = document.getElementById("tools-install-output");
-  const btn = document.getElementById("btn-install-all-rec");
+  const btn = _resolveLibBtn("btn-install-all-rec");
   if (apps.length === 0) {
     if (out) {
       out.style.display = "block";
@@ -978,37 +1023,41 @@ export async function installAllRecommendedTools() {
     }
     return;
   }
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = `Installing ${apps.length} Apps...`;
-  }
   const results = [];
   try {
-    for (const app of apps) {
-      if (out) {
-        out.style.display = "block";
-        out.textContent = `Installing ${app.name} (${app.id})...\n` + results.join("\n");
-      }
-      const res = await apiPost("/api/tools/install", {
-        tool_id: app.id,
-        game_id: state.activeGameId,
-        game_dir: document.getElementById("fp-game-dir")?.value || game.game_dir || ""
-      });
-      if (res.ok) {
-        results.push(`[OK] ${app.name}: ${res.data.message}`);
-      } else {
-        results.push(`[ERR] ${app.name}: ${JSON.stringify(res.data)}`);
-      }
-    }
-    if (out) {
-      out.textContent = `Finished installing recommended apps for ${game.name}:\n` + results.join("\n");
-    }
-    await refreshGamesList(true);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Install Recommended Apps";
-    }
+    await runTrackedAction(
+      btn,
+      async ({ setProgress }) => {
+        for (let i = 0; i < apps.length; i++) {
+          const app = apps[i];
+          setProgress(Math.round((i / apps.length) * 100), `Installing ${app.name} (${i + 1}/${apps.length})...`);
+          if (out) {
+            out.style.display = "block";
+            out.textContent = `Installing ${app.name} (${app.id})...\n` + results.join("\n");
+          }
+          const res = await apiPost("/api/tools/install", {
+            tool_id: app.id,
+            game_id: state.activeGameId,
+            game_dir: document.getElementById("fp-game-dir")?.value || game.game_dir || "",
+          });
+          const data = res?.data ?? res;
+          results.push(`[OK] ${app.name}: ${data?.message || "Installed"}`);
+        }
+        setProgress(100, `Installed ${apps.length} recommended app(s)`);
+        if (out) {
+          out.textContent = `Finished installing recommended apps for ${game.name}:\n` + results.join("\n");
+        }
+        await refreshGamesList(true);
+        return results;
+      },
+      {
+        pendingText: `Installing ${apps.length} recommended modding app(s)...`,
+        successText: `Installed ${apps.length} recommended app(s) for ${game.name}`,
+        mode: "determinate",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `Recommended tool install failed: ${err?.message || err}`;
   }
 }
 
@@ -1450,27 +1499,45 @@ export async function deleteManagedGame(gameId) {
 }
 
 export async function pruneNonGames() {
+  const btn = _resolveLibBtn("");
   try {
-    const resp = await apiPost("/api/games/prune-non-games", {});
-    alert(resp.data?.summary || "Pruned non-game entries.");
-    await refreshGamesList(false);
-    loadLogs();
-  } catch (err) {
-    alert(`Prune failed: ${err.message || err}`);
+    await runTrackedAction(
+      btn,
+      async () => {
+        const resp = await apiPost("/api/games/prune-non-games", {});
+        const data = resp?.data ?? resp;
+        await refreshGamesList(false);
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Pruning non-game entries...",
+        successText: (d) => d?.summary || "Pruned non-game entries",
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
   }
 }
 
 export async function prewarmAllGameIcons() {
-  const btn = document.getElementById("btn-prewarm-icons");
-  if (btn) { btn.disabled = true; btn.textContent = "Pre-warming..."; }
+  const btn = _resolveLibBtn("btn-prewarm-icons");
   try {
-    const resp = await apiPost("/api/games/prewarm-icons", {});
-    alert(resp.data?.summary || "Icons pre-warmed.");
-    renderGamesTable();
-  } catch (err) {
-    alert(`Pre-warm failed: ${err.message || err}`);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Pre-warm Icons"; }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const resp = await apiPost("/api/games/prewarm-icons", {});
+        const data = resp?.data ?? resp;
+        renderGamesTable();
+        return data;
+      },
+      {
+        pendingText: "Pre-warming game icons...",
+        successText: (d) => d?.summary || "Icons pre-warmed",
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
   }
 }
 
@@ -1531,6 +1598,7 @@ export async function checkActiveGameConflicts() {
 }
 
 export async function applyOptimalUnrealIni() {
+  const btn = _resolveLibBtn("");
   const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
   const ue = game.modding_info?.unreal_settings;
   if (!ue || !ue.ini_path) {
@@ -1544,23 +1612,44 @@ export async function applyOptimalUnrealIni() {
     }
   }
   try {
-    const resp = await apiPost("/api/unreal-settings/apply", { game_id: state.activeGameId, ini_path: ue.ini_path, updates });
-    alert(resp.data?.summary || "Applied optimal Unreal INI settings.");
-    await importUnrealSettings(ue.ini_path);
-  } catch (err) {
-    alert(`Apply failed: ${err.message || err}`);
+    await runTrackedAction(
+      btn,
+      async () => {
+        const resp = await apiPost("/api/unreal-settings/apply", { game_id: state.activeGameId, ini_path: ue.ini_path, updates });
+        const data = resp?.data ?? resp;
+        await importUnrealSettings(ue.ini_path);
+        return data;
+      },
+      {
+        pendingText: "Applying optimal Unreal INI settings...",
+        successText: (d) => d?.summary || "Applied optimal Unreal INI settings",
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
   }
 }
 
 export async function restoreUnrealIniBackup() {
+  const btn = _resolveLibBtn("");
   const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
   const iniPath = game.modding_info?.unreal_settings?.ini_path || "";
   if (!iniPath) return;
   try {
-    const resp = await apiPost("/api/unreal-settings/restore", { game_id: state.activeGameId, ini_path: iniPath });
-    alert(resp.data?.summary || "Restored Unreal INI backup.");
-    await importUnrealSettings(iniPath);
-  } catch (err) {
-    alert(`Restore failed: ${err.message || err}`);
+    await runTrackedAction(
+      btn,
+      async () => {
+        const resp = await apiPost("/api/unreal-settings/restore", { game_id: state.activeGameId, ini_path: iniPath });
+        const data = resp?.data ?? resp;
+        await importUnrealSettings(iniPath);
+        return data;
+      },
+      {
+        pendingText: "Restoring Unreal INI backup...",
+        successText: (d) => d?.summary || "Restored Unreal INI backup",
+      },
+    );
+  } catch {
+    // Inline error handled by runTrackedAction
   }
 }

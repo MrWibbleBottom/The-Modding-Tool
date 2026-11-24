@@ -204,3 +204,186 @@ export async function pollServerHealth() {
   }
 }
 
+function _ensureActionStatusSlot(triggerBtn) {
+  const anchor = triggerBtn && typeof triggerBtn.closest === "function"
+    ? (triggerBtn.closest(".btn-row, .btn-group") || triggerBtn)
+    : triggerBtn;
+
+  let slot = null;
+  if (anchor && anchor.nextElementSibling?.classList?.contains("action-status-slot")) {
+    slot = anchor.nextElementSibling;
+  } else {
+    slot = document.createElement("div");
+    if (anchor && typeof anchor.insertAdjacentElement === "function") {
+      anchor.insertAdjacentElement("afterend", slot);
+    }
+  }
+  slot.innerHTML = "";
+  return slot;
+}
+
+async function _reportClientActionError(triggerBtn, err, { pendingText, mode }) {
+  const errMsg = err?.message || (typeof err === "string" ? err : "Unknown action error");
+  const triggerLabel = (
+    triggerBtn?.id
+    || triggerBtn?.textContent
+    || pendingText
+    || "ui.action"
+  ).trim().slice(0, 120);
+
+  try {
+    await apiFetch("/api/audit/client-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: `ui.action.${triggerLabel}`,
+        message: String(errMsg),
+        stack: err?.stack ? String(err.stack) : "",
+        url: typeof window !== "undefined" ? window.location.href : "",
+        details: {
+          pending_text: pendingText || "",
+          mode: mode || "indeterminate",
+          trigger_id: triggerBtn?.id || "",
+          trigger_text: (triggerBtn?.textContent || "").trim(),
+        },
+      }),
+    });
+  } catch {
+    // Do not mask the primary action failure if audit reporting fails
+  }
+}
+
+export async function runTrackedAction(
+  triggerBtn,
+  asyncTask,
+  { pendingText = "Working...", successText = "Completed", mode = "indeterminate" } = {},
+) {
+  const slot = _ensureActionStatusSlot(triggerBtn);
+  slot.className = "action-status-slot is-running";
+  slot.setAttribute("role", "status");
+
+  const head = document.createElement("div");
+  head.className = "action-status-head";
+
+  const summaryEl = document.createElement("span");
+  summaryEl.className = "action-status-summary";
+  summaryEl.textContent = pendingText || "Working...";
+
+  const actionsEl = document.createElement("div");
+  actionsEl.className = "action-status-actions";
+
+  head.append(summaryEl, actionsEl);
+
+  const track = document.createElement("div");
+  track.className = "action-status-track";
+
+  const bar = document.createElement("div");
+  const barMode = mode === "determinate" ? "determinate" : "indeterminate";
+  bar.className = `action-status-bar ${barMode}`;
+  if (barMode === "determinate") {
+    bar.style.width = "0%";
+  }
+  track.appendChild(bar);
+
+  slot.append(head, track);
+
+  const controls = {
+    slot,
+    setProgress(percent, text) {
+      const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+      bar.classList.remove("indeterminate");
+      bar.classList.add("determinate");
+      bar.style.width = `${pct}%`;
+      if (text !== undefined && text !== null) {
+        summaryEl.textContent = String(text);
+      }
+    },
+    setStatus(text) {
+      if (text !== undefined && text !== null) {
+        summaryEl.textContent = String(text);
+      }
+    },
+  };
+
+  const prevDisabled = triggerBtn ? Boolean(triggerBtn.disabled) : false;
+  if (triggerBtn) triggerBtn.disabled = true;
+
+  try {
+    const result = await asyncTask(controls);
+
+    slot.className = "action-status-slot is-success";
+    bar.className = "action-status-bar";
+    bar.style.width = "100%";
+
+    const doneMsg = typeof successText === "function"
+      ? successText(result)
+      : (successText || "Completed");
+    summaryEl.textContent = `\u2713 ${doneMsg}`;
+
+    const dismissBtn = document.createElement("button");
+    dismissBtn.type = "button";
+    dismissBtn.className = "secondary btn-sm action-status-dismiss";
+    dismissBtn.textContent = "Dismiss";
+    dismissBtn.addEventListener("click", () => slot.remove());
+    actionsEl.replaceChildren(dismissBtn);
+
+    return result;
+  } catch (err) {
+    const errMsg = err?.message || (typeof err === "string" ? err : "Action failed");
+    const detailParts = [errMsg];
+    if (err?.stack && String(err.stack) !== errMsg) {
+      detailParts.push(String(err.stack));
+    }
+    if (err?.details) {
+      detailParts.push(
+        typeof err.details === "string" ? err.details : JSON.stringify(err.details, null, 2),
+      );
+    }
+    const detailText = detailParts.filter(Boolean).join("\n\n");
+
+    slot.className = "action-status-slot is-error";
+    bar.className = "action-status-bar";
+    bar.style.width = "100%";
+    summaryEl.textContent = `\u2715 ${errMsg}`;
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "secondary btn-sm action-status-copy";
+    copyBtn.textContent = "Copy Error";
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(detailText);
+        copyBtn.textContent = "Copied";
+        setTimeout(() => { copyBtn.textContent = "Copy Error"; }, 1500);
+      } catch {
+        // Ignore clipboard errors in restricted contexts
+      }
+    });
+
+    const dismissBtn = document.createElement("button");
+    dismissBtn.type = "button";
+    dismissBtn.className = "secondary btn-sm action-status-dismiss";
+    dismissBtn.textContent = "Dismiss";
+    dismissBtn.addEventListener("click", () => slot.remove());
+
+    actionsEl.replaceChildren(copyBtn, dismissBtn);
+
+    const errBox = document.createElement("div");
+    errBox.className = "action-status-error-box";
+    const detailsEl = document.createElement("details");
+    detailsEl.className = "action-status-details";
+    const detailsSummary = document.createElement("summary");
+    detailsSummary.textContent = "Error details";
+    const detailsPre = document.createElement("pre");
+    detailsPre.textContent = detailText;
+    detailsEl.append(detailsSummary, detailsPre);
+    errBox.appendChild(detailsEl);
+    slot.appendChild(errBox);
+
+    await _reportClientActionError(triggerBtn, err, { pendingText, mode });
+    throw err;
+  } finally {
+    if (triggerBtn) triggerBtn.disabled = prevDisabled;
+  }
+}
+

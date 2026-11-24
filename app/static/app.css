@@ -738,3 +738,126 @@ body.compact td, body.compact th { padding: 5px 8px; }
   0% { transform: translateX(-100%); }
   100% { transform: translateX(240%); }
 }
+
+/* Inline action progress & error feedback directly beneath action buttons */
+.action-status-slot {
+  width: 100%;
+  flex-basis: 100%;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(9, 13, 19, 0.88);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.8rem;
+}
+.action-status-slot.is-running {
+  border-color: rgba(59, 130, 246, 0.48);
+  background: rgba(37, 99, 235, 0.08);
+}
+.action-status-slot.is-success {
+  border-color: rgba(16, 185, 129, 0.48);
+  background: rgba(16, 185, 129, 0.08);
+}
+.action-status-slot.is-error {
+  border-color: rgba(239, 68, 68, 0.65);
+  background: rgba(239, 68, 68, 0.1);
+}
+.action-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.action-status-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.action-status-slot.is-running .action-status-summary {
+  color: #93c5fd;
+}
+.action-status-slot.is-success .action-status-summary {
+  color: #34d399;
+}
+.action-status-slot.is-error .action-status-summary {
+  color: #fca5a5;
+}
+.action-status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.action-status-dismiss,
+.action-status-copy {
+  padding: 3px 9px;
+  min-height: 24px;
+  font-size: 0.72rem;
+}
+.action-status-track {
+  width: 100%;
+  height: 6px;
+  background: #0b0f17;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.action-status-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.2s ease, background 0.18s ease;
+}
+.action-status-slot.is-running .action-status-bar.indeterminate {
+  width: 42%;
+  animation: splashSlide 1.15s infinite ease-in-out;
+}
+.action-status-slot.is-running .action-status-bar.determinate {
+  animation: none;
+}
+.action-status-slot.is-success .action-status-bar {
+  width: 100% !important;
+  background: var(--ok);
+  animation: none;
+}
+.action-status-slot.is-error .action-status-bar {
+  width: 100% !important;
+  background: var(--err);
+  animation: none;
+}
+.action-status-error-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 2px;
+}
+.action-status-details {
+  background: var(--code-bg);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  padding: 6px 9px;
+}
+.action-status-details summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fecaca;
+  user-select: none;
+}
+.action-status-details pre {
+  margin-top: 6px;
+  padding: 8px 10px;
+  max-height: 180px !important;
+  overflow: auto;
+  font-size: 0.74rem;
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.25);
+}

@@ -18,7 +18,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, Response, Upl
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core.audit import append_audit_log, clear_audit_log_cache, read_audit_logs
+from app.core.audit import append_audit_log, clear_audit_log_cache, log_action_error, read_audit_logs
 import app.core.audit as _audit
 from app.core.config import (
     ANTI_CHEAT_BINARIES,
@@ -153,6 +153,50 @@ async def get_logs(request: Request, limit: int = 50, category: str = "all"):
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag})
     return JSONResponse(content=payload, headers={"ETag": etag})
+
+
+class ClientErrorRequest(BaseModel):
+    source: str = Field(default="client")
+    action: str = Field(default="client.error")
+    endpoint: str = Field(default="")
+    status_code: int | None = None
+    message: str = Field(default="")
+    error: str = Field(default="")
+    detail: Any = None
+    stack: str = Field(default="")
+    url: str = Field(default="")
+    line: int | None = None
+    column: int | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/api/audit/client-error")
+async def log_client_error(req: ClientErrorRequest) -> dict[str, Any]:
+    """Record a sanitized browser/client error as an ACTION_FAILED audit entry (session-token protected)."""
+    err_msg = (req.message or req.error or "Unknown client error").strip()
+    extra_details: dict[str, Any] = dict(req.details or {})
+    if req.detail is not None:
+        if isinstance(req.detail, dict):
+            extra_details.update(req.detail)
+        else:
+            extra_details["detail"] = req.detail
+    if req.stack:
+        extra_details["stack"] = req.stack
+    if req.url:
+        extra_details["url"] = req.url
+    if req.line is not None:
+        extra_details["line"] = req.line
+    if req.column is not None:
+        extra_details["column"] = req.column
+    entry = log_action_error(
+        source=req.source or "client",
+        action=req.action or "client.error",
+        endpoint=req.endpoint or req.url or "",
+        status_code=req.status_code,
+        message=err_msg,
+        detail=extra_details or None,
+    )
+    return {"ok": True, "status": "ok", "entry": entry}
 
 
 async def _download_and_extract_zip(url: str, target_dir: Path, archive_name: str) -> tuple[Path, str, int]:

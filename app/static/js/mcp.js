@@ -1,6 +1,12 @@
-import { apiFetch, apiPost, setOutput, state } from "./api.js";
+import { apiFetch, apiPost, runTrackedAction, setOutput, state } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
 import { refreshGamesList, rescanActiveGameMetadata } from "./library.js";
+
+function _resolveMcpBtn(fallbackId = "") {
+  const evTarget = typeof window !== "undefined" ? window.event?.target : null;
+  const fromEvent = evTarget && typeof evTarget.closest === "function" ? evTarget.closest("button") : null;
+  return fromEvent || (fallbackId ? document.getElementById(fallbackId) : null);
+}
 
 export const ENTITIES = {
   paladin_piece: {
@@ -445,7 +451,7 @@ export function applyVariableSelection() {
   syncSelectorJson();
 }
 
-export async function runFingerprint() {
+async function _executeFingerprint() {
   const out = document.getElementById("fp-output");
   if (out) {
     out.style.display = "block";
@@ -453,50 +459,101 @@ export async function runFingerprint() {
   }
   const game_dir = document.getElementById("fp-game-dir").value;
   const res = await apiPost("/api/fingerprint", { game_dir });
+  const data = res?.data ?? res;
   if (out) {
-    out.textContent = JSON.stringify(res.data, null, 2);
+    out.textContent = JSON.stringify(data, null, 2);
   }
   await refreshGamesList(false);
+  return data;
+}
+
+export async function runFingerprint() {
+  const btn = _resolveMcpBtn("");
+  try {
+    await runTrackedAction(btn, _executeFingerprint, {
+      pendingText: "Fingerprinting game directory...",
+      successText: "Fingerprint complete",
+    });
+  } catch (err) {
+    const out = document.getElementById("fp-output");
+    if (out) out.textContent = `Fingerprint failed: ${err?.message || err}`;
+  }
 }
 
 export async function runFingerprintAndRescan() {
-  const btn = document.getElementById("btn-fp-rescan");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Scanning...";
-  }
+  const btn = _resolveMcpBtn("btn-fp-rescan");
   try {
-    await runFingerprint();
-    await rescanActiveGameMetadata();
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Fingerprint & Rescan";
-    }
+    await runTrackedAction(
+      btn,
+      async () => {
+        const fp = await _executeFingerprint();
+        await rescanActiveGameMetadata();
+        return fp;
+      },
+      {
+        pendingText: "Fingerprinting and rescanning active game metadata...",
+        successText: "Fingerprint & metadata rescan complete",
+      },
+    );
+  } catch (err) {
+    const out = document.getElementById("fp-output");
+    if (out) out.textContent = `Fingerprint & rescan failed: ${err?.message || err}`;
   }
 }
 
 export async function runProvision() {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("prov-output");
-  out.textContent = "Provisioning BepInEx 6 IL2CPP + BepInExMCP.IL2CPP.dll...";
-  const res = await apiPost("/api/provision", {
-    game_dir: document.getElementById("fp-game-dir").value,
-    bepinex_zip_path: document.getElementById("prov-zip-path").value,
-    expected_sha256: document.getElementById("prov-sha256").value,
-    plugin_build_dir: document.getElementById("prov-plugin-dir").value
-  });
-  out.textContent = JSON.stringify(res.data, null, 2);
-  await refreshGamesList(false);
+  if (out) out.textContent = "Provisioning BepInEx 6 IL2CPP + BepInExMCP.IL2CPP.dll...";
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/provision", {
+          game_dir: document.getElementById("fp-game-dir").value,
+          bepinex_zip_path: document.getElementById("prov-zip-path").value,
+          expected_sha256: document.getElementById("prov-sha256").value,
+          plugin_build_dir: document.getElementById("prov-plugin-dir").value,
+        });
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        await refreshGamesList(false);
+        return data;
+      },
+      {
+        pendingText: "Provisioning BepInEx + bridge plugin (with backup)...",
+        successText: "Provision & backup complete",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `Provision failed: ${err?.message || err}`;
+  }
 }
 
 export async function runRestore() {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("prov-output");
-  out.textContent = "Running Clean Restore...";
-  const res = await apiPost("/api/restore", {
-    game_dir: document.getElementById("fp-game-dir").value
-  });
-  out.textContent = JSON.stringify(res.data, null, 2);
-  await refreshGamesList(false);
+  if (out) out.textContent = "Running Clean Restore...";
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/restore", {
+          game_dir: document.getElementById("fp-game-dir").value,
+        });
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        await refreshGamesList(false);
+        return data;
+      },
+      {
+        pendingText: "Running Clean Restore from manifest/backup...",
+        successText: "Clean Restore complete",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `Clean Restore failed: ${err?.message || err}`;
+  }
 }
 
 export function baseMcpPayload(action, argumentsObj) {
@@ -518,61 +575,141 @@ export function parseSelector() {
 }
 
 export async function mcpTestBridge() {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("mcp-output");
-  out.textContent = "Calling ping_unity_bridge + get_runtime_capabilities over persistent MCP stdio...";
-  const res = await apiPost("/api/mcp/call", baseMcpPayload("test_bridge", {}));
-  out.textContent = JSON.stringify(res.data, null, 2);
+  if (out) out.textContent = "Calling ping_unity_bridge + get_runtime_capabilities over persistent MCP stdio...";
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/mcp/call", baseMcpPayload("test_bridge", {}));
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        return data;
+      },
+      {
+        pendingText: "Testing persistent MCP stdio bridge...",
+        successText: "MCP bridge test succeeded",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `MCP test failed: ${err?.message || err}`;
+  }
 }
 
 export async function mcpSearch(mode) {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("mcp-output");
-  out.textContent = `Running ${mode}...`;
-  const res = await apiPost("/api/mcp/call", baseMcpPayload("search", {
-    mode,
-    name: document.getElementById("mcp-search-name").value,
-    component_name: document.getElementById("mcp-search-comp").value,
-    include_inactive: false,
-    limit: 50
-  }));
-  out.textContent = JSON.stringify(res.data, null, 2);
+  if (out) out.textContent = `Running ${mode}...`;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/mcp/call", baseMcpPayload("search", {
+          mode,
+          name: document.getElementById("mcp-search-name").value,
+          component_name: document.getElementById("mcp-search-comp").value,
+          include_inactive: false,
+          limit: 50,
+        }));
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        return data;
+      },
+      {
+        pendingText: `Running MCP ${mode}...`,
+        successText: `MCP ${mode} complete`,
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `MCP ${mode} failed: ${err?.message || err}`;
+  }
 }
 
 export async function mcpInspect() {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("mcp-output");
-  out.textContent = "Inspecting components and member...";
-  const res = await apiPost("/api/mcp/call", baseMcpPayload("inspect", {
-    game_object_id: document.getElementById("mcp-go-id").value,
-    selector: parseSelector(),
-    component_name: document.getElementById("mcp-comp-name").value,
-    member_name: document.getElementById("mcp-member-name").value
-  }));
-  out.textContent = JSON.stringify(res.data, null, 2);
+  if (out) out.textContent = "Inspecting components and member...";
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/mcp/call", baseMcpPayload("inspect", {
+          game_object_id: document.getElementById("mcp-go-id").value,
+          selector: parseSelector(),
+          component_name: document.getElementById("mcp-comp-name").value,
+          member_name: document.getElementById("mcp-member-name").value,
+        }));
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        return data;
+      },
+      {
+        pendingText: "Inspecting Unity object & component member...",
+        successText: "MCP inspect complete",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `MCP inspect failed: ${err?.message || err}`;
+  }
 }
 
 export async function mcpEdit() {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("mcp-output");
-  out.textContent = "Setting component value and verifying...";
-  const res = await apiPost("/api/mcp/call", baseMcpPayload("edit", {
-    game_object_id: document.getElementById("mcp-go-id").value,
-    selector: parseSelector(),
-    component_name: document.getElementById("mcp-comp-name").value,
-    member_name: document.getElementById("mcp-member-name").value,
-    value: document.getElementById("mcp-member-value").value
-  }));
-  out.textContent = JSON.stringify(res.data, null, 2);
+  if (out) out.textContent = "Setting component value and verifying...";
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/mcp/call", baseMcpPayload("edit", {
+          game_object_id: document.getElementById("mcp-go-id").value,
+          selector: parseSelector(),
+          component_name: document.getElementById("mcp-comp-name").value,
+          member_name: document.getElementById("mcp-member-name").value,
+          value: document.getElementById("mcp-member-value").value,
+        }));
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        return data;
+      },
+      {
+        pendingText: "Applying live component value via MCP...",
+        successText: "MCP edit applied and verified",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `MCP edit failed: ${err?.message || err}`;
+  }
 }
 
 export async function mcpProfile() {
+  const btn = _resolveMcpBtn("");
   const out = document.getElementById("mcp-output");
-  out.textContent = "Saving and applying mod profile...";
-  const res = await apiPost("/api/mcp/call", baseMcpPayload("profile_save_apply", {
-    profile_name: document.getElementById("mcp-profile-name").value,
-    selector: parseSelector(),
-    component_name: document.getElementById("mcp-comp-name").value,
-    member_name: document.getElementById("mcp-member-name").value,
-    value: document.getElementById("mcp-member-value").value
-  }));
-  out.textContent = JSON.stringify(res.data, null, 2);
+  if (out) out.textContent = "Saving and applying mod profile...";
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost("/api/mcp/call", baseMcpPayload("profile_save_apply", {
+          profile_name: document.getElementById("mcp-profile-name").value,
+          selector: parseSelector(),
+          component_name: document.getElementById("mcp-comp-name").value,
+          member_name: document.getElementById("mcp-member-name").value,
+          value: document.getElementById("mcp-member-value").value,
+        }));
+        const data = res?.data ?? res;
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        return data;
+      },
+      {
+        pendingText: "Saving and applying MCP mod profile...",
+        successText: "MCP profile saved & applied",
+      },
+    );
+  } catch (err) {
+    if (out) out.textContent = `MCP profile failed: ${err?.message || err}`;
+  }
 }
 
 
@@ -728,7 +865,7 @@ export function removeModRule(index) {
 }
 
 export async function buildCompatibleMod() {
-  const btn = document.getElementById("btn-build-mod");
+  const btn = _resolveMcpBtn("btn-build-mod");
   const resultPanel = document.getElementById("mb-result-panel");
   const logPre = document.getElementById("mb-build-log");
   if (!MOD_BUILDER_RULES.length) {
@@ -736,43 +873,44 @@ export async function buildCompatibleMod() {
     return;
   }
 
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Building Mod...";
-  }
   try {
-    const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
-    const payload = {
-      game_id: state.activeGameId,
-      game_dir: game.game_dir || document.getElementById("gm-game-dir")?.value || "",
-      mod_name: document.getElementById("mb-mod-name")?.value || "CustomMod",
-      mod_id: document.getElementById("mb-mod-id")?.value || "com.modtool.custommod",
-      mod_version: document.getElementById("mb-mod-version")?.value || "1.0.0",
-      author: document.getElementById("mb-author")?.value || "ModToolPoC",
-      apply_interval_sec: parseFloat(document.getElementById("mb-interval")?.value || "2.0") || 2.0,
-      edits: MOD_BUILDER_RULES,
-    };
+    await runTrackedAction(
+      btn,
+      async () => {
+        const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
+        const payload = {
+          game_id: state.activeGameId,
+          game_dir: game.game_dir || document.getElementById("gm-game-dir")?.value || "",
+          mod_name: document.getElementById("mb-mod-name")?.value || "CustomMod",
+          mod_id: document.getElementById("mb-mod-id")?.value || "com.modtool.custommod",
+          mod_version: document.getElementById("mb-mod-version")?.value || "1.0.0",
+          author: document.getElementById("mb-author")?.value || "ModToolPoC",
+          apply_interval_sec: parseFloat(document.getElementById("mb-interval")?.value || "2.0") || 2.0,
+          edits: MOD_BUILDER_RULES,
+        };
 
-    const data = await apiPost("/api/mods/build", payload);
-    state.lastBuiltMod = data;
+        const data = await apiPost("/api/mods/build", payload);
+        state.lastBuiltMod = data;
 
-    if (resultPanel) resultPanel.style.display = "block";
-    document.getElementById("mb-out-kind").textContent = data.mod_kind || "Standalone Mod";
-    document.getElementById("mb-out-zip").textContent = data.zip_path || "—";
-    document.getElementById("mb-out-compat").textContent = data.compatibility || "Verified";
-    document.getElementById("mb-install-instructions").textContent = data.instructions_text || (data.install_steps || []).join("\n");
-    if (logPre) {
-      logPre.textContent = `${data.summary || "Build succeeded."}\nSHA-256: ${data.zip_sha256 || "—"}\n${data.compile_output ? "\nCompiler Output:\n" + data.compile_output : ""}`;
-    }
-    loadLogs();
+        if (resultPanel) resultPanel.style.display = "block";
+        document.getElementById("mb-out-kind").textContent = data.mod_kind || "Standalone Mod";
+        document.getElementById("mb-out-zip").textContent = data.zip_path || "—";
+        document.getElementById("mb-out-compat").textContent = data.compatibility || "Verified";
+        document.getElementById("mb-install-instructions").textContent = data.instructions_text || (data.install_steps || []).join("\n");
+        if (logPre) {
+          logPre.textContent = `${data.summary || "Build succeeded."}\nSHA-256: ${data.zip_sha256 || "—"}\n${data.compile_output ? "\nCompiler Output:\n" + data.compile_output : ""}`;
+        }
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Compiling & packaging compatible mod...",
+        successText: (d) => d?.summary || "Mod build succeeded",
+      },
+    );
   } catch (err) {
     if (resultPanel) resultPanel.style.display = "block";
-    if (logPre) logPre.textContent = `Build failed: ${err.message || err}`;
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Build Compatible Mod";
-    }
+    if (logPre) logPre.textContent = `Build failed: ${err?.message || err}`;
   }
 }
 
@@ -781,30 +919,31 @@ export async function installBuiltModToGame() {
     alert("Build a mod first before installing.");
     return;
   }
-  const btn = document.getElementById("btn-install-built-mod");
+  const btn = _resolveMcpBtn("btn-install-built-mod");
   const logPre = document.getElementById("mb-build-log");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Installing...";
-  }
   try {
-    const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
-    const data = await apiPost("/api/mods/install", {
-      mod_slug: state.lastBuiltMod.mod_slug,
-      game_id: state.activeGameId,
-      game_dir: game.game_dir || document.getElementById("gm-game-dir")?.value || "",
-    });
-    if (logPre) {
-      logPre.textContent = `${data.summary}\nInstalled files:\n- ${(data.installed_files || []).join("\n- ")}`;
-    }
-    loadLogs();
+    await runTrackedAction(
+      btn,
+      async () => {
+        const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
+        const data = await apiPost("/api/mods/install", {
+          mod_slug: state.lastBuiltMod.mod_slug,
+          game_id: state.activeGameId,
+          game_dir: game.game_dir || document.getElementById("gm-game-dir")?.value || "",
+        });
+        if (logPre) {
+          logPre.textContent = `${data.summary}\nInstalled files:\n- ${(data.installed_files || []).join("\n- ")}`;
+        }
+        loadLogs();
+        return data;
+      },
+      {
+        pendingText: "Installing built mod into game directory...",
+        successText: (d) => d?.summary || "Built mod installed",
+      },
+    );
   } catch (err) {
-    if (logPre) logPre.textContent = `Install failed: ${err.message || err}`;
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Install Built Mod to Game";
-    }
+    if (logPre) logPre.textContent = `Install failed: ${err?.message || err}`;
   }
 }
 

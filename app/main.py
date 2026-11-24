@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import mimetypes
 from contextlib import asynccontextmanager
 
@@ -11,12 +12,19 @@ mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("text/css", ".css")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.audit import append_audit_log
+from app.core.audit import append_audit_log, log_action_error, sanitize_audit_text, sanitize_audit_value
 from app.core.config import POC_DIR, STATIC_DIR, TEMPLATES_DIR
 from app.core.security import SessionTokenMiddleware, get_session_token
 from app.routers import asset_audit, branding, git_sync, library, mcp_bridge, system
@@ -50,9 +58,202 @@ async def lifespan(_app: FastAPI):
         await mcp_bridge.mcp_manager.close()
 
 
+def _default_error_hint(status_code: int) -> str:
+    if status_code in (401, 403):
+        return "Refresh the page or verify your session token and credentials."
+    if status_code == 404:
+        return "Verify the requested resource or API endpoint exists."
+    if status_code == 422:
+        return "Check the submitted fields and fix any validation errors."
+    if status_code == 400:
+        return "Check the request parameters and try again."
+    if status_code in (502, 503, 504):
+        return "An upstream service or local tool failed or timed out."
+    if status_code >= 500:
+        return "Check the Audit Log or server diagnostics for details."
+    return "Review the error details and try again."
+
+
+def _safe_log_api_error(
+    request: Request,
+    message: BaseException | str,
+    *,
+    status_code: int,
+    detail: object = None,
+) -> None:
+    if not request.url.path.startswith("/api/"):
+        return
+    try:
+        request.state._audit_error_logged = True
+        log_action_error(
+            source="backend",
+            action=f"{request.method} {request.url.path}",
+            endpoint=request.url.path,
+            status_code=status_code,
+            message=message,
+            detail=detail,
+        )
+    except Exception:
+        pass
+
+
+def _build_api_error_payload(
+    *,
+    status_code: int,
+    message: str,
+    hint: str | None = None,
+    detail: object = None,
+    extra: dict | None = None,
+) -> dict:
+    clean_message = sanitize_audit_text(message or f"HTTP {status_code}", max_len=500) or f"HTTP {status_code}"
+    clean_hint = sanitize_audit_text(hint or _default_error_hint(status_code), max_len=300)
+    if detail is None:
+        clean_detail: object = clean_message
+    elif isinstance(detail, str):
+        clean_detail = sanitize_audit_text(detail, max_len=1500) or clean_message
+    else:
+        clean_detail = sanitize_audit_value(detail, max_len=1500)
+
+    payload: dict = dict(extra) if isinstance(extra, dict) else {}
+    payload["ok"] = False
+    payload["message"] = clean_message
+    payload["hint"] = clean_hint
+    payload["detail"] = clean_detail
+    return payload
+
+
+class ApiErrorCaptureMiddleware(BaseHTTPMiddleware):
+    """Log and normalize any direct ``/api/*`` error response (``status_code >= 400``)."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if (
+            not request.url.path.startswith("/api/")
+            or response.status_code < 400
+            or getattr(request.state, "_audit_error_logged", False)
+        ):
+            return response
+
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        raw_body = b"".join(chunks)
+
+        parsed = None
+        content_type = (response.headers.get("content-type") or "").lower()
+        if raw_body and ("json" in content_type or raw_body.lstrip().startswith((b"{", b"["))):
+            try:
+                parsed = json.loads(raw_body.decode("utf-8", errors="replace"))
+            except Exception:
+                parsed = None
+
+        if isinstance(parsed, dict):
+            raw_detail = (
+                parsed.get("detail")
+                or parsed.get("stderr")
+                or parsed.get("error")
+                or parsed.get("message")
+                or f"HTTP {response.status_code}"
+            )
+            raw_msg = (
+                parsed.get("message")
+                or (raw_detail if isinstance(raw_detail, str) else None)
+                or parsed.get("hint")
+                or f"Request failed with HTTP {response.status_code}"
+            )
+            payload = _build_api_error_payload(
+                status_code=response.status_code,
+                message=str(raw_msg),
+                hint=parsed.get("hint"),
+                detail=raw_detail,
+                extra=parsed,
+            )
+        else:
+            raw_text = raw_body.decode("utf-8", errors="replace").strip()
+            msg = raw_text or f"Request failed with HTTP {response.status_code}"
+            payload = _build_api_error_payload(
+                status_code=response.status_code,
+                message=msg,
+                detail=raw_text or f"HTTP {response.status_code}",
+            )
+
+        _safe_log_api_error(
+            request,
+            payload["message"],
+            status_code=response.status_code,
+            detail=payload["detail"],
+        )
+
+        headers = {
+            k: v
+            for k, v in response.headers.items()
+            if k.lower() not in ("content-length", "content-type")
+        }
+        return JSONResponse(status_code=response.status_code, content=payload, headers=headers)
+
+
 app = FastAPI(title="Battlemarked IL2CPP Modding PoC", lifespan=lifespan)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(SessionTokenMiddleware)
+app.add_middleware(ApiErrorCaptureMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def api_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if request.url.path.startswith("/api/"):
+        raw_detail = exc.detail if exc.detail else f"HTTP {exc.status_code}"
+        msg = raw_detail if isinstance(raw_detail, str) else f"HTTP {exc.status_code}"
+        if exc.status_code >= 400:
+            _safe_log_api_error(
+                request,
+                msg,
+                status_code=exc.status_code,
+                detail=raw_detail,
+            )
+        payload = _build_api_error_payload(
+            status_code=exc.status_code,
+            message=msg,
+            detail=raw_detail,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=payload,
+            headers=getattr(exc, "headers", None),
+        )
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def api_validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/"):
+        errors = exc.errors()
+        _safe_log_api_error(
+            request,
+            "Request validation failed",
+            status_code=422,
+            detail={"errors": errors},
+        )
+        payload = _build_api_error_payload(
+            status_code=422,
+            message="Request validation failed",
+            detail=errors,
+        )
+        return JSONResponse(status_code=422, content=payload)
+    return await request_validation_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def api_unhandled_exception_handler(request: Request, exc: Exception):
+    if request.url.path.startswith("/api/"):
+        safe_msg = sanitize_audit_text(str(exc), max_len=300) or "Internal server error"
+        _safe_log_api_error(request, exc, status_code=500, detail=exc)
+        payload = _build_api_error_payload(
+            status_code=500,
+            message=safe_msg,
+            detail=safe_msg,
+        )
+        return JSONResponse(status_code=500, content=payload)
+    return HTMLResponse(content="Internal Server Error", status_code=500)
 
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", SafeMimeStaticFiles(directory=str(STATIC_DIR)), name="static")
