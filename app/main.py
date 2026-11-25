@@ -21,6 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -295,13 +296,18 @@ def get_asset_version() -> str:
     return f"{ver}-{latest_mtime}"
 
 
+_TEMPLATE_ENV = Environment(
+    loader=FileSystemLoader(str(TEMPLATES_DIR)),
+    autoescape=select_autoescape(["html", "htm"]),
+)
+
+
 @app.get("/")
 async def serve_index() -> HTMLResponse:
-    template_path = TEMPLATES_DIR / "index.html"
     asset_version = get_asset_version()
-    html = template_path.read_text(encoding="utf-8")
-    html = html.replace("__SESSION_TOKEN__", get_session_token())
-    html = html.replace("{{ asset_version }}", asset_version).replace("__ASSET_VERSION__", asset_version)
+    template = _TEMPLATE_ENV.get_template("index.html")
+    html = template.render(asset_version=asset_version)
+    html = html.replace("__SESSION_TOKEN__", get_session_token()).replace("__ASSET_VERSION__", asset_version)
     return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
 

@@ -318,6 +318,8 @@ def build_pyinstaller_command(onefile: bool = False) -> list[str]:
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'templates'};app/templates",
         "--add-data",
+        f"{PROJECT_ROOT / 'app' / 'templates' / 'partials'};app/templates/partials",
+        "--add-data",
         f"{PROJECT_ROOT / 'app' / 'data' / 'steam_games_reference.csv'};app/data",
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'engines'};app/engines",

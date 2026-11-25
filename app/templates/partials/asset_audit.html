@@ -1,0 +1,23 @@
+    <!-- ASSET & MODDABILITY ANALYZER (GREEN / AMBER / RED) -->
+    <div class="card full" id="card-asset-moddability-analyzer">
+      <h2>
+        <span>Asset &amp; Moddability Analyzer</span>
+        <div class="btn-group">
+          <span class="pill na" id="asset-analyzer-summary-pill">Not Scanned</span>
+          <button class="secondary btn-sm" onclick="toggleModdabilityGuide()">Info: Why Some Parts Can't Be Modded</button>
+          <button class="success btn-sm" id="btn-scan-assets" onclick="runAssetModdabilityScan()">Scan Game Assets</button>
+        </div>
+      </h2>
+      <div id="asset-traffic-light-matrix" class="crucial-steps-grid" style="grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));">
+        <div class="step-card pending">
+          <div class="step-card-title">Ready to Audit Game Assets</div>
+          <div class="step-card-detail">Click <strong>Scan Game Assets</strong> to classify open configs, packed containers, runtime hooks, and anti-cheat/encryption gates into Green, Amber, and Red layers.</div>
+        </div>
+      </div>
+      <div id="asset-moddability-guide-panel" style="display:none; margin-top:12px; padding:12px; border:1px solid #2b3c56; border-radius:6px; background:rgba(13,17,23,0.82);">
+        <div style="font-weight:700; font-size:0.86rem; color:#93c5fd; margin-bottom:8px;">
+          Technical Boundaries Guide: Why Some Game Layers Are Amber or Red
+        </div>
+        <div id="asset-moddability-guide-grid" class="crucial-steps-grid" style="grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));"></div>
+      </div>
+    </div>

@@ -2,6 +2,16 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 12:16 — v0.1.40
+
+- **Prompt**: Split oversized frontend files (index.html, library.js, app_mgmt.js) and test_app_smoke.py into modular partials, ES modules, and domain test suites, and update CI.
+- **AG Feedback**: Split index.html into 6 Jinja2 partials rendered via Jinja2 in app/main.py and bundled in package_windows.py; split library.js into state.js, game_table.js, active_game.js, unreal_panel.js, and re-exports; split app_mgmt.js into git_backup.js and app_mgmt.js; split test_app_smoke.py into 6 domain test files (28/28 passed via pytest tests/ -v) and updated .github/workflows/ci.yml.
+- **Version Changes**:
+  - Created app/templates/partials/{header,game_manager,active_game,mcp_bridge,asset_audit,app_mgmt}.html
+  - Updated app/templates/index.html, app/main.py (Jinja2 rendering), and package_windows.py (bundled partials)
+  - Created app/static/js/{state,game_table,active_game,unreal_panel,git_backup}.js and converted library.js / app_mgmt.js to modular entry/re-export layers
+  - Split tests/test_app_smoke.py into tests/{test_discovery,test_unreal,test_mcp,test_system,test_security,test_frontend_contracts}.py and updated .github/workflows/ci.yml
+
 ## 2026-11-25 11:52 — v0.1.40
 
 - **Prompt**: Refactor oversized backend routers (`app/routers/library.py`, `system.py`, `mcp_bridge.py`) into `app/core/constants.py`, `app/engines/`, and `app/services/` while preserving all API routes, schemas, and packaging, and run an AST undefined-name scan + full test suite.

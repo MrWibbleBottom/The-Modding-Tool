@@ -1,0 +1,410 @@
+  <!-- ===================================================================== -->
+  <!-- TAB 6: APP MANAGEMENT (EXPORT, SAVE/RESTORE, TOOL UPGRADES, UI EDITOR)-->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-appmgmt">
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+
+      <!-- 1. PORTABLE APP EXPORT & DIAGNOSTICS -->
+      <div class="card">
+        <h2>
+          <span>Portable App Export</span>
+          <div class="btn-group">
+            <button class="success btn-sm" id="btn-export-app" onclick="exportPortableAppZip()">Export App (.zip)</button>
+          </div>
+        </h2>
+        <div class="hint">
+          Packages the entire app (UI, backend, MCP bridge, pre-built plugins, and Windows self-bootstrapping launcher) into a standalone <code>TheModdingTool.zip</code> download for any Windows 10/11 PC.
+        </div>
+        <pre id="am-export-log" style="max-height:110px;">Ready to package and download portable Windows build.</pre>
+      </div>
+
+      <!-- 1B. GITHUB DISTRIBUTION & RESTORE -->
+      <div class="card">
+        <h2>
+          <span>GitHub Distribution &amp; Restore</span>
+          <span class="pill na" id="gh-sync-badge">Unconfigured</span>
+        </h2>
+        <div class="row">
+          <div>
+            <label for="gh-owner">GitHub Owner (or Full Repo URL)</label>
+            <input id="gh-owner" type="text" placeholder="MrWibbleBottom or https://github.com/MrWibbleBottom/The-Modding-Tool" />
+          </div>
+          <div>
+            <label for="gh-repo">Repository Name</label>
+            <input id="gh-repo" type="text" placeholder="The-Modding-Tool" />
+          </div>
+          <div>
+            <label for="gh-branch">Branch</label>
+            <input id="gh-branch" type="text" value="main" placeholder="main" />
+          </div>
+          <div>
+            <label for="gh-token">Private Repo Token (Optional)</label>
+            <input id="gh-token" type="password" placeholder="ghp_... (masked when saved)" />
+          </div>
+        </div>
+        <div class="info-grid" style="grid-template-columns: repeat(2, 1fr); gap:8px; margin:10px 0;">
+          <div class="info-item">
+            <div class="k">Installed Build</div>
+            <div class="v" id="gh-installed-sha">Unset</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Remote Latest</div>
+            <div class="v" id="gh-remote-latest">Not Checked</div>
+          </div>
+        </div>
+        <div class="btn-group" style="margin-bottom:10px;">
+          <button class="secondary btn-sm" onclick="saveGitHubRepoConfig()">Save Repo Settings</button>
+          <button class="btn-sm" id="btn-gh-check" onclick="checkGitHubUpdates()">Check GitHub</button>
+          <button class="secondary btn-sm" id="btn-gh-pull-branches" onclick="pullGitHubBranches()">Pull Available Branches</button>
+          <button class="success btn-sm" id="btn-gh-sync" onclick="pullGitHubSync()">Pull / Restore Latest from GitHub</button>
+          <button class="secondary btn-sm" onclick="restartAppServer()">Reload Server</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <label for="gh-snapshots-select">Local Snapshots (<code>%LOCALAPPDATA%\TheModdingTool\app_backups\</code>)</label>
+            <select id="gh-snapshots-select"></select>
+          </div>
+          <button class="danger btn-sm" onclick="rollbackToSnapshot()">Rollback to Snapshot</button>
+        </div>
+
+        <!-- PUBLISH / PUSH TO GITHUB -->
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border);">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+            <strong style="font-size:0.84rem; color:#93c5fd;">Publish / Push to GitHub</strong>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <span class="pill na" id="git-init-badge">Checking...</span>
+              <span class="badge" id="git-branch-badge">Branch: —</span>
+              <span class="badge" id="git-remote-badge">Origin: —</span>
+              <span class="badge" id="git-changes-badge">0 Uncommitted</span>
+              <button class="secondary btn-sm" onclick="loadGitStatus()">Refresh Status</button>
+            </div>
+          </div>
+          <div id="git-changed-files-list" style="font-size:0.74rem; color:var(--muted); margin-bottom:8px;">
+            Checking local Git working tree...
+          </div>
+          <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+              <label for="gh-commit-msg">Commit Message</label>
+              <input id="gh-commit-msg" type="text" placeholder="Describe changes (leave blank for timestamped auto message)" />
+            </div>
+            <div style="flex:0 1 200px; min-width:150px;">
+              <label for="gh-push-branch">Push Branch</label>
+              <select id="gh-push-branch" aria-label="Push Branch">
+                <option value="main">main</option>
+              </select>
+            </div>
+            <button class="success btn-sm" id="btn-gh-push" onclick="pushAppToGitHub()">Push to GitHub</button>
+          </div>
+        </div>
+
+        <pre id="gh-sync-log" style="max-height:95px; margin-top:8px;">Configure a GitHub repo above to check or sync distribution updates.</pre>
+        <div id="gh-push-error-box" style="display:none; margin-top:8px; padding:10px; border:1px solid #ef4444; background:rgba(239,68,68,0.1); border-radius:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
+            <strong id="gh-push-error-summary" style="color:#fca5a5; font-size:0.82rem;">Git Push Error</strong>
+            <button class="secondary btn-sm" id="btn-copy-git-error" onclick="copyGitPushError()">Copy Error</button>
+          </div>
+          <pre id="gh-push-error-pre" style="max-height:140px; margin:0; color:#fecaca; white-space:pre-wrap;"></pre>
+        </div>
+      </div>
+
+      <!-- 2. DIAGNOSTICS & MAINTENANCE -->
+      <div class="card">
+        <h2>
+          <span>Runtime Diagnostics &amp; Maintenance</span>
+          <div class="btn-group">
+            <button class="secondary btn-sm" onclick="loadAppDiagnostics()">Refresh</button>
+            <button class="secondary btn-sm" onclick="openAppMgmtFolder('appdata')">Open AppData</button>
+            <button class="secondary btn-sm" onclick="openAppMgmtFolder('backups')">Open Backups</button>
+            <button class="secondary btn-sm" onclick="clearBuiltModsCache()">Clear Mod Cache</button>
+            <button class="secondary btn-sm" id="btn-toggle-watcher" onclick="toggleBackupWatcher()">Auto-Watcher: Checking...</button>
+            <button class="secondary btn-sm" id="btn-register-protocol" onclick="registerProtocolLauncher()">Register moddingtool:// Launcher</button>
+            <button class="danger btn-sm" onclick="flushAllAppCaches()">Flush All Cache &amp; Data</button>
+            <button class="danger btn-sm" onclick="restartAppServer()">Restart App</button>
+            <button class="danger btn-sm" id="btn-am-stop-server" onclick="stopAppServer()">Stop Server</button>
+          </div>
+        </h2>
+        <div class="info-grid" style="grid-template-columns: repeat(2, 1fr); gap:8px;">
+          <div class="info-item">
+            <div class="k">Python &amp; .NET SDK</div>
+            <div class="v" id="am-diag-runtimes">—</div>
+          </div>
+          <div class="info-item">
+            <div class="k">Server PID &amp; Cached Mods</div>
+            <div class="v" id="am-diag-pid">—</div>
+          </div>
+          <div class="info-item" style="grid-column: span 2;">
+            <div class="k">AppData &amp; Workspace Paths</div>
+            <div class="v" id="am-diag-paths">—</div>
+          </div>
+          <div class="info-item" style="grid-column: span 2;">
+            <div class="k">Semantic Version (1.0.0 = Full Launch)</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:4px;">
+              <div class="v" id="am-version-display">v0.1.0 (pre-launch)</div>
+              <div class="btn-group">
+                <button class="secondary btn-sm" onclick="bumpAppVersion('patch')">+ Patch</button>
+                <button class="secondary btn-sm" onclick="bumpAppVersion('minor')">+ Minor</button>
+                <button class="secondary btn-sm" onclick="bumpAppVersion('major')">+ Major</button>
+                <button class="success btn-sm" id="btn-launch-1-0" onclick="bumpAppVersion('launch')">Launch 1.0.0</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. MODDING TOOLS UPGRADE & SECURITY CHECKSUMS -->
+      <div class="card full">
+        <h2>
+          <span>Modding Deployment Tools &amp; Security Upgrades</span>
+          <div class="btn-group">
+            <button class="secondary btn-sm" onclick="loadModdingToolsStatus()">Verify Checksums</button>
+          </div>
+        </h2>
+        <div class="hint">
+          Manage and upgrade the modding loaders and bridge plugins deployed to games. Security checks enforce HTTPS transport, SHA-256 digest verification, and automatic pre-upgrade backups.
+        </div>
+        <div class="row" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom:8px;">
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;">
+            <input type="checkbox" id="am-sec-https" checked style="width:auto;" />
+            <span>Enforce HTTPS Downloads Only</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;">
+            <input type="checkbox" id="am-sec-checksum" checked style="width:auto;" />
+            <span>Require SHA-256 Checksum Verification</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;">
+            <input type="checkbox" id="am-sec-backup" checked style="width:auto;" />
+            <span>Backup Previous Tool Before Replacing</span>
+          </label>
+        </div>
+        <div class="row">
+          <div>
+            <label for="am-tool-expected-sha">Expected SHA-256 Override (Optional — verified if provided)</label>
+            <input id="am-tool-expected-sha" type="text" placeholder="64-hex SHA-256 digest (leave blank to use release digest)" />
+          </div>
+          <div>
+            <label for="am-tool-custom-url">Custom HTTPS Archive URL Override (Optional)</label>
+            <input id="am-tool-custom-url" type="text" placeholder="https://github.com/.../release.zip" />
+          </div>
+        </div>
+        <div class="log-wrap" style="max-height:220px; margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Modding Tool</th>
+                <th>Version</th>
+                <th>SHA-256 Checksum</th>
+                <th>Security Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="am-tools-tbody">
+              <tr><td colspan="5">Loading tool status...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre id="am-tools-log" style="margin-top:8px; max-height:110px;">Ready to verify or upgrade modding deployment tools.</pre>
+      </div>
+
+      <!-- 5. APP EDITING TOOLS (MOVED HERE) -->
+      <div class="card full">
+        <h2>
+          <span>App Editing Tools — Branding, Visibility &amp; Layout</span>
+          <div class="btn-group">
+            <button class="success btn-sm" onclick="saveAppUiConfig()">Save Changes</button>
+            <button class="secondary btn-sm" onclick="exportAppUiConfig()">Export JSON</button>
+            <button class="secondary btn-sm" onclick="triggerImportAppUiConfig()">Import JSON</button>
+            <button class="danger btn-sm" onclick="resetAppUiConfig()">Reset Defaults</button>
+            <input id="ae-import-file" type="file" accept=".json,application/json" style="display:none;" onchange="importAppUiConfigFile(event)" />
+          </div>
+        </h2>
+        <div class="hint">
+          Changes preview live as you type or toggle. Click <strong>Save Changes</strong> to persist your layout to <code>%LOCALAPPDATA%\TheModdingTool\app_ui_config.json</code>.
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="ae-app-name">App Name (Header &amp; Browser Title)</label>
+            <input id="ae-app-name" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-app-subtitle">App Subtitle</label>
+            <input id="ae-app-subtitle" type="text" oninput="onAppEditorInput()" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="ae-banner-url">Responsive App Banner Image (URL or Upload)</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input id="ae-banner-url" type="text" placeholder="https://... or upload an image" style="flex:1; min-width:180px;" oninput="onAppEditorInput()" />
+              <select id="ae-banner-height" style="width:auto;" onchange="onAppEditorInput()">
+                <option value="80">80px (Compact)</option>
+                <option value="110" selected>110px (Standard)</option>
+                <option value="150">150px (Tall)</option>
+              </select>
+              <button class="secondary btn-sm" onclick="document.getElementById('ae-banner-file').click()">Upload Banner</button>
+              <button class="danger btn-sm" onclick="removeAppAsset('banner')">Remove</button>
+              <input id="ae-banner-file" type="file" accept="image/*" style="display:none;" onchange="uploadAppAsset('banner', event)" />
+            </div>
+            <div style="margin-top:8px; display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--code-bg); border:1px solid var(--border); border-radius:6px;">
+              <img id="ae-banner-thumb" alt="Current Banner" style="display:none; width:140px; height:44px; object-fit:cover; border-radius:4px; border:1px solid var(--border-strong); flex-shrink:0;" />
+              <span id="ae-banner-thumb-label" style="font-size:0.76rem; color:var(--muted);">No banner currently in use</span>
+            </div>
+          </div>
+          <div>
+            <label for="ae-favicon-url">App Favicon (URL or Upload .ico / .png / .svg)</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input id="ae-favicon-url" type="text" placeholder="https://... or upload a favicon" style="flex:1; min-width:180px;" oninput="onAppEditorInput()" />
+              <button class="secondary btn-sm" onclick="document.getElementById('ae-favicon-file').click()">Upload Favicon</button>
+              <button class="danger btn-sm" onclick="removeAppAsset('favicon')">Remove</button>
+              <input id="ae-favicon-file" type="file" accept="image/*,.ico,.svg" style="display:none;" onchange="uploadAppAsset('favicon', event)" />
+            </div>
+            <div style="margin-top:8px; display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--code-bg); border:1px solid var(--border); border-radius:6px;">
+              <img id="ae-favicon-thumb" alt="Current Favicon" style="display:none; width:32px; height:32px; object-fit:contain; border-radius:4px; border:1px solid var(--border-strong); background:#0b0f17; flex-shrink:0;" />
+              <span id="ae-favicon-thumb-label" style="font-size:0.76rem; color:var(--muted);">No custom favicon currently in use</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row">
+            <div>
+              <label for="ae-accent-color">Accent Color</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input id="ae-accent-color" type="color" value="#3b82f6" style="width:52px; height:36px; padding:2px;" oninput="onAppEditorInput()" />
+                <div class="btn-group">
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#3b82f6')">Blue</button>
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#10b981')">Emerald</button>
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#8b5cf6')">Violet</button>
+                  <button class="secondary btn-sm" onclick="setAccentPreset('#f59e0b')">Amber</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label for="ae-startup-tab">Startup Default Tab</label>
+              <select id="ae-startup-tab" onchange="onAppEditorInput()">
+                <option value="manager">Game Manager</option>
+                <option value="game">Active Game</option>
+                <option value="modbuilder">Build a Mod</option>
+                <option value="specs">PC Specs</option>
+                <option value="logs">Audit Log</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; align-items:end; padding-bottom:6px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:var(--text); margin:0;">
+              <input id="ae-compact-mode" type="checkbox" style="width:auto;" onchange="onAppEditorInput()" />
+              <span>Compact Density Mode (tighter cards &amp; tables)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:8px;">
+          <span>Rename Navigation Tabs</span>
+        </div>
+        <div class="row" style="grid-template-columns: repeat(5, 1fr);">
+          <div>
+            <label for="ae-tablabel-manager">Tab 1</label>
+            <input id="ae-tablabel-manager" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-game">Tab 2</label>
+            <input id="ae-tablabel-game" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-modbuilder">Tab 3</label>
+            <input id="ae-tablabel-modbuilder" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-specs">Tab 4</label>
+            <input id="ae-tablabel-specs" type="text" oninput="onAppEditorInput()" />
+          </div>
+          <div>
+            <label for="ae-tablabel-logs">Tab 5</label>
+            <input id="ae-tablabel-logs" type="text" oninput="onAppEditorInput()" />
+          </div>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:10px;">
+          <span>Flag Sections as 'In Progress' (WIP Overlay &amp; Section Banner)</span>
+        </div>
+        <div class="info-item" style="display:flex; flex-wrap:wrap; gap:16px; padding:10px 12px;">
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-manager" style="width:auto;" onchange="onWipToggle()" /> Game Manager</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-game" style="width:auto;" onchange="onWipToggle()" /> Active Game</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-modbuilder" style="width:auto;" onchange="onWipToggle()" /> Build a Mod</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-specs" style="width:auto;" onchange="onWipToggle()" /> PC Specs</label>
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text); margin:0;"><input type="checkbox" id="ae-wip-logs" style="width:auto;" onchange="onWipToggle()" /> Audit Log</label>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:10px;">
+          <span>Show / Hide UI Elements</span>
+          <div class="btn-group" style="text-transform:none; font-weight:400;">
+            <button class="secondary btn-sm" onclick="setAllElementsVisible(true)">Show All</button>
+            <button class="secondary btn-sm" onclick="setAllElementsVisible(false)">Minimal Mode</button>
+          </div>
+        </div>
+        <div class="info-grid" style="grid-template-columns: repeat(3, 1fr); gap:10px;">
+          <div class="info-item">
+            <div class="k" style="margin-bottom:8px;">Header Elements</div>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-header_subtitle" style="width:auto;" onchange="onAppEditorInput()" /> App Subtitle</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-header_active_badge" style="width:auto;" onchange="onAppEditorInput()" /> Loaded Game Badge</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-header_server_badge" style="width:auto;" onchange="onAppEditorInput()" /> Server Address Badge</label>
+          </div>
+          <div class="info-item">
+            <div class="k" style="margin-bottom:8px;">Navigation Tabs</div>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_manager" style="width:auto;" onchange="onAppEditorInput()" /> Game Manager Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_game" style="width:auto;" onchange="onAppEditorInput()" /> Active Game Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_modbuilder" style="width:auto;" onchange="onAppEditorInput()" /> Build a Mod Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_specs" style="width:auto;" onchange="onAppEditorInput()" /> PC Specs Tab</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-tab_logs" style="width:auto;" onchange="onAppEditorInput()" /> Audit Log Tab</label>
+          </div>
+          <div class="info-item">
+            <div class="k" style="margin-bottom:8px;">Active Game Sections</div>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-sec_pipeline_status" style="width:auto;" onchange="onAppEditorInput()" /> Pipeline Status Bar</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-sec_provision_restore" style="width:auto;" onchange="onAppEditorInput()" /> Provision &amp; Clean Restore</label>
+            <label style="display:flex; align-items:center; gap:8px; color:var(--text);"><input type="checkbox" id="ae-vis-sec_live_mcp" style="width:auto;" onchange="onAppEditorInput()" /> Live MCP Panel</label>
+          </div>
+        </div>
+
+        <pre id="ae-status-log" style="margin-top:10px; max-height:90px;">Ready to customize app name, visibility, and layout.</pre>
+      </div>
+
+      <!-- 6. SAVE & RESTORE APP (MOVED TO BOTTOM, LAST 5 BY DEFAULT) -->
+      <div class="card full" id="card-save-restore-app">
+        <h2>
+          <span>Save &amp; Restore App Versions</span>
+          <div class="btn-group">
+            <button class="success btn-sm" onclick="saveAppSnapshot(false)">Save Snapshot</button>
+            <button class="secondary btn-sm" onclick="saveAppSnapshot(true)">Save Full Baseline</button>
+            <button class="secondary btn-sm" onclick="loadAppBackups()">Refresh List</button>
+            <button class="secondary btn-sm" id="btn-toggle-backups-expand" onclick="toggleAppBackupsExpand()" style="display:none;">Show All</button>
+          </div>
+        </h2>
+        <div class="row" style="grid-template-columns: 1fr;">
+          <div>
+            <label for="am-backup-reason">Snapshot Summary / Reason</label>
+            <input id="am-backup-reason" type="text" placeholder="e.g. Before upgrading BepInEx or editing UI" value="Manual checkpoint from App Management" />
+          </div>
+        </div>
+        <div class="log-wrap" style="margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:10%;">Version</th>
+                <th style="width:11%;">Type</th>
+                <th style="width:15%;">Created</th>
+                <th style="width:16%;">Changes</th>
+                <th style="width:36%;">Summary of Changes</th>
+                <th style="width:12%;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="am-backups-tbody">
+              <tr><td colspan="6">Loading saved app versions...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre id="am-backup-log" style="margin-top:8px;">Select any saved version to restore the project to that exact state.</pre>
+      </div>
+    </div>
+  </div>

@@ -1,0 +1,119 @@
+  <div id="app-loading-overlay" class="app-splash-overlay">
+    <div class="app-splash-card">
+      <h2 style="margin:0 0 6px 0; font-size:1.15rem; color:#f8fafc;">Loading Application</h2>
+      <div id="app-loading-status" style="font-size:0.84rem; color:var(--muted);">Initializing UI, PC specs, and game library...</div>
+      <div class="app-splash-bar-wrap">
+        <div id="app-loading-bar" class="app-splash-bar indeterminate"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-restarting-overlay" class="app-splash-overlay" style="display:none;">
+    <div class="app-splash-card">
+      <h2 style="margin:0 0 6px 0; font-size:1.15rem; color:#fde68a;">Restarting Application</h2>
+      <div id="app-restarting-status" style="font-size:0.84rem; color:var(--muted);">Stopping server and waiting for http://127.0.0.1:8765 to come back online...</div>
+      <div class="app-splash-bar-wrap">
+        <div class="app-splash-bar indeterminate" style="background:#f59e0b;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="cmd-palette-overlay" class="app-splash-overlay" style="display:none; background:rgba(11,15,23,0.78); align-items:flex-start; padding-top:10vh;" onclick="if(event.target===this) closeCommandPalette()">
+    <div class="app-splash-card" style="max-width:620px; text-align:left; padding:16px 18px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong style="color:#93c5fd; font-size:0.9rem;">Command Palette (Ctrl+K)</strong>
+        <button class="secondary btn-sm" onclick="closeCommandPalette()">Esc</button>
+      </div>
+      <input id="cmd-palette-input" type="text" placeholder="Type a game name, tab, or action (e.g. Days Gone, Fingerprint, Export)..." oninput="renderCommandPalette()" />
+      <div id="cmd-palette-list" style="margin-top:10px; max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+    </div>
+  </div>
+
+  <div id="gh-push-confirm-overlay" class="app-splash-overlay" style="display:none; background:rgba(11,15,23,0.82);" onclick="if(event.target===this) closeGitPushConfirmModal()">
+    <div class="app-splash-card" style="max-width:480px; text-align:left; padding:18px 20px; border:1px solid #f59e0b;">
+      <h2 style="margin:0 0 8px 0; font-size:1.02rem; color:#fcd34d;">Push Branch Warning</h2>
+      <p id="gh-push-confirm-message" style="margin:0 0 14px 0; font-size:0.86rem; color:#e2e8f0; line-height:1.5;">
+        Warning: You are about to stage, commit, and push changes to branch <strong id="gh-push-confirm-branch">main</strong>.
+      </p>
+      <div class="btn-group" style="justify-content:flex-end; margin-top:12px;">
+        <button class="secondary btn-sm" id="btn-gh-push-cancel" onclick="closeGitPushConfirmModal()">Cancel Push</button>
+        <button class="success btn-sm" id="btn-gh-push-confirm" onclick="confirmPushAppToGitHub()">Push to main</button>
+      </div>
+    </div>
+  </div>
+  <header>
+    <div class="header-inner">
+      <!-- HEADER ROW 1: BRAND & MENU OPTIONS -->
+      <div class="header-row-1">
+        <div class="header-brand">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex-shrink:0;">
+            <rect x="2" y="2" width="20" height="20" rx="5" fill="#1e293b" stroke="#3b82f6" stroke-width="1.6"/>
+            <path d="M8 12h8M12 8v8" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <h1 id="app-main-title">The Modding Tool</h1>
+          <span class="badge" id="app-version-badge">v0.1.29</span>
+          <span id="app-subtitle" style="font-size: 0.76rem; color: var(--muted); white-space: nowrap;">
+            Platform- &amp; Engine-Agnostic Modding Console
+          </span>
+        </div>
+        <div class="header-controls">
+          <button class="secondary btn-sm" onclick="openCommandPalette()" title="Open Command Palette (Ctrl+K)">Search / Actions (Ctrl+K)</button>
+          <div id="header-quick-load" style="display:flex; align-items:center; gap:6px;">
+            <label for="global-game-select" style="margin:0; font-size:0.72rem; color:var(--muted); white-space:nowrap;">Quick Load:</label>
+            <select id="global-game-select" onchange="onGlobalGameSelected()" aria-label="Quick Load Game" style="max-width:250px; padding:4px 8px; font-size:0.76rem;"></select>
+          </div>
+          <span class="badge" id="active-game-badge">Loaded: Battlemarked</span>
+          <span class="badge" id="resolution-badge" style="display:none;">Display</span>
+          <span class="badge" id="server-badge">127.0.0.1:8765</span>
+          <button class="danger btn-sm" id="btn-header-stop-server" onclick="stopAppServer()" title="Stop the local server and open the Offline Control Page">Stop Server</button>
+        </div>
+      </div>
+
+      <!-- HEADER ROW 2: UNIFIED TAB BAR -->
+      <div class="tabs-bar">
+        <button class="tab-btn active" id="tab-btn-manager" onclick="switchTab('manager')">
+          <span id="tab-label-manager">Game Manager</span>
+          <span class="badge" id="manager-count-badge">0</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-library" onclick="switchTab('library')">
+          <span id="tab-label-library">Game Library</span>
+          <span class="badge" id="library-count-badge">0</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-game" onclick="switchTab('game')">
+          <span id="tab-label-game">Active Game</span>
+          <span class="badge" id="game-tab-title-badge">Demeo x Dungeons &amp; Dragons: Battlemarked</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-modbuilder" onclick="switchTab('modbuilder')">
+          <span id="tab-label-modbuilder">Build a Mod</span>
+          <span class="badge" id="modbuilder-rules-badge">1</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-specs" onclick="switchTab('specs')">
+          <span id="tab-label-specs">PC Specs</span>
+          <span class="badge" id="specs-tab-badge">Hardware</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-logs" onclick="switchTab('logs')">
+          <span id="tab-label-logs">Audit Log</span>
+          <span class="badge" id="audit-tab-count-badge">0</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-appmgmt" onclick="switchTab('appmgmt')">
+          <span>App Management</span>
+          <span class="badge">Tools</span>
+        </button>
+        <button class="tab-btn" id="tab-btn-help" onclick="switchTab('help')">
+          <span>Help</span>
+          <span class="badge">Guide</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <input type="file" id="app-banner-file-input" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*" style="display:none;" onchange="uploadCustomBannerFile(this)" />
+
+  <!-- RESPONSIVE PERSISTENT BANNER SLOT (SCROLLS WITH PAGE FLOW) -->
+  <div id="app-banner-slot">
+    <img id="app-banner-img" alt="Custom App Banner" />
+    <div id="app-banner-overlay-actions">
+      <button class="secondary btn-sm" onclick="triggerBannerUpload()">Change Banner</button>
+      <button class="secondary btn-sm" onclick="toggleBannerVisibility(false)">Hide</button>
+    </div>
+  </div>

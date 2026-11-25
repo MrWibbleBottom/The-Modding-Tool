@@ -1,0 +1,171 @@
+    <!-- 4. LIVE MCP PANEL -->
+    <div class="card full" id="card-live-mcp">
+      <h2>4. Live MCP Panel (Persistent Stdio Session) <span class="badge">POST /api/mcp/call</span></h2>
+      <div class="hint">
+        Requires the selected game to be running with the provisioned plugin loaded. Keeps a single persistent <code>ModdersHelperApp.py --transport=stdio --headless</code> process alive across clicks.
+        Use the <strong>Target Hero / GameObject Entity</strong> and <strong>Categorised Game Variable</strong> dropdowns below to inspect or modify live game state.
+      </div>
+      <div class="row">
+        <div>
+          <label>Python Executable (.venv)</label>
+          <input id="mcp-python" type="text" value="d:\Downloads\The-Modding-Tool\.venv\Scripts\python.exe" />
+        </div>
+        <div>
+          <label>ModdersHelperApp.py Path</label>
+          <input id="mcp-app" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\mcp\ModdersHelperApp.py" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Target Hero / GameObject Entity</label>
+          <select id="mcp-target-entity" onchange="applyTargetEntity()">
+            <optgroup label="Party Heroes (3D Board Pieces)">
+              <option value="paladin_piece" selected>Dragonborn Paladin (Piece_DragonbornPaladin(Clone) | id=-269924)</option>
+              <option value="ranger_piece">Human Ranger (Piece_HumanRanger(Clone) | id=-270568)</option>
+              <option value="rogue_piece">Tiefling Rogue (Piece_TieflingRogue(Clone) | id=-271206)</option>
+              <option value="bard_piece">Elf Bard (Piece_ElfBard(Clone) | id=-271750)</option>
+            </optgroup>
+            <optgroup label="Enemies &amp; NPCs (3D Board Pieces)">
+              <option value="goblin_archer">Goblin Archer (Piece_GoblinArcher(Clone) | id=-272266)</option>
+              <option value="babris_npc">Babris (Piece_Babris(Clone) | id=-275866)</option>
+            </optgroup>
+            <optgroup label="Player Rig, Camera &amp; Input">
+              <option value="avatar_nonvr">StandaloneAvatarNonVR(Clone) (Camera &amp; Card Hand Rig | id=-1582)</option>
+              <option value="network_avatar">NetworkedXRAvatar(Clone) (Network Avatar | id=-147658)</option>
+              <option value="player_input">PlayerInputNonVR (Input Provider | id=-1544)</option>
+            </optgroup>
+            <optgroup label="2D Party HUD Elements">
+              <option value="hud_hp_text_1">PartyPieceView1 HealthText (Paladin HUD HP Text | id=-64174)</option>
+              <option value="hud_hp_bar_1">PartyPieceView1 PieceHealthBar2D (Paladin HUD HP Bar | id=-64144)</option>
+              <option value="hud_party_turn_1">PartyPieceView1 Turn Portrait (PartyTurnView | id=-64094)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div>
+          <label>Categorised Game Variable to Inspect / Change</label>
+          <select id="mcp-variable-select" onchange="applyVariableSelection()">
+            <optgroup label="1. Hero Combat Stats — Health &amp; Survivability (CameraTargetCharacter)">
+              <option value="stat_hp_max" selected>Hit Point Maximum (targetPiece.stats.Health.maxValue) [Default: 22 → 23]</option>
+              <option value="stat_hp_cur">Current Hit Points (targetPiece.stats.Health.value) [Default: 22 → 23]</option>
+              <option value="stat_phys_armor">Physical Armor Current (targetPiece.stats.PhysicalArmor.value)</option>
+              <option value="stat_phys_armor_max">Physical Armor Max (targetPiece.stats.PhysicalArmor.maxValue)</option>
+              <option value="stat_magic_armor">Magic Armor Current (targetPiece.stats.MagicArmor.value)</option>
+              <option value="stat_magic_armor_max">Magic Armor Max (targetPiece.stats.MagicArmor.maxValue)</option>
+              <option value="stat_downed_counter">Downed Counter (targetPiece.stats.DownedCounter.value)</option>
+              <option value="stat_downed_max">Max Downed Counter (targetPiece.stats.DownedCounter.maxValue)</option>
+            </optgroup>
+            <optgroup label="2. Hero Combat Stats — Offence, Action Points &amp; Mobility (CameraTargetCharacter)">
+              <option value="stat_ap_cur">Current Action Points Stat (targetPiece.stats.ActionPoints.value)</option>
+              <option value="stat_ap_max">Max Action Points Stat (targetPiece.stats.ActionPoints.maxValue)</option>
+              <option value="piece_ap_per_turn">Action Points Per Turn (targetPiece.actionPointsPerTurn)</option>
+              <option value="stat_move_range">Move Range (Tiles) (targetPiece.stats.MoveRange.value)</option>
+              <option value="stat_move_range_max">Max Move Range (Tiles) (targetPiece.stats.MoveRange.maxValue)</option>
+              <option value="stat_attack_dmg">Base Attack Damage (targetPiece.stats.AttackDamage.value)</option>
+              <option value="stat_crit_chance">Critical Hit Chance (targetPiece.stats.CritChance.value)</option>
+              <option value="stat_hit_chance">Hit Chance / Accuracy (targetPiece.stats.HitChance.value)</option>
+              <option value="stat_vision_range">Vision Range (targetPiece.stats.VisionRange.value)</option>
+              <option value="stat_inv_capacity">Card Inventory Capacity (targetPiece.stats.InventoryCapacity.value)</option>
+            </optgroup>
+            <optgroup label="3. Turn State, Flags, Loot &amp; XP (CameraTargetCharacter.targetPiece)">
+              <option value="piece_cards_played">Cards Played This Turn (targetPiece.cardsPlayedThisTurn)</option>
+              <option value="piece_xp_award">XP Awarded When Killed (targetPiece.awardedExperienceWhenKilled)</option>
+              <option value="piece_loot_chance">Loot Chance Override (targetPiece.lootChanceOverride)</option>
+              <option value="piece_always_visible">Always Visible Through Fog (targetPiece.alwaysVisible)</option>
+              <option value="piece_is_downable">Can Be Downed (targetPiece.isDownable)</option>
+              <option value="piece_is_shovable">Can Be Shoved / Knocked Back (targetPiece.isShovable)</option>
+              <option value="piece_is_player_ctrl">Is Player Controlled (targetPiece.isPlayerControlled)</option>
+              <option value="piece_is_elite">Is Elite Unit (targetPiece.isElite)</option>
+              <option value="piece_uses_health">Uses Health System (targetPiece.usesHealth)</option>
+              <option value="piece_blocks_vision">Blocks Line of Sight (targetPiece.blocksVision)</option>
+              <option value="piece_orientation">Board Orientation Angle (targetPiece.orientation)</option>
+            </optgroup>
+            <optgroup label="4. 3D Piece Visuals, Physics &amp; Board Grabbing (PieceView / Rigidbody / JadeGrabbable)">
+              <option value="view_model_index">Active 3D Pose/Model Index (PieceComponents.ActiveModelIndex)</option>
+              <option value="view_notif_margin">Notification Anchor Height Margin (PieceComponents.notificationAnchorMarginAboveCharacter)</option>
+              <option value="view_drag_mask">Preferred Drag Layer Mask (PieceView.PreferredDragLayerMask)</option>
+              <option value="view_rot_y">Previous Non-Grabbed Rotation Y (PieceView.previousNonGrabbedRotationY)</option>
+              <option value="phys_position">3D World Position Vector3 (UnityEngine.Rigidbody.position)</option>
+              <option value="phys_mass">Rigidbody Mass (UnityEngine.Rigidbody.mass)</option>
+              <option value="grab_throw_vel">Grab Throw Velocity Scale (Jade.GameView.JadeGrabbable.throwVelocityScale)</option>
+              <option value="grab_smooth_pos">Grab Smooth Position Speed (Jade.GameView.JadeGrabbable.smoothPositionAmount)</option>
+              <option value="grab_max_scale">Max Two-Handed Scale Ratio (XRGeneralGrabTransformer.maximumScaleRatio)</option>
+              <option value="grab_min_scale">Min Two-Handed Scale Ratio (XRGeneralGrabTransformer.minimumScaleRatio)</option>
+            </optgroup>
+            <optgroup label="5. Camera, FOV &amp; Card Hand Placement (StandaloneAvatarNonVR)">
+              <option value="cam_card_dist">Card Hand Preferred Distance (AvatarNonVR.cardHandPreferredDistance)</option>
+              <option value="cam_fov_card_dist">FOV Card Hand Distance (AvatarNonVR.fovCardHandDistance)</option>
+              <option value="cam_fov_card_height">FOV Initial Card Hand Height (AvatarNonVR.fovInitialCardHandHeight)</option>
+              <option value="cam_fov_init_dist">FOV Initial Camera Distance (AvatarNonVR.fovInitialCameraDistance)</option>
+              <option value="cam_fov_init_height">FOV Initial Height (AvatarNonVR.fovInitialHeight)</option>
+              <option value="cam_fov_zoom_comp">FOV Zoom Compensation Factor (AvatarNonVR.fovZoomCompensationFactor)</option>
+              <option value="net_avatar_scale">Network Avatar Scale (HideWhenViewedFromBehind.avatarScale)</option>
+              <option value="net_hide_dist">Network Avatar Hide Distance (HideWhenViewedFromBehind.hideDistance)</option>
+            </optgroup>
+            <optgroup label="6. 2D Party HUD &amp; Health Bar Display">
+              <option value="hud_hp_text">HUD Health Bar Text String (TMPro.TextMeshProUGUI.text)</option>
+              <option value="hud_hp_width_max">HUD Health Bar Max Pixel Width (PieceHealthBarView.healthBarWidthMax)</option>
+              <option value="hud_hp_width_min">HUD Health Bar Min Pixel Width (PieceHealthBarView.healthBarWidthMin)</option>
+              <option value="hud_turn_scale">Active Turn Portrait Scale Factor (PartyTurnView.scaleWhenSelectedFactor)</option>
+              <option value="hud_turn_duration">Active Turn Scale Transition Duration (PartyTurnView.scaleDuration)</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
+
+      <div class="hint" id="var-description">
+        <strong>Hit Point Maximum:</strong> Changes the hero's live maximum HP stat (<code>Jade.GameModel.Stat.maxValue</code>) via <code>CameraTargetCharacter.targetPiece.stats.Health.maxValue</code>.
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Search Query (GameObject Name) / Component Filter</label>
+          <div class="row">
+            <input id="mcp-search-name" type="text" value="Piece_DragonbornPaladin" placeholder="GameObject Name" />
+            <input id="mcp-search-comp" type="text" value="Jade.GameView.CameraTargetCharacter" placeholder="Component Name" />
+          </div>
+        </div>
+        <div>
+          <label>Target GameObject Instance ID (or leave blank to resolve selector)</label>
+          <input id="mcp-go-id" type="text" value="-269924" placeholder="Instance ID (e.g. -269924)" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Component Name</label>
+          <input id="mcp-comp-name" type="text" value="Jade.GameView.CameraTargetCharacter" />
+        </div>
+        <div class="row">
+          <div>
+            <label>Member Name (Supports dotted paths &amp; Stats.Type names)</label>
+            <input id="mcp-member-name" type="text" value="targetPiece.stats.Health.maxValue" />
+          </div>
+          <div>
+            <label>New Value (for Edit / Profile)</label>
+            <input id="mcp-member-value" type="text" value="23" />
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Stable Selector JSON (Stage 4 Paladin Hero / HUD Selector)</label>
+          <textarea id="mcp-selector">{"scene":"27653627778046a48b230901ca6f384c","path":"/LevelSceneRoot[0]/Piece_DragonbornPaladin%28Clone%29[10]","name":"Piece_DragonbornPaladin(Clone)","component":"Jade.GameView.CameraTargetCharacter"}</textarea>
+        </div>
+        <div>
+          <label>Profile Name (Save &amp; Re-apply Verified Edit)</label>
+          <input id="mcp-profile-name" type="text" value="battlemarked_stat_hp_max" />
+          <div class="btn-row" style="margin-top: 10px;">
+            <button onclick="mcpTestBridge()">1. Test Bridge</button>
+            <button class="secondary" onclick="mcpSearch('search_gameobjects')">2a. Search GameObjects</button>
+            <button class="secondary" onclick="mcpSearch('find_objects_with_component')">2b. Find With Component</button>
+            <button class="secondary" onclick="mcpInspect()">3. Inspect &amp; Get Member</button>
+            <button class="success" onclick="mcpEdit()">4. Edit (set_component_value)</button>
+            <button onclick="mcpProfile()">5. Save &amp; Apply Profile</button>
+          </div>
+        </div>
+      </div>
+
+      <pre id="mcp-output">Persistent MCP stdio session ready. Use the controls above to query or mutate the live Unity IL2CPP bridge.</pre>
+    </div>

@@ -1,0 +1,341 @@
+  <!-- ===================================================================== -->
+  <!-- TAB 1 (STARTUP TAB): GAME MANAGER                                     -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane active" id="tab-pane-manager">
+    <div class="wip-section-banner" id="wip-banner-manager">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Game Manager (<code id="games-store-path">%LOCALAPPDATA%\TheModdingTool\managed_games.json</code>)</span>
+          <div class="btn-group">
+            <button class="success" id="btn-game-scan" onclick="scanPlatforms('')">Game scan</button>
+            <button id="btn-scan-game-info" onclick="scanAllGamesInfo()">Game info</button>
+            <button class="secondary" id="btn-prewarm-icons" onclick="prewarmAllGameIcons()">Pre-warm Icons</button>
+            <button class="secondary" id="btn-prune-non-games" onclick="pruneNonGames()">Prune Non-Games</button>
+            <button class="secondary" onclick="browseAndScan()">Browse</button>
+            <button class="secondary" onclick="toggleGameEditor()">Add/Edit Game</button>
+            <button class="secondary btn-sm" id="btn-toggle-scan-log" type="button" onclick="toggleScanOutputLog()">Show Game Scan Log</button>
+          </div>
+        </h2>
+        <div class="hint">
+          <strong>Startup View:</strong> Search, filter, or sort your managed games below (click any column header to sort). Click <strong>Load Game</strong> on any row (or choose from the top <em>Quick Load Game</em> dropdown) to load its settings and automatically open it in the <strong>Active Game</strong> tab.
+        </div>
+
+        <!-- PC PLATFORM SCANNER BAR -->
+        <div class="row" style="align-items: end;">
+          <div>
+            <label>Custom Library or Game Folder Path (Optional — leave blank to scan all installed PC platforms)</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <input id="scan-custom-path" type="text" style="flex:1; min-width:220px;" placeholder="e.g. C:\Program Files (x86)\Steam\steamapps\common or D:\Games" />
+              <button class="secondary" onclick="browseIntoInput('scan-custom-path')">Browse</button>
+              <button id="btn-scan-path" onclick="scanCustomPathInput()">Scan Path</button>
+            </div>
+          </div>
+          <div>
+            <label>Platform Scan Discovery Scope</label>
+            <select id="scan-unity-only">
+              <optgroup label="1. General &amp; Moddability Scopes">
+                <option value="all" selected>All Installed PC Games (Unity + Unreal + Creation + Godot + Data-Driven + Native C++)</option>
+                <option value="moddable_only">All Moddable Games Only (Excludes Online / Anti-Cheat &amp; Utilities / Demos)</option>
+                <option value="provisioned_only">Already Provisioned / Modded Games Only (BepInEx / Doorstop / Loader Present)</option>
+                <option value="sheet_matched">Reference Sheet Matched Games Only (Matches Known Steam Reference Sheet)</option>
+              </optgroup>
+              <optgroup label="2. Unity Engine Variations (BepInEx &amp; MCP Bridge)">
+                <option value="unity_all">All Unity Games (Unity IL2CPP &amp; Unity Mono — Recommended for BepInEx)</option>
+                <option value="unity_il2cpp">Unity IL2CPP Only (GameAssembly.dll + global-metadata.dat — BepInEx 6 IL2CPP)</option>
+                <option value="unity_mono">Unity Mono Only (Managed/Assembly-CSharp.dll — BepInEx 5/6 Mono + gamecode-rag)</option>
+                <option value="unity_vr">Unity XR / VR Capable Games Only (UnitySubsystems / OpenXR / OculusXR)</option>
+              </optgroup>
+              <optgroup label="3. Other Game Engines &amp; MCP Categories">
+                <option value="unreal_all">All Unreal Engine Games (Unreal Engine 4/5 + Unreal Engine 3)</option>
+                <option value="unreal_4_5">Unreal Engine 4/5 Only (*.pak / Shipping — ue4ss-bridge / UE4SS-mcp)</option>
+                <option value="unreal_3">Unreal Engine 3 Only (CookedPC / UPK — GhidraMCP + Cheat-Engine-Mcp)</option>
+                <option value="creation_engine">Creation / Gamebryo Engine (*.esm / *.esp — SkyrimCK-MCP / creation-kit-mcp)</option>
+                <option value="godot">Godot Engine (*.pck — Godot-MCP + Filesystem MCP)</option>
+                <option value="re_engine">Capcom RE Engine (re_chunk_000.pak — REFramework + GhidraMCP)</option>
+                <option value="fromsoftware">FromSoftware Engine (regulation.bin — Mod Engine + GhidraMCP)</option>
+                <option value="data_driven">Data-Driven / Scriptable (Lua / XML / JSON / Open Data — Filesystem + Terminal MCP)</option>
+                <option value="custom_cpp">Custom / Proprietary / Legacy C++ (GhidraMCP + Cheat-Engine-Mcp)</option>
+                <option value="online_anticheat">Online / Anti-Cheat Protected Games (EAC / BattlEye / Vanguard / GameGuard)</option>
+                <option value="utility_demo">Utilities / Benchmarks / Demos (3DMark, VR Utilities, Game Demos)</option>
+              </optgroup>
+              <optgroup label="4. Platform / Storefront Specific Scopes">
+                <option value="platform_steam">Steam Libraries Only</option>
+                <option value="platform_epic">Epic Games Store Libraries Only</option>
+                <option value="platform_gog">GOG Galaxy Libraries Only</option>
+                <option value="platform_xbox">Xbox / PC Game Pass (XboxGames) Only</option>
+                <option value="platform_ubisoft">Ubisoft Connect Libraries Only</option>
+                <option value="platform_ea">EA App / Origin Libraries Only</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+        <div id="scan-log-panel" class="scan-log-panel" hidden>
+          <div class="scan-log-header">
+            <span class="scan-log-title">Scan Output Log</span>
+            <div class="scan-log-actions">
+              <button type="button" class="secondary btn-sm" id="btn-copy-scan-log" onclick="copyScanOutputLog()">Copy</button>
+              <button type="button" class="secondary btn-sm scan-log-close" id="btn-close-scan-log" onclick="closeScanOutputLog()" aria-label="Close Scan Output Log" title="Close">&times;</button>
+            </div>
+          </div>
+          <pre id="scan-output" class="scan-log-pre"></pre>
+        </div>
+
+        <!-- FILTER & SORT CONTROLS FOR MANAGED GAMES LIST -->
+        <div class="filter-bar">
+          <div>
+            <label>Filter by Game Name, Path, or Stack</label>
+            <input id="gm-filter-text" type="text" placeholder="Type to filter games (e.g. Battlemarked, Unity, Steam, GOG)..." oninput="renderGamesTable()" />
+          </div>
+          <div>
+            <label>Filter by MCP Category / Engine</label>
+            <select id="gm-filter-category" onchange="renderGamesTable()">
+              <option value="ALL">All Categories &amp; Engines</option>
+              <option value="Unity">Unity (All: Mono + IL2CPP)</option>
+              <option value="Unity_IL2CPP">Unity IL2CPP Only</option>
+              <option value="Unity_Mono">Unity Mono Only</option>
+              <option value="Unreal Engine 4/5">Unreal Engine 4/5</option>
+              <option value="Unreal Engine 3">Unreal Engine 3</option>
+              <option value="Data-Driven / Scriptable">Data-Driven / Scriptable</option>
+              <option value="Custom / Legacy C++">Custom / Legacy C++</option>
+              <option value="Creation Engine">Creation Engine (Skyrim / Fallout / Starfield)</option>
+              <option value="Godot">Godot Engine</option>
+              <option value="RE Engine">Capcom RE Engine</option>
+              <option value="FromSoftware">FromSoftware Engine</option>
+              <option value="Online / Anti-Cheat">Online / Anti-Cheat</option>
+              <option value="Utility / Demo / Artifact">Utility / Demo / Artifact</option>
+            </select>
+          </div>
+          <div>
+            <label>Filter by Readiness</label>
+            <select id="gm-filter-readiness" onchange="renderGamesTable()">
+              <option value="ALL">All States</option>
+              <option value="READY">Ready (BepInEx + Interop + Plugin)</option>
+              <option value="UNSCRAPED">Not Scraped Yet (Scrapes on First Load)</option>
+              <option value="MISSING">Cannot Be Found on Disk</option>
+              <option value="UNITY">Unity Moddable (IL2CPP / Mono)</option>
+              <option value="BLOCKED">Blocked (Anti-Cheat)</option>
+            </select>
+          </div>
+          <div>
+            <label>Sort By Column</label>
+            <select id="gm-sort-select" onchange="onSortSelectChanged()">
+              <option value="name:asc">Game Name (A → Z)</option>
+              <option value="name:desc">Game Name (Z → A)</option>
+              <option value="category:asc">MCP Category (A → Z)</option>
+              <option value="unity_version:desc">Unity Version (Newest First)</option>
+              <option value="stack:asc">Recommended MCP Stack (A → Z)</option>
+              <option value="readiness:asc">Modding Readiness</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="log-wrap">
+          <table>
+            <colgroup>
+              <col style="width:41%;" />
+              <col class="col-cat" style="width:11%;" />
+              <col class="col-eng" style="width:13%;" />
+              <col class="col-stack" style="width:13%;" />
+              <col style="width:10%;" />
+              <col style="width:12%;" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th class="sortable" onclick="setSortColumn('name')">Game Name <span id="sort-ind-name">▲</span></th>
+                <th class="sortable col-cat" onclick="setSortColumn('category')">MCP Category <span id="sort-ind-category"></span></th>
+                <th class="sortable col-eng" onclick="setSortColumn('unity_version')">Engine / Build Ver <span id="sort-ind-unity_version"></span></th>
+                <th class="sortable col-stack" onclick="setSortColumn('stack')">Recommended MCP Stack <span id="sort-ind-stack"></span></th>
+                <th class="sortable" onclick="setSortColumn('readiness')">Status <span id="sort-ind-readiness"></span></th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="games-tbody">
+              <tr><td colspan="6">Loading managed games...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details id="game-editor-details" style="margin-top: 6px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.86rem;">
+            Configure / Register Managed Game Settings Manually (POST /api/games)
+          </summary>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+            <div class="row">
+              <div>
+                <label>Game ID (unique slug, e.g. <code>battleground</code>)</label>
+                <input id="gm-id" type="text" value="battleground" />
+              </div>
+              <div>
+                <label>Display Name</label>
+                <input id="gm-name" type="text" value="Demeo x Dungeons &amp; Dragons: Battlemarked" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Target Game Directory</label>
+                <div style="display:flex; gap:8px;">
+                  <input id="gm-game-dir" type="text" value="C:\Program Files (x86)\Steam\steamapps\common\Battlemarked" />
+                  <button class="secondary" style="white-space:nowrap;" onclick="browseIntoInput('gm-game-dir')">Browse...</button>
+                </div>
+              </div>
+              <div>
+                <label>Runtime Type</label>
+                <select id="gm-runtime">
+                  <option value="Unity_IL2CPP" selected>Unity_IL2CPP (BepInEx 6)</option>
+                  <option value="Unity_Mono">Unity_Mono (BepInEx 5)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Local BepInEx Zip Path</label>
+                <input id="gm-zip-path" type="text" value="D:\Downloads\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip" />
+              </div>
+              <div>
+                <label>Expected BepInEx Zip SHA-256</label>
+                <input id="gm-sha256" type="text" value="5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Compiled Plugin Build Output Directory</label>
+                <input id="gm-plugin-dir" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+              </div>
+              <div>
+                <label>Notes</label>
+                <input id="gm-notes" type="text" value="Demeo Battlemarked — Unity 6000.3.7f1 IL2CPP (BepInEx 6.0.0-be.793)" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Default Component Name</label>
+                <input id="gm-def-comp" type="text" value="Jade.GameView.CameraTargetCharacter" />
+              </div>
+              <div class="row">
+                <div>
+                  <label>Default Member Path</label>
+                  <input id="gm-def-member" type="text" value="targetPiece.stats.Health.maxValue" />
+                </div>
+                <div>
+                  <label>Default Value</label>
+                  <input id="gm-def-val" type="text" value="23" />
+                </div>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button class="success" onclick="saveManagedGame()">Save &amp; Load Game Into Workspace</button>
+              <button class="secondary" onclick="fillNewGameTemplate()">Fill New Game Template</button>
+            </div>
+            <pre id="gm-output">Ready to save or update managed game settings.</pre>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TAB 1B: PLATFORM- & ENGINE-AGNOSTIC GAME LIBRARY                      -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-library">
+    <div class="grid">
+      <div class="card full">
+        <h2>
+          <span>Game Library (Platform- &amp; Engine-Agnostic Discovery)</span>
+          <div class="btn-group">
+            <button class="success" id="btn-lib-scan-installed" onclick="scanLibraryInstalled()">Scan Installed</button>
+            <button id="btn-lib-import-owned" onclick="toggleLibrarySubpanel('lib-owned-bar')">Import Owned</button>
+            <button class="secondary" onclick="toggleLibrarySubpanel('lib-folder-bar')">Add Folder</button>
+            <button class="secondary" onclick="toggleLibrarySubpanel('lib-file-bar')">Import JSON / CSV</button>
+          </div>
+        </h2>
+        <div class="hint" id="lib-status-bar">
+          Normalized <code>GameEntry</code> catalog persisted in <code>%LOCALAPPDATA%\TheModdingTool\library_cache.json</code>. Click <strong>Scan Installed</strong> to discover Steam, Epic, GOG, and manual folders.
+        </div>
+
+        <!-- ADD FOLDER SUBPANEL -->
+        <div id="lib-folder-bar" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.75);">
+          <label for="lib-custom-folder">Add Custom Root or Standalone Game Folder (e.g. D:\Games or itch.io folder)</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <input id="lib-custom-folder" type="text" placeholder="D:\Games" style="flex:1; min-width:260px;" />
+            <button class="secondary" onclick="browseIntoInput('lib-custom-folder')">Browse</button>
+            <button class="success" onclick="addCustomLibraryFolder()">Scan &amp; Save Folder</button>
+          </div>
+        </div>
+
+        <!-- IMPORT OWNED SUBPANEL -->
+        <div id="lib-owned-bar" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.75);">
+          <div class="row">
+            <div>
+              <label for="lib-steam-id">SteamID64 Override (Optional — auto-reads loginusers.vdf MostRecent)</label>
+              <input id="lib-steam-id" type="text" placeholder="Leave blank to auto-detect from Steam loginusers.vdf" />
+            </div>
+            <div>
+              <label for="lib-steam-key">Steam Web API Key Override (Optional — uses public XML if blank)</label>
+              <input id="lib-steam-key" type="password" placeholder="Optional Steam Web API Key" />
+            </div>
+          </div>
+          <div class="btn-group" style="margin-top:8px;">
+            <button class="success" id="btn-lib-run-owned" onclick="importLibraryOwned()">Fetch Owned Libraries (Steam + GOG) &amp; Enrich PCGamingWiki</button>
+          </div>
+        </div>
+
+        <!-- IMPORT JSON / CSV SUBPANEL -->
+        <div id="lib-file-bar" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; background:rgba(13,17,23,0.75);">
+          <label for="lib-import-text">Import Generic JSON or CSV (<code>title,platform,external_id</code>) — Playnite, Xbox, EA, or Wishlist</label>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+            <input id="lib-import-file-picker" type="file" accept=".json,.csv,.txt" onchange="loadLibraryImportFile(this)" style="width:auto;" />
+            <button class="success" onclick="importLibraryFileText()">Import &amp; Enrich Metadata</button>
+          </div>
+          <textarea id="lib-import-text" rows="3" placeholder='[{"title":"Starfield","platform":"import","external_id":""}]'></textarea>
+        </div>
+
+        <!-- FILTERS -->
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
+          <div style="min-width:140px;">
+            <label for="lib-filter-platform">Platform</label>
+            <select id="lib-filter-platform" onchange="renderGameLibraryCards()">
+              <option value="all" selected>All Platforms</option>
+              <option value="steam">Steam</option>
+              <option value="epic">Epic</option>
+              <option value="gog">GOG</option>
+              <option value="manual_import">Manual / Import</option>
+            </select>
+          </div>
+          <div style="min-width:140px;">
+            <label for="lib-filter-status">Status</label>
+            <select id="lib-filter-status" onchange="renderGameLibraryCards()">
+              <option value="all" selected>All Statuses</option>
+              <option value="installed">Installed</option>
+              <option value="owned_uninstalled">Not Installed</option>
+            </select>
+          </div>
+          <div style="min-width:160px;">
+            <label for="lib-filter-engine">Engine</label>
+            <select id="lib-filter-engine" onchange="renderGameLibraryCards()">
+              <option value="all" selected>All Engines</option>
+              <option value="Unity">Unity (IL2CPP / Mono)</option>
+              <option value="Unreal_4_5">Unreal 4 / 5</option>
+              <option value="Creation_Engine">Creation Engine</option>
+              <option value="Godot">Godot</option>
+              <option value="Data_Driven">Data-Driven</option>
+              <option value="Restricted">Restricted (Anti-Cheat)</option>
+            </select>
+          </div>
+          <div style="flex:1; min-width:200px;">
+            <label for="lib-filter-search">Search Library</label>
+            <input id="lib-filter-search" type="text" placeholder="Filter by title, path, or adapter..." oninput="renderGameLibraryCards()" />
+          </div>
+        </div>
+
+        <!-- NORMALIZED GAME ENTRY CARDS -->
+        <div class="crucial-steps-grid" id="lib-cards-grid" style="grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));">
+          <div class="step-card pending">
+            <div class="step-card-title">Library Not Scanned Yet</div>
+            <div class="step-card-detail">Click <strong>Scan Installed</strong> to discover installed games and fingerprint engines.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>

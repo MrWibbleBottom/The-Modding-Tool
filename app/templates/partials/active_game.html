@@ -1,0 +1,345 @@
+  <!-- ===================================================================== -->
+  <!-- TAB 2: ACTIVE GAME WORKSPACE (AUTO-OPENED ON LOAD GAME)               -->
+  <!-- ===================================================================== -->
+  <div class="tab-pane" id="tab-pane-game">
+    <div class="wip-section-banner" id="wip-banner-game">WIP - In Progress</div>
+    <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
+    <!-- TOP GAME MODDING INFO PANEL (DETERMINED DIRECTLY FROM GAME FILES) -->
+    <section class="info-panel" id="top-game-info-panel">
+      <div id="game-steam-banner" style="display:none; position:relative; border-radius:8px; overflow:hidden; margin-bottom:14px; border:1px solid var(--border); min-height:170px; background:#0b0f17;">
+        <img id="game-steam-hero-img" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center;" />
+        <div style="position:absolute; inset:0; background:linear-gradient(90deg, rgba(11,15,23,0.92) 0%, rgba(11,15,23,0.68) 55%, rgba(11,15,23,0.88) 100%);"></div>
+        <div style="position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; min-height:170px; flex-wrap:wrap;">
+          <div style="display:flex; flex-direction:column; gap:8px; max-width:58%;">
+            <img id="game-steam-logo-img" alt="" style="display:none; max-height:82px; max-width:340px; width:auto; object-fit:contain; object-position:left center;" />
+            <div id="game-steam-title-row" style="display:flex; align-items:center; gap:10px;">
+              <img id="game-steam-exe-icon" alt="" style="display:none; width:36px; height:36px; border-radius:6px; border:1px solid var(--border-strong); background:#0b0f17; object-fit:contain;" />
+              <div id="game-steam-banner-title" style="font-size:1.3rem; font-weight:700; color:#fff;"></div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span class="badge" id="game-steam-appid-badge">Game Assets</span>
+              <span class="badge" id="game-steam-exe-badge" style="display:none;">Executable</span>
+              <button class="success btn-sm" onclick="launchActiveGame()">Launch Game</button>
+              <button class="secondary btn-sm" onclick="checkActiveGameConflicts()">Check Mod Conflicts</button>
+              <button class="secondary btn-sm" onclick="openToolFolder(document.getElementById('fp-game-dir')?.value || '')">Open Game Folder</button>
+            </div>
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:12px;">
+            <img id="game-steam-header-img" alt="" style="display:none; height:108px; width:auto; border-radius:6px; border:1px solid var(--border-strong); box-shadow:0 6px 18px rgba(0,0,0,0.45); object-fit:cover;" />
+            <img id="game-steam-capsule-img" alt="" style="display:none; height:136px; width:auto; border-radius:6px; border:1px solid var(--border-strong); box-shadow:0 6px 18px rgba(0,0,0,0.45); object-fit:cover;" />
+          </div>
+        </div>
+      </div>
+      <div class="info-panel-header">
+        <h2>
+          <span>Game Info &amp; Modding Requirements:</span>
+          <span id="info-title" style="color:#fff;">Demeo x Dungeons &amp; Dragons: Battlemarked</span>
+          <span class="badge" id="info-slug-badge">battleground</span>
+          <span class="badge" id="info-engine-badge">Unity</span>
+        </h2>
+        <div class="btn-group">
+          <span class="pill no" id="info-missing-badge" style="display:none;">Missing on Disk (Showing Cached Info)</span>
+          <button class="btn-sm" id="btn-fp-rescan" onclick="runFingerprintAndRescan()">Fingerprint &amp; Rescan</button>
+        </div>
+      </div>
+
+      <!-- AGGREGATED TARGET PATH BAR -->
+      <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:280px;">
+          <label for="fp-game-dir">Target Game Directory (Used by Fingerprint &amp; Rescan, Conflict Check &amp; Mod Deployment)</label>
+          <input id="fp-game-dir" type="text" value="C:\Program Files (x86)\Steam\steamapps\common\Battlemarked" />
+        </div>
+        <div class="btn-group">
+          <button class="secondary" onclick="browseIntoInput('fp-game-dir')">Browse</button>
+        </div>
+      </div>
+      <pre id="fp-output" style="display:none; margin-bottom:12px; max-height:150px;"></pre>
+      <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;">
+          <label for="game-user-tags">Game Tags (comma-separated)</label>
+          <input id="game-user-tags" type="text" placeholder="e.g. Modded, Favorite, Testing" />
+        </div>
+        <div style="flex:2; min-width:260px;">
+          <label for="game-user-notes">Custom Notes for Active Game</label>
+          <input id="game-user-notes" type="text" placeholder="Personal modding notes, tested versions, or load order notes..." />
+        </div>
+        <button class="secondary btn-sm" onclick="saveActiveGameNotes()">Save Notes</button>
+      </div>
+
+      <!-- PIPELINE STATUS BAR (5 CONSOLIDATED SECTIONS) -->
+      <div class="quick-indicators-bar" id="info-quick-indicators">
+        <span class="quick-indicators-label">Pipeline Status:</span>
+        <span class="pill warn" id="ind-game-installed">Game Installed: Checking...</span>
+        <span class="pill warn" id="ind-modding-tools">Modding Tools: Checking...</span>
+        <span class="pill na" id="ind-mods-installed">Mods Installed: Checking...</span>
+        <span class="pill na" id="ind-reshade-installed">ReShade: Checking...</span>
+        <span class="pill na" id="ind-settings-optimised">PC Spec Settings: Checking...</span>
+      </div>
+
+      <!-- INSTALLED MODS DETECTED IN GAME FOLDERS -->
+      <details id="installed-mods-details" style="margin-top:10px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+        <summary id="installed-mods-summary" style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
+          Installed Mods Detected (0)
+        </summary>
+        <div id="installed-mods-meta" style="font-size:0.72rem; color:var(--muted); margin:6px 0 8px 0;">
+          Scanned game mod folders: —
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:6px;">
+          <span>Game Mods (Pak, Script &amp; Plugin Mods)</span>
+          <span class="badge" id="game-mods-count-badge">0</span>
+        </div>
+        <div class="log-wrap" style="max-height:220px; margin-bottom:10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Mod Name</th>
+                <th>Category</th>
+                <th>File / Folder</th>
+                <th>Size</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody id="info-installed-mods-tbody">
+              <tr><td colspan="5">No game mods detected yet. Click Fingerprint &amp; Rescan to inspect game folders.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="crucial-steps-header" style="margin-top:8px;">
+          <span>Graphics, Upscaler &amp; Overlay Mods (ReShade, OptiScaler, DLSS Enabler, Addons)</span>
+          <span class="badge" id="injector-mods-count-badge">0</span>
+        </div>
+        <div class="log-wrap" style="max-height:200px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Mod Name</th>
+                <th>Category</th>
+                <th>File / Folder</th>
+                <th>Size</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody id="info-injector-mods-tbody">
+              <tr><td colspan="5">No graphics, upscaler, or overlay mods detected.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- RELEVANT MODDING APPS & ONE-CLICK INSTALLERS -->
+      <div class="crucial-steps-header" style="margin-top: 16px;">
+        <span>Relevant Modding Apps &amp; Installers (<code id="tools-root-label">%LOCALAPPDATA%\TheModdingTool\tools</code> &amp; Game Folder)</span>
+        <div class="btn-group" style="text-transform:none; font-weight:400;">
+          <select id="tools-filter-mode" style="padding:4px 10px; font-size:0.76rem; width:auto;" onchange="renderCurrentGameModdingApps()">
+            <option value="recommended" selected>Recommended Apps for This Game</option>
+            <option value="all">All Modding Apps (All 14 Engine Tools)</option>
+          </select>
+          <button class="success btn-sm" id="btn-install-all-rec" onclick="installAllRecommendedTools()">Install Recommended Apps</button>
+        </div>
+      </div>
+      <div class="crucial-steps-grid" id="info-modding-apps"></div>
+      <pre id="tools-install-output" style="display:none; margin-top:8px; max-height:140px;"></pre>
+
+      <!-- UNREAL ENGINE SETTINGS (PERFORMANCE & FIDELITY) + PC SPECS COMPARISON -->
+      <div id="unreal-settings-section" style="display:none; margin-top:18px; padding-top:14px; border-top:1px solid #2b3c56;">
+        <div class="crucial-steps-header" style="margin-top:0;">
+          <span>Unreal Engine Game Settings &amp; Traffic-Light Hardware Optimality Advisor</span>
+          <div class="btn-group" style="text-transform:none; font-weight:400;">
+            <label style="margin:0; font-size:0.74rem; color:#93c5fd;">Compare Against Tier:</label>
+            <select id="ue-ref-tier-select" style="padding:4px 10px; font-size:0.75rem; width:auto; max-width:300px;" onchange="onUnrealReferenceTierChanged()">
+              <option value="auto" selected>Auto-Match My Scraped PC Specs</option>
+              <option value="tier_flagship_24gb_4090">Flagship 24GB+ (RTX 4090 / 5090 / 7900 XTX)</option>
+              <option value="tier_high_16gb_4080">High-End 16GB (RTX 4080 / 4070 TiS / 7900 XT)</option>
+              <option value="tier_upper_mid_12gb_4070_3080">Upper-Mid 12GB (RTX 4070 / RTX 3080 12GB)</option>
+              <option value="tier_mid_8gb_3000_4060">Mainstream 8GB RTX 3000 Gen (RTX 3070 / 3060 Ti / 4060)</option>
+              <option value="tier_entry_6gb_2060_1660">Entry 6GB (RTX 2060 / GTX 1660S / 3050)</option>
+              <option value="tier_budget_4gb_1650_igpu">Budget 4GB / Handheld (GTX 1650 / Steam Deck)</option>
+            </select>
+            <select id="ue-local-profile-select" style="padding:4px 10px; font-size:0.75rem; width:auto; max-width:290px;" title="Discovered game configuration / INI profiles" onchange="onConfigProfileSelected()"></select>
+            <button class="btn-sm" onclick="importUnrealSettings('')">Rescan Config</button>
+            <button class="success btn-sm" onclick="applyOptimalUnrealIni()">Apply Optimal INI</button>
+            <button class="secondary btn-sm" onclick="restoreUnrealIniBackup()">Restore INI Backup</button>
+          </div>
+        </div>
+        <div class="hint" id="ue-ini-source-banner" style="margin-bottom:10px;">
+          Checking Unreal Engine configuration files (<code>GameUserSettings.ini</code> / <code>Engine.ini</code>)...
+        </div>
+
+        <!-- CONSOLIDATED TRAFFIC LIGHT SUMMARY BAR -->
+        <div class="quick-indicators-bar" id="ue-traffic-light-bar" style="margin-bottom:10px;">
+          <span class="quick-indicators-label">Traffic Lights:</span>
+          <span class="pill yes" id="ue-overall-verdict-pill">Evaluating...</span>
+          <span class="pill yes" id="ue-tl-hw-pill">Hardware: —</span>
+          <span class="pill yes" id="ue-tl-perf-pill">Performance: —</span>
+          <span class="pill yes" id="ue-tl-fid-pill">Fidelity: —</span>
+          <span class="pill yes" id="ue-tl-green-count">0 Optimal</span>
+          <span class="pill warn" id="ue-tl-amber-count">0 Sub-Optimal</span>
+          <span class="pill no" id="ue-tl-red-count">0 Bottleneck</span>
+          <span class="badge" id="ue-matched-tier-badge" style="margin-left:auto;">Matched Tier: —</span>
+        </div>
+
+        <!-- FOLDED DETAILED TRAFFIC LIGHT PANELS -->
+        <details id="ue-detailed-traffic-lights" style="margin-bottom:10px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
+            View Detailed Traffic-Light Breakdown (Hardware Match, Performance &amp; Visual Fidelity)
+          </summary>
+
+          <!-- 1. PC SPECS VS CURRENT UNREAL SETTINGS COMPARISON -->
+          <div class="crucial-steps-header" style="margin-top:10px;">
+            <span>Traffic-Light Hardware vs. Current Unreal Settings Breakdown</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Green = Optimal for Tier | Amber = Sub-Optimal / Headroom Unused | Red = Over-Budget / Bottleneck</span>
+          </div>
+          <div class="crucial-steps-grid" id="ue-comparison-grid" style="grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); margin-bottom:12px;"></div>
+
+          <!-- 2. KEY PERFORMANCE SETTINGS -->
+          <div class="crucial-steps-header" style="margin-top:12px;">
+            <span>Key Performance Settings (Traffic-Light Evaluated Against Reference Array)</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Directly impacts FPS, frame pacing, GPU fillrate, and CPU main-thread latency</span>
+          </div>
+          <div class="crucial-steps-grid" id="ue-performance-grid"></div>
+
+          <!-- 3. KEY VISUAL FIDELITY SETTINGS -->
+          <div class="crucial-steps-header" style="margin-top:12px;">
+            <span>Key Visual Fidelity Settings (Traffic-Light Evaluated Against Reference Array)</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Controls ray-traced/Lumen lighting, shader complexity, anisotropic filtering, and HDR</span>
+          </div>
+          <div class="crucial-steps-grid" id="ue-fidelity-grid"></div>
+        </details>
+
+        <!-- COLLAPSIBLE PC SPECS VS CONFIGURATION REFERENCE ARRAY MATRIX -->
+        <details id="ue-reference-array-details" style="margin-bottom:8px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
+            View PC Hardware Specs vs. Unreal Engine Configuration Reference Array (8GB RTX 3000 Series vs. RTX 4090 &amp; All Tiers)
+          </summary>
+          <div class="log-wrap" style="max-height:290px; margin-top:8px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hardware Reference Tier</th>
+                  <th>Example GPU / CPU / RAM</th>
+                  <th>Target Res &amp; 3D Scale</th>
+                  <th>Textures</th>
+                  <th>Lumen GI</th>
+                  <th>VSM Shadows</th>
+                  <th>Reflections</th>
+                  <th>View Dist &amp; Foliage</th>
+                  <th>Safe VRAM Ceiling</th>
+                </tr>
+              </thead>
+              <tbody id="ue-reference-array-tbody"></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <div class="grid">
+
+    <!-- ADAPTER STATUS NOTICE (FOR ENGINE-AGNOSTIC LIBRARY SELECTION) -->
+    <div class="card full" id="adapter-status-notice" style="display:none; border-color:#3b82f6; background:rgba(30,58,138,0.2);">
+      <h2 style="margin-bottom:6px;"><span id="adapter-notice-title">Engine Adapter Status</span> <span class="badge" id="adapter-notice-badge">—</span></h2>
+      <div id="adapter-notice-body" style="font-size:0.84rem; color:#cbd5e1;"></div>
+    </div>
+
+    <!-- 1 & 2. PROVISION & CLEAN RESTORE -->
+    <div class="card full" id="card-provision-restore">
+      <h2>Provision &amp; Clean Restore <span class="badge">POST /api/provision &amp; /api/restore</span></h2>
+      <div class="row">
+        <div>
+          <label>Local BepInEx 6 IL2CPP Zip Path</label>
+          <input id="prov-zip-path" type="text" value="D:\Downloads\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip" />
+        </div>
+        <div>
+          <label>Expected Zip SHA-256 Hash</label>
+          <input id="prov-sha256" type="text" value="5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" />
+        </div>
+      </div>
+      <div>
+        <label>Compiled BepInExMCP.IL2CPP Build Output Directory</label>
+        <input id="prov-plugin-dir" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+      </div>
+      <div class="btn-row">
+        <button class="success" onclick="runProvision()">Provision &amp; Backup</button>
+        <button class="danger" onclick="runRestore()">Clean Restore</button>
+      </div>
+      <pre id="prov-output">Ready to validate SHA-256, back up collisions, extract BepInEx + BepInExMCP.IL2CPP.dll, or restore cleanly.</pre>
+    </div>
+
+{% include "partials/mcp_bridge.html" %}
+{% include "partials/asset_audit.html" %}
+
+    <!-- TECHNICAL GAME METADATA & ADVISED MCP TOOLS (COLLAPSIBLE AT BOTTOM OF PAGE) -->
+    <div class="card full" id="card-game-technical-details">
+      <details id="game-technical-details-collapse">
+        <summary style="cursor:pointer; color:#93c5fd; font-weight:700; font-size:0.95rem; list-style-position:inside;">
+          Game Technical Details, Checklist &amp; Advised MCP Tooling
+        </summary>
+        <div class="info-grid" style="margin-top:12px;">
+        <div class="info-item">
+          <div class="k">Developer / Product &amp; Exe</div>
+          <div class="v" id="info-product">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Platform &amp; Architecture</div>
+          <div class="v" id="info-platform">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-engine-ver">Engine &amp; Build Version</div>
+          <div class="v" id="info-unity-ver">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-backend">Scripting Backend &amp; Engine</div>
+          <div class="v" id="info-backend">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Required Mod Loader Tool</div>
+          <div class="v" id="info-req-loader" style="color:#60a5fa;">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Required MCP Bridge Plugin</div>
+          <div class="v" id="info-req-plugin" style="color:#60a5fa;">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-installed-loader">Installed Mod Loader</div>
+          <div class="v" id="info-installed-loader">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-interop">Modding Workspace / Interop</div>
+          <div class="v" id="info-interop">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Graphics API &amp; XR Subsystem</div>
+          <div class="v" id="info-gfx-xr">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k" id="lbl-info-build-guid">Engine Project / Build ID</div>
+          <div class="v" id="info-build-guid">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Reference Sheet Match &amp; Category</div>
+          <div class="v" id="info-sheet-cat" style="color:#f59e0b;">—</div>
+        </div>
+        <div class="info-item">
+          <div class="k">Recommended MCP Stack (Reference Sheet)</div>
+          <div class="v" id="info-mcp-stack" style="color:#34d399;">—</div>
+        </div>
+        <div class="info-item" style="grid-column: span 2;">
+          <div class="k">Advised MCP Tools for Discovery (Scene, Types &amp; Static Analysis)</div>
+          <div class="v" id="info-mcp-discovery" style="color:#93c5fd;">—</div>
+        </div>
+        <div class="info-item" style="grid-column: span 2;">
+          <div class="k">Advised MCP Tools for Modding (Live Mutation, Patching &amp; Profiles)</div>
+          <div class="v" id="info-mcp-modding" style="color:#a7f3d0;">—</div>
+        </div>
+      </div>
+      <div class="crucial-steps-header" style="margin-top:14px;">
+        <span>Modding Steps &amp; File / Bridge Presence Checklist</span>
+        <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Live verification of game files, mod loader, interop bootstrap, MCP bridge &amp; clean-restore manifest</span>
+      </div>
+      <div class="crucial-steps-grid" id="info-crucial-steps"></div>
+      </details>
+    </div>
+    </div>
+  </div>
