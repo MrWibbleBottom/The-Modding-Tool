@@ -375,6 +375,174 @@ class SecurityTests(unittest.TestCase):
                 self.assertEqual(r_trav.status_code, 400)
                 core_config.invalidate_games_cache()
 
+    def test_mod_vault_zip_slip_and_fomod_xxe_rejection(self) -> None:
+        import io
+        import zipfile
+        from app.core.security import ensure_within
+        from app.routers import library as library_router
+        from app.services import endpoints as endpoints_service, mod_auditor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            vault_base = tmp_dir / "vault"
+            vault_base.mkdir()
+            with self.assertRaises(ValueError):
+                ensure_within(vault_base / "../../evil.dll", vault_base)
+
+            appdata_root = tmp_dir / "appdata"
+            game_dir = tmp_dir / "VaultSecGame"
+            game_dir.mkdir(parents=True, exist_ok=True)
+            slug = "vault_sec_game"
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": slug,
+                        "name": "Vault Security Game",
+                        "game_dir": str(game_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+
+            # Zip-Slip payload
+            slip_buf = io.BytesIO()
+            with zipfile.ZipFile(slip_buf, "w") as zf:
+                zf.writestr("../../evil.dll", b"MZ-EVIL")
+
+            # Malicious XXE inside FOMOD ModuleConfig.xml
+            xxe_buf = io.BytesIO()
+            with zipfile.ZipFile(xxe_buf, "w") as zf:
+                zf.writestr(
+                    "fomod/ModuleConfig.xml",
+                    '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini">]><config><moduleName>&xxe;</moduleName></config>',
+                )
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(mod_auditor, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+            ):
+                core_config.invalidate_games_cache()
+
+                r_slip = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    files={"file": ("zipslip.zip", slip_buf.getvalue(), "application/zip")},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_slip.status_code, 400)
+                self.assertFalse((tmp_dir / "evil.dll").exists())
+                self.assertFalse((appdata_root / "evil.dll").exists())
+
+                r_xxe = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    files={"file": ("evil_fomod.zip", xxe_buf.getvalue(), "application/zip")},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_xxe.status_code, 400)
+                self.assertIn("doctype", r_xxe.json().get("detail", "").lower())
+                core_config.invalidate_games_cache()
+
+    def test_mod_vault_large_pak_passes_and_zip_bomb_rejected(self) -> None:
+        import io
+        import zipfile
+        import zlib
+        from app.core import constants as core_const
+        from app.core.security import SESSION_HEADER, get_session_token
+        from app.services import endpoints as endpoints_service, mod_auditor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            appdata_root = tmp_dir / "appdata"
+            game_dir = tmp_dir / "LargePakUnreal"
+            (game_dir / "BendGame" / "Content" / "Paks" / "~mods").mkdir(parents=True, exist_ok=True)
+            slug = "large_pak_unreal"
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": slug,
+                        "name": "Large Pak Unreal",
+                        "game_dir": str(game_dir),
+                        "runtime": "Unreal",
+                        "detected_engine": "Unreal",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+
+            # Build small valid zip containing a small ini and a simulated 650 MB .pak header (normal ~4.3:1 ratio)
+            pak_payload = (
+                b"../../../\x00"
+                b"BendGame/Content/Player/Mesh/SK_Deacon.uasset\x00"
+                + zlib.compress(b"\x00JacketTintScale\x00")
+            )
+            good_buf = io.BytesIO()
+            with zipfile.ZipFile(good_buf, "w") as zf:
+                zf.writestr("ModConfig.ini", b"[/Game/Mod]\nIntensity=2.5\n")
+                zf.writestr("MegaTextures_P.pak", pak_payload)
+
+            bomb_buf = io.BytesIO()
+            with zipfile.ZipFile(bomb_buf, "w") as zf:
+                zf.writestr("Bomb_P.pak", b"0" * 1024)
+
+            orig_zipfile = zipfile.ZipFile
+
+            class _MockSizedZipFile(orig_zipfile):
+                def __init__(self, file, *args, **kwargs):
+                    super().__init__(file, *args, **kwargs)
+                    self._mode_tag = "good" if "good_large" in str(file) else ("bomb" if "zip_bomb" in str(file) else "")
+
+                def infolist(self):
+                    infos = super().infolist()
+                    for info in infos:
+                        if self._mode_tag == "good" and info.filename.endswith(".pak"):
+                            info.file_size = 650 * 1024 * 1024
+                            info.compress_size = 150 * 1024 * 1024
+                        elif self._mode_tag == "bomb" and info.filename.endswith(".pak"):
+                            info.file_size = 600 * 1024 * 1024
+                            info.compress_size = 1 * 1024 * 1024
+                    return infos
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(mod_auditor, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(mod_auditor.zipfile, "ZipFile", _MockSizedZipFile),
+            ):
+                core_config.invalidate_games_cache()
+
+                # 1. 650 MB uncompressed / 150 MB compressed -> allowed & audited via stream without unpacking .pak
+                r_ok = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    files={"files": ("good_large_650mb.zip", good_buf.getvalue(), "application/zip")},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_ok.status_code, 200, r_ok.text)
+                rep = r_ok.json()["audit_report"]
+                unpacked_root = Path(rep["vault_dir"]) / "unpacked"
+                self.assertTrue((unpacked_root / "ModConfig.ini").is_file())
+                self.assertFalse((unpacked_root / "MegaTextures_P.pak").exists())
+                self.assertTrue(rep.get("archived_entries"))
+                self.assertEqual(rep["mount_points"], ["../../../"])
+                self.assertIn("JacketTintScale", rep["uproperty_symbols"])
+                self.assertTrue(any(a["asset_name"] == "SK_Deacon.uasset" for a in rep["active_assets"]))
+
+                # 2. 600 MB uncompressed / 1 MB compressed (600:1 > MAX_ZIP_BOMB_RATIO 100:1) -> rejected
+                self.assertEqual(core_const.MAX_ZIP_BOMB_RATIO, 100.0)
+                r_bomb = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    files={"files": ("zip_bomb_600to1.zip", bomb_buf.getvalue(), "application/zip")},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_bomb.status_code, 400, r_bomb.text)
+                self.assertIn("zip-bomb", r_bomb.json().get("detail", "").lower())
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

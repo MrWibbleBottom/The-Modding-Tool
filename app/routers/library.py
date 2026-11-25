@@ -94,6 +94,7 @@ from app.services.endpoint_catalog import (
     import_community_artifact,
 )
 from app.services import bridge_diff as _bridge_diff_svc
+from app.services import mod_auditor as _mod_auditor_svc
 from app.services.endpoints import apply_or_reset_endpoint, scan_game_endpoints
 from app.services import il2cpp_indexer as _il2cpp_svc
 from app.services.game_snapshots import (
@@ -1149,7 +1150,7 @@ async def post_download_ai_info_pack(slug: str) -> Response:
     gdir = Path(str(target.get("game_dir", "")).strip())
 
     ctx = build_ai_modding_context(target)
-    mods_report = scan_game_installed_mods(gdir)
+    mods_report = scan_game_installed_mods(gdir, slug=safe_slug)
     snapshots = list_game_snapshots(safe_slug)
     info = target.get("cached_modding_info") if isinstance(target.get("cached_modding_info"), dict) else {}
     proj_name = str(info.get("detected_project_name") or "")
@@ -1184,6 +1185,12 @@ async def post_download_ai_info_pack(slug: str) -> Response:
     }
 
     recent_audit = read_audit_logs(limit=40, category="all")
+    vault_app_root = (
+        _mod_auditor_svc.APP_DATA_ROOT
+        if _mod_auditor_svc.APP_DATA_ROOT != get_app_data_root()
+        else _endpoints_svc.APP_DATA_ROOT
+    )
+    stored_audits = _mod_auditor_svc.list_stored_mod_audits(safe_slug, app_data_root=vault_app_root)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1194,6 +1201,14 @@ async def post_download_ai_info_pack(slug: str) -> Response:
         zf.writestr("logs/game_log_tail.log", tail_all.get("text") or "(No game log lines available.)")
         zf.writestr("logs/game_log_errors.log", tail_errs.get("text") or "(No matching error lines found.)")
         zf.writestr("logs/audit_recent.json", json.dumps(recent_audit, indent=2, default=str))
+        if stored_audits:
+            zf.writestr("stored_mod_audits.json", json.dumps(stored_audits, indent=2, default=str))
+            blueprints_md = "\n\n---\n\n".join(
+                str(rep.get("blueprint_markdown") or "").strip()
+                for rep in stored_audits
+                if rep.get("blueprint_markdown")
+            )
+            zf.writestr("mod_blueprints.md", blueprints_md or "# Stored Reference Mod Blueprints\n")
 
     append_audit_log(
         action="game.ai_pack",
@@ -1227,7 +1242,8 @@ async def get_game_installed_mods(slug: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
     gdir = Path(str(target.get("game_dir", "")).strip())
     primary_exe = _find_primary_game_exe(gdir, str(target.get("name") or "")) if gdir.is_dir() else None
-    res = scan_game_installed_mods(gdir, primary_exe=primary_exe)
+    clean_slug = make_slug(str(target.get("id") or slug))
+    res = scan_game_installed_mods(gdir, primary_exe=primary_exe, slug=clean_slug)
     res["slug"] = make_slug(slug)
     return res
 

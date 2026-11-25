@@ -91,13 +91,14 @@
         <span class="pill na" id="ind-settings-optimised">PC Spec Settings: Checking...</span>
       </div>
 
-      <!-- 5-TAB SUB-NAVIGATION BAR -->
+      <!-- 6-TAB SUB-NAVIGATION BAR -->
       <nav class="ag-subnav" id="active-game-subnav" role="tablist" aria-label="Active Game Sections">
         <button type="button" class="ag-subnav-btn active" id="ag-tab-btn-general" onclick="switchActiveGameSection('general')">1. General Game Info</button>
         <button type="button" class="ag-subnav-btn" id="ag-tab-btn-setup" onclick="switchActiveGameSection('setup')">2. Setup</button>
         <button type="button" class="ag-subnav-btn" id="ag-tab-btn-mods" onclick="switchActiveGameSection('mods')">3. Current Mods</button>
-        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-modding" onclick="switchActiveGameSection('modding')">4. Modding</button>
-        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-pcopt" onclick="switchActiveGameSection('pcopt')">5. PC Optimisation</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-modvault" onclick="switchActiveGameSection('modvault')">4. Mod Vault</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-modding" onclick="switchActiveGameSection('modding')">5. Modding</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-pcopt" onclick="switchActiveGameSection('pcopt')">6. PC Optimisation</button>
       </nav>
     </section>
 
@@ -389,6 +390,116 @@
           </table>
         </div>
       </details>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- SECTION 4: MOD VAULT (PER-GAME ARCHIVES, UNPACKED & ENDPOINTS)      -->
+    <!-- =================================================================== -->
+    <div class="ag-tab-pane" id="ag-pane-modvault" style="display:none;">
+      <div class="card full" id="card-mod-vault-audit">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+          <div>
+            <h3 style="margin:0;">Per-Game Mod Vault &amp; Unpacked Inspector</h3>
+            <p class="subtitle" style="margin:2px 0 0 0;">Upload single or batch archives (<code>.zip</code>, <code>.7z</code>, <code>.pak</code>), upload loose unpacked folders/files, or link a local mod path directly from disk without executing binaries.</p>
+          </div>
+          <button type="button" class="btn-outline" onclick="loadModVaultSection()">Refresh Vault</button>
+        </div>
+
+        <div id="mv-conflicts-box" style="display:none;margin-bottom:10px;"></div>
+        <div id="mv-status-banner" style="display:none;"></div>
+
+        <!-- Drag & Drop / Multi-file / Folder Upload Zone -->
+        <div id="mv-dropzone" style="border:1.5px dashed #385170;border-radius:8px;padding:12px;background:#0d1522;margin-bottom:10px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+            <label style="font-size:12px;display:flex;flex-direction:column;gap:4px;">
+              <span>Mod Archives / Files (Multi-Select)</span>
+              <input id="mv-upload-file" type="file" multiple accept=".pak,.zip,.7z,.dll,.lua,.cfg,.ini,.json,.ct,.txt,.md,.ucas,.utoc,.uasset,.umap,.xml" style="max-width:260px;" />
+            </label>
+            <label style="font-size:12px;display:flex;flex-direction:column;gap:4px;">
+              <span>Unpacked Mod Folder</span>
+              <input id="mv-upload-folder" type="file" webkitdirectory directory multiple style="max-width:240px;" />
+            </label>
+            <label style="font-size:12px;flex:1;min-width:170px;display:flex;flex-direction:column;gap:4px;">
+              <span>Bundle Name (for loose unpacked files)</span>
+              <input id="mv-upload-bundle" type="text" placeholder="Optional bundle title" />
+            </label>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input id="mv-upload-source" type="text" placeholder="Source (e.g. Nexus Mods)" style="max-width:170px;" />
+            <input id="mv-upload-notes" type="text" placeholder="Optional notes" style="flex:1;min-width:180px;" />
+            <button id="btn-mv-upload" type="button" class="btn-primary" onclick="uploadModToVault()">Upload &amp; Audit</button>
+          </div>
+        </div>
+
+        <!-- Zero-Copy Link Local File / Folder Toolbar -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:8px 10px;border:1px solid #223045;border-radius:6px;background:#0b111b;">
+          <span style="font-size:12px;font-weight:600;color:#93c5fd;">Link Local File / Folder:</span>
+          <input id="mv-link-local-path" type="text" placeholder="D:\Mods\UnpackedModFolder or D:\Downloads\LargeMod.zip / .pak" style="flex:2;min-width:240px;" />
+          <input id="mv-link-bundle-name" type="text" placeholder="Optional display name" style="flex:1;min-width:140px;" />
+          <button id="btn-mv-browse-local" type="button" class="btn-outline" onclick="browseLocalModPath()">Browse</button>
+          <button id="btn-mv-link-local" type="button" class="secondary" onclick="linkLocalModToVault()">Link Local File / Folder</button>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Mod Title &amp; Nexus Metadata</th>
+                <th>Storage Mode</th>
+                <th>Audit Summary &amp; Conflicts</th>
+                <th>Uploaded</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="mv-stored-mods-tbody">
+              <tr><td colspan="5" class="text-muted">Open Mod Vault with an active game to inspect stored mods.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="mod-audit-blueprint-panel" style="display:none;margin-top:16px;border-top:1px solid #263447;padding-top:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+            <div>
+              <strong id="mv-audit-title" style="font-size:14px;">Audit Blueprint &amp; Exposed Endpoints</strong>
+              <div id="mv-audit-meta" class="text-muted" style="font-size:12px;"></div>
+            </div>
+            <div class="btn-group">
+              <button id="btn-mv-deploy-selected" type="button" class="success btn-sm" onclick="deploySelectedStoredMod()">Deploy to Game</button>
+              <button id="btn-mv-promote-selected" type="button" class="btn-outline btn-sm" onclick="promoteSelectedStoredMod()">Promote All to Modding Tab</button>
+            </div>
+          </div>
+          <div id="mv-audit-description" class="text-muted" style="font-size:12px;margin-bottom:10px;"></div>
+
+          <div style="border:1px solid #263447;border-radius:6px;padding:10px;margin-bottom:12px;">
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Exposed Endpoints &amp; Modifiable Settings</div>
+            <div id="mv-audit-editable-endpoints" style="max-height:280px;overflow-y:auto;"></div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+            <div style="border:1px solid #263447;border-radius:6px;padding:10px;">
+              <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Modified Unreal Assets</div>
+              <div id="mv-audit-unreal-assets" style="max-height:220px;overflow-y:auto;"></div>
+            </div>
+            <div style="border:1px solid #263447;border-radius:6px;padding:10px;">
+              <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Extracted UProperty / Component Names</div>
+              <div id="mv-audit-uprops" style="max-height:220px;overflow-y:auto;"></div>
+            </div>
+            <div style="border:1px solid #263447;border-radius:6px;padding:10px;">
+              <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Packed Author Backups</div>
+              <div id="mv-audit-backups" style="max-height:180px;overflow-y:auto;"></div>
+            </div>
+            <div style="border:1px solid #263447;border-radius:6px;padding:10px;">
+              <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Cross-Mod Asset Conflicts</div>
+              <div id="mv-audit-conflicts" style="max-height:180px;overflow-y:auto;"></div>
+            </div>
+          </div>
+
+          <details style="margin-top:10px;">
+            <summary style="cursor:pointer;font-size:12px;font-weight:600;">Raw How-To-Mod Blueprint Markdown</summary>
+            <pre id="mv-audit-blueprint-md" style="margin-top:8px;max-height:260px;overflow:auto;font-size:11px;"></pre>
+          </details>
+        </div>
+      </div>
     </div>
 
     <!-- =================================================================== -->

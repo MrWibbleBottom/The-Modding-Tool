@@ -27,6 +27,11 @@ PLUGIN_DEPLOY_FILES: list[str] = [
     "BepInExMCP.IL2CPP.pdb",
 ]
 
+MAX_MOD_UPLOAD_BYTES: int = 4 * 1024 * 1024 * 1024  # 4 GB
+MAX_MOD_UNCOMPRESSED_BYTES: int = 8 * 1024 * 1024 * 1024  # 8 GB
+MAX_ZIP_BOMB_RATIO: float = 100.0
+LARGE_BINARY_STREAM_THRESHOLD_BYTES: int = 50 * 1024 * 1024  # 50 MB
+
 _UE_QUALITY_LABELS: dict[int, str] = {
     0: "Low (0)",
     1: "Medium (1)",

@@ -709,6 +709,499 @@ ret
                     self.assertNotIn("file_path", p_ep)
                 core_config.invalidate_games_cache()
 
+    def test_mod_vault_upload_static_audit_promote_delete_and_ai_pack(self) -> None:
+        import io
+        import zipfile
+        from app.services import endpoint_catalog, endpoints as endpoints_service, mod_auditor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            appdata_root = tmp_dir / "appdata"
+            game_dir = tmp_dir / "VaultSampleGame"
+            (game_dir / "BepInEx").mkdir(parents=True)
+            (game_dir / "GameAssembly.dll").write_bytes(b"MZ-IL2CPP")
+            slug = "vault_sample_game"
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": slug,
+                        "name": "Vault Sample Game",
+                        "game_dir": str(game_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+
+            # Build a synthetic .zip containing manifest.json, BepInEx .cfg, mock IL2CPP .dll, and UE4SS .lua
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(
+                    "manifest.json",
+                    json.dumps({
+                        "name": "HeroOverhaulRef",
+                        "version_number": "2.1.0",
+                        "description": "Hero balance reference mod",
+                        "dependencies": ["BepInEx-BepInExPack_IL2CPP-6.0.733"],
+                    }),
+                )
+                zf.writestr(
+                    "BepInEx/config/com.ref.hero.cfg",
+                    "[Combat]\n## Multiplier for hero skill damage\n# Setting type: Single\n# Default value: 1.5\nSkillDamageScale = 1.5\n",
+                )
+                zf.writestr(
+                    "BepInEx/plugins/HeroOverhaul.dll",
+                    b"MZ\x00\x00"
+                    b'BepInEx.Unity.IL2CPP\x00'
+                    b'[BepInPlugin("com.ref.hero", "HeroOverhaul", "2.1.0")]\x00'
+                    b'[BepInDependency("com.ref.corelib")]\x00'
+                    b'[HarmonyPatch(typeof(Game.Combat.SkillRunner), nameof(CalculateSkillDamage))]\x00'
+                    b'Game.Actors.HeroStats\x00',
+                )
+                zf.writestr(
+                    "Scripts/main.lua",
+                    'local ConfigDamageScale = 2.0\n'
+                    'RegisterHook("/Script/Game.PlayerController:RevealHiddenChest", function() end)\n'
+                    'FindFirstOf("HeroPawn")\n',
+                )
+            zip_bytes = zip_buf.getvalue()
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(mod_auditor, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoints_service, "_probe_live_bepinex_bridge", return_value=[]),
+            ):
+                core_config.invalidate_games_cache()
+
+                # 1. Upload .zip into the game's Mod Vault
+                r_up = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    data={"notes": "Reference balance sample", "source_label": "Thunderstore"},
+                    files={"file": ("HeroOverhaul_v2.1.0.zip", zip_bytes, "application/zip")},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_up.status_code, 200)
+                up_data = r_up.json()
+                mod_id = up_data["mod_id"]
+                rep = up_data["audit_report"]
+
+                # Stored cleanly inside mod_vault/<slug>/<mod_id>/ and recorded on managed_games.json
+                mod_vault_dir = appdata_root / "mod_vault" / slug / mod_id
+                self.assertTrue((mod_vault_dir / "original" / "HeroOverhaul_v2.1.0.zip").is_file())
+                self.assertTrue((mod_vault_dir / "audit_report.json").is_file())
+                saved_store = json.loads(store_path.read_text(encoding="utf-8"))
+                self.assertEqual(len(saved_store["games"][0]["stored_mods"]), 1)
+                self.assertEqual(saved_store["games"][0]["stored_mods"][0]["mod_id"], mod_id)
+
+                # Static audit extractors parsed plugin GUID/runtime, dependency, Harmony/UE4SS hooks, and CFG
+                self.assertEqual(rep["plugins"][0]["guid"], "com.ref.hero")
+                self.assertEqual(rep["plugins"][0]["runtime_target"], "IL2CPP")
+                self.assertIn("com.ref.corelib", rep["dependencies"])
+                self.assertIn("BepInEx-BepInExPack_IL2CPP-6.0.733", rep["dependencies"])
+                hook_sigs = {h["signature"] for h in rep["hooks"]}
+                self.assertIn("Game.Combat.SkillRunner.CalculateSkillDamage", hook_sigs)
+                self.assertIn("/Script/Game.PlayerController:RevealHiddenChest", hook_sigs)
+                cand_syms = {c["symbol"]: c for c in rep["candidate_endpoints"]}
+                self.assertIn("Combat.SkillDamageScale", cand_syms)
+                self.assertEqual(cand_syms["Combat.SkillDamageScale"]["default_value"], "1.5")
+
+                # 2. List & fetch full audit report + blueprint markdown
+                r_list = self.client.get(f"/api/games/{slug}/stored-mods")
+                self.assertEqual(r_list.status_code, 200)
+                self.assertEqual(r_list.json()["count"], 1)
+
+                r_audit = self.client.get(f"/api/games/{slug}/stored-mods/{mod_id}/audit")
+                self.assertEqual(r_audit.status_code, 200)
+                self.assertIn("Game.Combat.SkillRunner.CalculateSkillDamage", r_audit.json()["blueprint_markdown"])
+
+                # 3. Promote audited findings into endpoint_knowledge.json and game endpoint catalog
+                r_prom = self.client.post(
+                    f"/api/games/{slug}/stored-mods/{mod_id}/promote-endpoints",
+                    json={},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_prom.status_code, 200)
+                prom_data = r_prom.json()
+                self.assertGreaterEqual(prom_data["promoted_count"], 2)
+                self.assertTrue((appdata_root / "endpoint_knowledge.json").is_file())
+                k_hit = endpoint_catalog.lookup_endpoint_knowledge(
+                    "unity",
+                    ["Game.Combat.SkillRunner.CalculateSkillDamage"],
+                    app_data_root=appdata_root,
+                )
+                self.assertIsNotNone(k_hit)
+
+                # 4. Create AI Info Pack includes stored_mod_audits.json & mod_blueprints.md
+                r_pack = self.client.post(
+                    f"/api/games/{slug}/ai-pack",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_pack.status_code, 200)
+                with zipfile.ZipFile(io.BytesIO(r_pack.content), "r") as pz:
+                    names = set(pz.namelist())
+                    self.assertIn("stored_mod_audits.json", names)
+                    self.assertIn("mod_blueprints.md", names)
+                    self.assertIn("HeroOverhaulRef", pz.read("mod_blueprints.md").decode("utf-8"))
+
+                # 5. Delete stored mod cleans vault directory and managed_games.json
+                r_del = self.client.delete(
+                    f"/api/games/{slug}/stored-mods/{mod_id}",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_del.status_code, 200)
+                self.assertFalse(mod_vault_dir.exists())
+                saved_store_after = json.loads(store_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved_store_after["games"][0]["stored_mods"], [])
+                core_config.invalidate_games_cache()
+
+    def test_unreal_pak_deep_inspection_bak_diff_and_cross_mod_conflicts(self) -> None:
+        import zlib
+        from unittest import mock
+        from app.services import mod_auditor
+        from app.core import config as core_config
+        from app.core.security import SESSION_HEADER, get_session_token
+        from app.services import endpoints as endpoints_svc
+        from app.services.installed_mods import scan_game_installed_mods
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gdir = root / "BendUnrealGame"
+            paks_mods = gdir / "Bendgame" / "Content" / "Paks" / "~mods"
+            paks_mods.mkdir(parents=True)
+            (gdir / "BendGame.exe").write_bytes(b"MZ" + b"\x00" * 64)
+
+            # Build synthetic UE4 .pak #1 with mount point, cooked paths, packed .bak/.orig, and zlib FName chunks
+            active_uasset_fnames = (
+                b"\x00None\x00ByteProperty\x00FloatProperty\x00ObjectProperty\x00"
+                b"VolumetricFogScale\x00BikeSpotIntensity\x00PlayerSprintSpeed\x00"
+            )
+            backup_uasset_fnames = (
+                b"\x00None\x00FloatProperty\x00LegacyFogIntensity\x00BikeSpotIntensity\x00"
+            )
+            pak1_bytes = b"".join([
+                b"../../../\x00",
+                b"Bendgame/Content/Lighting/Volumetric/BP_LGT_BikeRig.uasset\x00",
+                zlib.compress(active_uasset_fnames),
+                b"\x00Bendgame/Content/Lighting/Volumetric/BP_LGT_BikeRig.uasset.bak\x00",
+                zlib.compress(backup_uasset_fnames),
+                b"\x00Bendgame/Content/Player/Pawn/BendDefaultPlayerPawn.uasset\x00",
+                b"Bendgame/Content/UI/HUD/WBP_HudReticle.uasset\x00",
+                b"Bendgame/Content/System/AI/AIConfig.ini.orig\x00",
+            ])
+            pak1_path = paks_mods / "LightingOverhaul_P.pak"
+            pak1_path.write_bytes(pak1_bytes)
+
+            # Direct _inspect_unreal_pak verification
+            inspected = mod_auditor._inspect_unreal_pak(pak1_path)
+            self.assertEqual(inspected["mount_point"], "../../../")
+            active_by_name = {a["asset_name"]: a for a in inspected["active_assets"]}
+            self.assertIn("BP_LGT_BikeRig.uasset", active_by_name)
+            self.assertEqual(active_by_name["BP_LGT_BikeRig.uasset"]["category"], "Engine Settings")
+            self.assertEqual(active_by_name["BendDefaultPlayerPawn.uasset"]["category"], "Player Character")
+            self.assertEqual(active_by_name["WBP_HudReticle.uasset"]["category"], "QoL")
+
+            self.assertEqual(len(inspected["packed_backups"]), 2)
+            self.assertTrue(any("BP_LGT_BikeRig.uasset.bak" in b for b in inspected["packed_backups"]))
+            self.assertTrue(inspected["hygiene_notes"])
+
+            syms = set(inspected["uproperty_symbols"])
+            self.assertIn("VolumetricFogScale", syms)
+            self.assertIn("BikeSpotIntensity", syms)
+            self.assertIn("PlayerSprintSpeed", syms)
+            for boilerplate in ("None", "ByteProperty", "FloatProperty", "ObjectProperty"):
+                self.assertNotIn(boilerplate, syms)
+
+            self.assertTrue(inspected["bak_diffs"])
+            bike_diff = inspected["bak_diffs"][0]
+            self.assertIn("VolumetricFogScale", bike_diff["added_symbols"])
+            self.assertIn("LegacyFogIntensity", bike_diff["removed_symbols"])
+
+            # Second .pak modifying the exact same lighting asset -> cross-mod collision
+            pak2_bytes = b"".join([
+                b"../../../\x00",
+                b"Bendgame/Content/Lighting/Volumetric/BP_LGT_BikeRig.uasset\x00",
+                zlib.compress(b"\x00HeadlightConeAngle\x00"),
+            ])
+
+            app_data = root / "app_data"
+            app_data.mkdir()
+            store_path = app_data / "managed_games.json"
+            slug = "bend-unreal-game"
+            store_payload = {
+                "games": [
+                    {
+                        "id": slug,
+                        "name": "Bend Unreal Game",
+                        "game_dir": str(gdir),
+                        "detected_engine": "Unreal",
+                        "runtime": "Unreal",
+                        "modding_info": {"mcp_category": "Unreal", "is_unreal_engine": True},
+                    }
+                ]
+            }
+            store_path.write_text(json.dumps(store_payload), encoding="utf-8")
+
+            with mock.patch.object(core_config, "GAMES_STORE_PATH", store_path), \
+                 mock.patch.object(core_config, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(endpoints_svc, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(mod_auditor, "APP_DATA_ROOT", app_data):
+                core_config.invalidate_games_cache()
+
+                # Upload pak2 to Mod Vault -> detects collision with installed pak1 in ~mods
+                r_up = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    headers={SESSION_HEADER: get_session_token()},
+                    files={"file": ("AltHeadlight_P.pak", pak2_bytes, "application/octet-stream")},
+                )
+                self.assertEqual(r_up.status_code, 200, r_up.text)
+                audit_rep = r_up.json()["audit_report"]
+                self.assertEqual(audit_rep["mount_points"], ["../../../"])
+                self.assertIn("HeadlightConeAngle", audit_rep["uproperty_symbols"])
+                self.assertTrue(audit_rep["asset_conflicts"])
+                self.assertEqual(audit_rep["asset_conflicts"][0]["asset_name"], "BP_LGT_BikeRig.uasset")
+
+                # Installed mods scanner + API also reports pak_summary and asset_conflicts
+                mods_scan = scan_game_installed_mods(gdir, slug=slug, app_data_root=app_data)
+                self.assertTrue(mods_scan["asset_conflicts"])
+                self.assertEqual(mods_scan["asset_conflicts"][0]["asset_name"], "BP_LGT_BikeRig.uasset")
+                self.assertIn("pak_summary", mods_scan["mods"][0])
+
+                r_mods = self.client.get(f"/api/games/{slug}/mods")
+                self.assertEqual(r_mods.status_code, 200, r_mods.text)
+                self.assertTrue(r_mods.json().get("asset_conflicts"))
+                core_config.invalidate_games_cache()
+
+    def test_mod_vault_batch_nexus_unpacked_link_edit_and_deploy(self) -> None:
+        import io
+        import zipfile
+        from unittest import mock
+        from app.services import mod_auditor, game_snapshots as snap_svc, endpoints as endpoints_svc
+        from app.core import config as core_config
+        from app.core.security import SESSION_HEADER, get_session_token
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gdir = root / "DaysGoneMock"
+            paks_dir = gdir / "BendGame" / "Content" / "Paks"
+            (paks_dir / "~mods").mkdir(parents=True)
+            (gdir / "BendGame.exe").write_bytes(b"MZ" + b"\x00" * 64)
+            # Existing baseline file so pre-deploy snapshot captures something
+            (paks_dir / "~mods" / "ExistingBase_P.pak").write_bytes(b"../../../\x00BendGame/Content/UI/HUD.uasset\x00")
+
+            app_data = root / "app_data"
+            app_data.mkdir()
+            store_path = app_data / "managed_games.json"
+            slug = "days-gone-mock"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": slug,
+                        "name": "Days Gone Mock",
+                        "game_dir": str(gdir),
+                        "detected_engine": "Unreal",
+                        "runtime": "Unreal",
+                        "modding_info": {"mcp_category": "Unreal", "is_unreal_engine": True},
+                    }]
+                }),
+                encoding="utf-8",
+            )
+
+            # Build two Nexus-named zip archives
+            z1_buf = io.BytesIO()
+            with zipfile.ZipFile(z1_buf, "w") as zf:
+                zf.writestr("ArtClown_P.pak", b"../../../\x00BendGame/Content/Player/Mesh/SK_ArtClown.uasset\x00")
+                zf.writestr("README.txt", "Replaces Deacon player mesh with Art the Clown.")
+            z2_buf = io.BytesIO()
+            with zipfile.ZipFile(z2_buf, "w") as zf:
+                zf.writestr("BikeWheelie_P.pak", b"../../../\x00BendGame/Content/Vehicles/BikePhysics.uasset\x00")
+                zf.writestr("README.txt", "Adds stunt wheelie physics and suspension tuning.")
+
+            nexus_fn1 = "Art The Clown (Player Model) 994 1 2026-10-27T20-10Z Y9KjUUxh3.zip"
+            nexus_fn2 = "Bike Wheelie Physics 1420 2.1.0 2026-10-28T10-15Z AbCd1234.zip"
+
+            with mock.patch.object(core_config, "GAMES_STORE_PATH", store_path), \
+                 mock.patch.object(core_config, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(endpoints_svc, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(mod_auditor, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(snap_svc, "GAME_SNAPSHOTS_DIR", app_data / "game_snapshots"):
+                core_config.invalidate_games_cache()
+
+                # 1. Batch multi-zip upload with Nexus naming + README.txt + unpacked/ tree
+                r_batch = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    headers={SESSION_HEADER: get_session_token()},
+                    files=[
+                        ("files", (nexus_fn1, z1_buf.getvalue(), "application/zip")),
+                        ("files", (nexus_fn2, z2_buf.getvalue(), "application/zip")),
+                    ],
+                )
+                self.assertEqual(r_batch.status_code, 200, r_batch.text)
+                batch_data = r_batch.json()
+                self.assertEqual(batch_data["count"], 2)
+                rep1 = batch_data["uploaded"][0]["audit_report"]
+                rep2 = batch_data["uploaded"][1]["audit_report"]
+                self.assertEqual(rep1["mod_name"], "Art The Clown (Player Model)")
+                self.assertEqual(rep1["nexus_id"], "994")
+                self.assertEqual(rep1["version"], "1")
+                self.assertIn("Art the Clown", rep1["description"])
+                self.assertEqual(rep1["storage_mode"], "zip")
+                self.assertTrue((Path(rep1["vault_dir"]) / "unpacked" / "ArtClown_P.pak").is_file())
+
+                self.assertEqual(rep2["mod_name"], "Bike Wheelie Physics")
+                self.assertEqual(rep2["nexus_id"], "1420")
+                self.assertEqual(rep2["version"], "2.1.0")
+                self.assertIn("wheelie physics", rep2["description"])
+
+                # 2. Unpacked loose-file bundle upload + inline config edit
+                ini_bytes = b"[/Script/Engine.RendererSettings]\nr.VolumetricFog=1\nr.BloomQuality=5\n"
+                r_unpacked = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    headers={SESSION_HEADER: get_session_token()},
+                    data={"bundle_name": "LightingTweaksBundle"},
+                    files=[
+                        ("files", ("LightingMod/Config/Engine.ini", ini_bytes, "text/plain")),
+                        ("files", ("LightingMod/README.txt", b"Tweaks volumetric fog and bloom.", "text/plain")),
+                    ],
+                )
+                self.assertEqual(r_unpacked.status_code, 200, r_unpacked.text)
+                u_rep = r_unpacked.json()["audit_report"]
+                self.assertEqual(u_rep["storage_mode"], "unpacked")
+                self.assertIn("Tweaks volumetric fog", u_rep["description"])
+                ini_disk = Path(u_rep["vault_dir"]) / "unpacked" / "LightingMod" / "Config" / "Engine.ini"
+                self.assertTrue(ini_disk.is_file())
+
+                fog_ep = next(e for e in u_rep["candidate_endpoints"] if "r.VolumetricFog" in e["symbol"])
+                self.assertTrue(fog_ep["editable"])
+                self.assertEqual(fog_ep["file_path"], "LightingMod/Config/Engine.ini")
+
+                r_edit = self.client.post(
+                    f"/api/games/{slug}/stored-mods/{u_rep['mod_id']}/edit-value",
+                    headers={SESSION_HEADER: get_session_token()},
+                    json={
+                        "file_path": fog_ep["file_path"],
+                        "symbol": fog_ep["symbol"],
+                        "new_value": "0",
+                    },
+                )
+                self.assertEqual(r_edit.status_code, 200, r_edit.text)
+                self.assertIn("r.VolumetricFog=0", ini_disk.read_text(encoding="utf-8"))
+                edited_fog = next(e for e in r_edit.json()["audit_report"]["candidate_endpoints"] if e["symbol"] == fog_ep["symbol"])
+                self.assertEqual(edited_fog["current_value"], "0")
+
+                # 3. Link local unpacked folder & deploy .pak with automatic pre-deploy snapshot
+                local_mod_dir = root / "ExternalLocalMod"
+                local_mod_dir.mkdir()
+                (local_mod_dir / "BetterFlashlight_P.pak").write_bytes(
+                    b"../../../\x00BendGame/Content/Lighting/Flashlight.uasset\x00"
+                )
+                (local_mod_dir / "README.txt").write_text("Brighter tactical flashlight.", encoding="utf-8")
+
+                r_link = self.client.post(
+                    f"/api/games/{slug}/stored-mods/link-local",
+                    headers={SESSION_HEADER: get_session_token()},
+                    json={"local_path": str(local_mod_dir), "bundle_name": "Better Flashlight"},
+                )
+                self.assertEqual(r_link.status_code, 200, r_link.text)
+                l_rep = r_link.json()["audit_report"]
+                self.assertEqual(l_rep["storage_mode"], "linked")
+                self.assertEqual(l_rep["mod_name"], "Better Flashlight")
+                self.assertIn("tactical flashlight", l_rep["description"])
+
+                r_dep = self.client.post(
+                    f"/api/games/{slug}/stored-mods/{l_rep['mod_id']}/deploy",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_dep.status_code, 200, r_dep.text)
+                dep = r_dep.json()
+                self.assertTrue(dep["snapshot_id"])
+                self.assertIn("BendGame/Content/Paks/~mods/BetterFlashlight_P.pak", dep["deployed_files"])
+                self.assertTrue((paks_dir / "~mods" / "BetterFlashlight_P.pak").is_file())
+
+                snaps = snap_svc.list_game_snapshots(slug, snapshots_root=app_data / "game_snapshots")
+                self.assertTrue(any(s["snapshot_id"] == dep["snapshot_id"] for s in snaps))
+                core_config.invalidate_games_cache()
+
+    def test_deploy_stored_mod_streams_large_pak_from_original_archive(self) -> None:
+        import io
+        import zipfile
+        from unittest import mock
+        from app.services import mod_auditor, game_snapshots as snap_svc, endpoints as endpoints_svc
+        from app.core import config as core_config
+        from app.core.security import SESSION_HEADER, get_session_token
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gdir = root / "StreamedDeployGame"
+            paks_mods = gdir / "BendGame" / "Content" / "Paks" / "~mods"
+            paks_mods.mkdir(parents=True)
+            (gdir / "BendGame.exe").write_bytes(b"MZ" + b"\x00" * 64)
+            (paks_mods / "Baseline_P.pak").write_bytes(b"baseline")
+
+            app_data = root / "app_data"
+            app_data.mkdir()
+            store_path = app_data / "managed_games.json"
+            slug = "streamed-deploy-game"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": slug,
+                        "name": "Streamed Deploy Game",
+                        "game_dir": str(gdir),
+                        "detected_engine": "Unreal",
+                        "runtime": "Unreal",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+
+            pak_content = b"../../../\x00BendGame/Content/Weapons/CustomShotgun.uasset\x00" + (b"\xAB" * 2048)
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w") as zf:
+                zf.writestr("ModReadme.txt", "Large pak kept inside archive.")
+                zf.writestr("StreamedLarge_P.pak", pak_content)
+
+            # Force large-binary streaming threshold low in test so StreamedLarge_P.pak stays in original/ archive
+            with mock.patch.object(core_config, "GAMES_STORE_PATH", store_path), \
+                 mock.patch.object(core_config, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(endpoints_svc, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(mod_auditor, "APP_DATA_ROOT", app_data), \
+                 mock.patch.object(mod_auditor, "LARGE_BINARY_STREAM_THRESHOLD_BYTES", 512), \
+                 mock.patch.object(snap_svc, "GAME_SNAPSHOTS_DIR", app_data / "game_snapshots"):
+                core_config.invalidate_games_cache()
+
+                r_up = self.client.post(
+                    f"/api/games/{slug}/stored-mods/upload",
+                    headers={SESSION_HEADER: get_session_token()},
+                    files={"files": ("LargeModPack.zip", zip_buf.getvalue(), "application/zip")},
+                )
+                self.assertEqual(r_up.status_code, 200, r_up.text)
+                rep = r_up.json()["audit_report"]
+                mod_id = rep["mod_id"]
+                unpacked_dir = Path(rep["vault_dir"]) / "unpacked"
+                self.assertTrue((unpacked_dir / "ModReadme.txt").is_file())
+                self.assertFalse((unpacked_dir / "StreamedLarge_P.pak").exists())
+                self.assertEqual(len(rep.get("archived_entries") or []), 1)
+                self.assertEqual(rep["archived_entries"][0]["rel_path"], "StreamedLarge_P.pak")
+
+                # Deploy directly from original/<archive.zip> into ~mods after snapshot creation
+                r_dep = self.client.post(
+                    f"/api/games/{slug}/stored-mods/{mod_id}/deploy",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_dep.status_code, 200, r_dep.text)
+                dep = r_dep.json()
+                self.assertIn("BendGame/Content/Paks/~mods/StreamedLarge_P.pak", dep["deployed_files"])
+                deployed_pak = paks_mods / "StreamedLarge_P.pak"
+                self.assertTrue(deployed_pak.is_file())
+                self.assertEqual(deployed_pak.read_bytes(), pak_content)
+                snaps = snap_svc.list_game_snapshots(slug, snapshots_root=app_data / "game_snapshots")
+                self.assertTrue(any(s["snapshot_id"] == dep["snapshot_id"] for s in snaps))
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

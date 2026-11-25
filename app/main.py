@@ -28,7 +28,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.audit import append_audit_log, log_action_error, sanitize_audit_text, sanitize_audit_value
 from app.core.config import RESOURCE_ROOT, STATIC_DIR, TEMPLATES_DIR, WORKSPACE_DIR
 from app.core.security import SessionTokenMiddleware, get_session_token
-from app.routers import asset_audit, branding, git_sync, library, mcp_bridge, system
+from app.routers import asset_audit, branding, git_sync, library, mcp_bridge, mod_vault, system
 
 
 class SafeMimeStaticFiles(StaticFiles):
@@ -269,6 +269,7 @@ app.include_router(asset_audit.router)
 app.include_router(mcp_bridge.router)
 app.include_router(git_sync.router)
 app.include_router(branding.router)
+app.include_router(mod_vault.router)
 
 
 def get_asset_version() -> str:

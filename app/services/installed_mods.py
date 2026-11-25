@@ -11,6 +11,11 @@ from typing import Any
 from app.core.audit import append_audit_log
 from app.core.config import sha256_text
 from app.services.game_snapshots import create_game_snapshot, ensure_within
+from app.services.mod_auditor import (
+    _inspect_unreal_pak,
+    compute_pak_asset_conflicts,
+    list_stored_mod_audits,
+)
 
 _DISABLED_SUFFIX = ".disabled"
 
@@ -54,6 +59,8 @@ def scan_game_installed_mods(
     game_dir: Path,
     *,
     primary_exe: Path | None = None,
+    slug: str = "",
+    app_data_root: Path | None = None,
 ) -> dict[str, Any]:
     """Detect Unity, Unreal, and Vortex/MO2-manifest mods inside *game_dir*."""
     mods: list[dict[str, Any]] = []
@@ -61,6 +68,7 @@ def scan_game_installed_mods(
     managers: list[dict[str, Any]] = []
     vortex_detected = False
     mo2_detected = False
+    pak_sources: list[dict[str, Any]] = []
 
     if not game_dir.is_dir():
         return {
@@ -72,6 +80,7 @@ def scan_game_installed_mods(
             "vortex_detected": False,
             "mo2_detected": False,
             "managers": [],
+            "asset_conflicts": [],
         }
 
     def _add_file_mod(path: Path, *, mod_type: str, engine_surface: str, label_prefix: str = "") -> None:
@@ -144,7 +153,27 @@ def scan_game_installed_mods(
                 continue
             low = p.name.lower()
             if any(low.endswith(ext) for ext in (".pak", ".pak.disabled", ".ucas", ".ucas.disabled", ".utoc", ".utoc.disabled")):
+                prev_len = len(mods)
                 _add_file_mod(p, mod_type="unreal_pak", engine_surface="Unreal")
+                if low.endswith(".pak") and len(mods) > prev_len:
+                    rel_pak = mods[-1]["rel_path"]
+                    pak_info = _inspect_unreal_pak(p, rel_path=rel_pak, source_mod=p.stem)
+                    active_assets = pak_info.get("active_assets") or []
+                    mods[-1]["pak_summary"] = {
+                        "mount_point": pak_info.get("mount_point", ""),
+                        "active_asset_count": len(active_assets),
+                        "active_assets": active_assets,
+                        "packed_backups": pak_info.get("packed_backups") or [],
+                        "hygiene_notes": pak_info.get("hygiene_notes") or [],
+                        "uproperty_symbols": (pak_info.get("uproperty_symbols") or [])[:25],
+                    }
+                    if active_assets:
+                        pak_sources.append({
+                            "mod_id": mods[-1]["mod_id"],
+                            "mod_name": p.name,
+                            "source": "Installed (~mods)",
+                            "active_assets": active_assets,
+                        })
 
     # 3. Unreal UE4SS Lua/BP Mods folders (*/Binaries/Win64/Mods/<ModName> or */ue4ss/Mods/<ModName>)
     ue4ss_roots = (
@@ -273,6 +302,24 @@ def scan_game_installed_mods(
                 except Exception:
                     pass
 
+    if slug:
+        seen_pak_names = {str(s.get("mod_name") or "").lower() for s in pak_sources}
+        for stored in list_stored_mod_audits(slug, app_data_root=app_data_root):
+            stored_assets = stored.get("active_assets") or []
+            if not stored_assets:
+                continue
+            stored_name = str(stored.get("archive_name") or stored.get("mod_id") or "")
+            if stored_name.lower() in seen_pak_names:
+                continue
+            pak_sources.append({
+                "mod_id": str(stored.get("mod_id") or ""),
+                "mod_name": stored_name,
+                "source": "Mod Vault",
+                "active_assets": stored_assets,
+            })
+
+    asset_conflicts = compute_pak_asset_conflicts(pak_sources) if pak_sources else []
+
     return {
         "status": "ok",
         "game_dir": str(game_dir),
@@ -282,6 +329,7 @@ def scan_game_installed_mods(
         "vortex_detected": vortex_detected,
         "mo2_detected": mo2_detected,
         "managers": managers,
+        "asset_conflicts": asset_conflicts,
     }
 
 

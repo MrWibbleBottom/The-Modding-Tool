@@ -2,6 +2,47 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-26 10:02 — v0.1.40
+
+- **Prompt**: Fix the "Archive uncompressed size exceeds safety cap (512 MB)" error in `app/services/mod_auditor.py` so multi-hundred-megabyte and multi-gigabyte Unreal `.pak` archives audit and deploy without zip-bomb exposure or redundant extraction
+- **AG Feedback**: Added configurable archive size and zip-bomb ratio limits (`MAX_MOD_UPLOAD_BYTES`, `MAX_MOD_UNCOMPRESSED_BYTES`, `MAX_ZIP_BOMB_RATIO`, `LARGE_BINARY_STREAM_THRESHOLD_BYTES`) in `app/core/constants.py`, implemented compression-ratio zip-bomb detection, selective extraction, streamed `.pak` inspection via `zf.open()`, and direct streamed deployment in `app/services/mod_auditor.py`, added the **Browse** + **Link Local File / Folder** toolbar in `app/templates/partials/active_game.html` & `app/static/js/mod_audit.js`, added regression tests, and verified all 59 tests pass in `pytest`.
+- **Version Changes**:
+  - Updated `app/core/constants.py`: added `MAX_MOD_UPLOAD_BYTES` (4 GB), `MAX_MOD_UNCOMPRESSED_BYTES` (8 GB), `MAX_ZIP_BOMB_RATIO` (100.0), and `LARGE_BINARY_STREAM_THRESHOLD_BYTES` (50 MB).
+  - Updated `app/services/mod_auditor.py`: replaced the 512 MB cap with `MAX_MOD_UNCOMPRESSED_BYTES` + a >100 MB compression-ratio zip-bomb guard (`> 100:1`), added `_safe_extract_zip_selective()` to keep large binaries (`.pak`, `.ucas`, `.utoc`, `.ubulk`, `.bundle`, `.assets` > 50 MB) in `original/<archive.zip>` while extracting small/editable configs/scripts into `unpacked/`, updated `_inspect_unreal_pak()` to read from seekable/chunked `ZipExtFile` streams, and updated `deploy_stored_mod()` to stream large `.pak`/`.ucas`/`.utoc` members directly from `original/<archive.zip>` into `~mods` after pre-deploy snapshot creation.
+  - Updated `app/templates/partials/active_game.html`, `app/static/js/mod_audit.js`, and `app/static/js/library.js`: surfaced `#btn-mv-browse-local` (`browseLocalModPath()`) alongside `#btn-mv-link-local` (**Link Local File / Folder**) and displayed streamed archive counts in `#mv-audit-meta`.
+  - Added `test_mod_vault_large_pak_passes_and_zip_bomb_rejected` (`tests/test_security.py`) and `test_deploy_stored_mod_streams_large_pak_from_original_archive` (`tests/test_discovery.py`) (`59 passed`).
+
+## 2026-11-26 09:54 — v0.1.40
+
+- **Prompt**: Enhance the Per-Game Mod Vault with chunked streaming, batch multi-mod uploads, unpacked files/folders, local path linking, Nexus filename & `README.txt` parsing, inline endpoint editing, pre-deploy snapshot deployment, and a dedicated Mod Vault tab in Active Game
+- **AG Feedback**: Implemented chunked upload streaming (`stream_upload_to_path`), `unpacked/` storage, `ingest_local_mod_path()`, `parse_nexus_filename()`, `edit_stored_mod_value()`, and `deploy_stored_mod()` in `app/services/mod_auditor.py`, exposed `/stored-mods/link-local`, `/stored-mods/{mod_id}/edit-value`, and `/stored-mods/{mod_id}/deploy` (plus multi-file `/upload`) in `app/routers/mod_vault.py`, promoted Mod Vault to its own Active Game tab (`#ag-tab-btn-modvault` / `#ag-pane-modvault`) with drag-and-drop, folder/batch upload, local path linker, and editable endpoints panel (`app/templates/partials/active_game.html`, `app/static/js/mod_audit.js`, `app/static/js/active_game.js`, `app/static/js/library.js`), updated contract/unit tests, and verified all 57 tests pass in `pytest`.
+- **Version Changes**:
+  - Updated `app/services/mod_auditor.py`: added 1 MiB chunked streaming (`stream_upload_to_path`, `store_and_audit_streamed_uploads`), `unpacked/` storage tree with preserved relative paths, `parse_nexus_filename()` + bundled `README.txt` extraction, `ingest_local_mod_path()`, dotted-section-safe `edit_stored_mod_value()`, and snapshot-backed `deploy_stored_mod()`.
+  - Updated `app/routers/mod_vault.py`: upgraded `POST /api/games/{slug}/stored-mods/upload` for `files: list[UploadFile]` + `bundle_name`, and added `POST /api/games/{slug}/stored-mods/link-local`, `POST /api/games/{slug}/stored-mods/{mod_id}/edit-value`, and `POST /api/games/{slug}/stored-mods/{mod_id}/deploy`.
+  - Updated `app/templates/partials/active_game.html`, `app/static/js/mod_audit.js`, `app/static/js/active_game.js`, and `app/static/js/library.js` to add the `4. Mod Vault` workspace tab (`#ag-pane-modvault`), drag-and-drop multi-file/folder uploader, Link Local Path toolbar, Nexus metadata/storage mode badges, inline editable settings (`Save` / `Save & Deploy`), and single-endpoint `Promote to Modding Tab`.
+  - Updated `tests/test_frontend_contracts.py` and added `test_mod_vault_batch_nexus_unpacked_link_edit_and_deploy` in `tests/test_discovery.py` (`57 passed`).
+
+## 2026-11-26 09:46 — v0.1.40
+
+- **Prompt**: Upgrade `app/services/mod_auditor.py`, `app/services/installed_mods.py`, and frontend UI so Unreal Engine `.pak` files are decoded into structured asset inventories, `.uasset` `FName` property lists, packaging hygiene warnings, `.bak` diffs, and cross-mod asset conflict alerts
+- **AG Feedback**: Implemented `_inspect_unreal_pak()` and `compute_pak_asset_conflicts()` in `app/services/mod_auditor.py`, integrated cross-mod collision scanning into `scan_game_installed_mods()` (`app/services/installed_mods.py`) and `/api/games/{slug}/mods` (`app/routers/library.py`), added the Mod Vault & How-To-Mod Blueprint panel (`app/static/js/mod_audit.js`, `app/templates/partials/active_game.html`, `app/static/js/library.js`, `app/static/js/active_game.js`), and verified all 56 tests pass in `pytest`.
+- **Version Changes**:
+  - Updated `app/services/mod_auditor.py`: added pure-Python `_inspect_unreal_pak()` with mount-point extraction, deduplicated `active_assets` vs `packed_backups` partitioning (`.bak`, `.orig`, `.mod*`) with `hygiene_notes`, Unreal workflow categorization (`Engine Settings`, `Player Character`, `QoL`, `Game Systems`), bounded `zlib` block decompression with `decomp.unused_data`/`decomp.unconsumed_tail` cursor handling, boilerplate-filtered `.uasset` `FName` extraction (`uproperty_symbols`), `.uasset` vs `.bak` symbol diffing (`bak_diffs`), `compute_pak_asset_conflicts()`, and updated `_build_blueprint_markdown()`.
+  - Updated `app/services/installed_mods.py` and `app/routers/library.py`: extended `scan_game_installed_mods()` with `slug`/`app_data_root` support, attached `pak_summary` on detected Unreal `.pak` mods, and returned cross-mod `asset_conflicts` across installed `~mods/*.pak` and Mod Vault uploads.
+  - Added `app/static/js/mod_audit.js` and updated `app/templates/partials/active_game.html`, `app/static/js/library.js`, and `app/static/js/active_game.js` to render the Mod Vault upload/list controls and Audit Blueprint sections (`Modified Unreal Assets`, `Extracted UProperty / Component Names`, `Packed Author Backups`, `Cross-Mod Asset Conflicts`).
+  - Added `test_unreal_pak_deep_inspection_bak_diff_and_cross_mod_conflicts` in `tests/test_discovery.py` (`56 passed`).
+
+## 2026-11-26 09:19 — v0.1.40
+
+- **Prompt**: Implement a Per-Game Mod Vault and Static Mod Auditor for storing uploaded mods and extracting hooking/asset/config intelligence
+- **AG Feedback**: Added `ensure_within()` to `app/core/security.py`, created `app/services/mod_auditor.py` and `app/routers/mod_vault.py`, registered the router in `app/main.py`, integrated stored mod audits into `/ai-pack` in `app/routers/library.py`, and verified all 55 tests pass in `pytest`.
+- **Version Changes**:
+  - Added `ensure_within()` in `app/core/security.py` to enforce canonical path confinement cleanly across modules.
+  - Created `app/services/mod_auditor.py` supporting safe non-executing storage under `mod_vault/<slug>/<mod_id>/` (Zip-Slip protection, 250 MB upload cap, `.zip`/`.dll`/`.pak`/`.lua`/`.cfg`/`.ini`/`.json`/`.ct`/`.7z`), static extractors (Unity PE/strings/`ilspycmd` `[BepInPlugin]`/`[BepInDependency]`/`[HarmonyPatch]`/`Config.Bind`, Unreal `.pak` `/Game/...` paths, UE4SS `.lua` hooks, Thunderstore/FOMOD manifests with DTD/ENTITY blocking, `.cfg`/`.ini`/`.CT` candidate endpoints), `blueprint_markdown`, and atomic `stored_mods` persistence on `managed_games.json`.
+  - Created `app/routers/mod_vault.py` exposing `POST /api/games/{slug}/stored-mods/upload`, `GET /api/games/{slug}/stored-mods`, `GET /api/games/{slug}/stored-mods/{mod_id}/audit`, `POST /api/games/{slug}/stored-mods/{mod_id}/promote-endpoints`, and `DELETE /api/games/{slug}/stored-mods/{mod_id}`, registered in `app/main.py`.
+  - Updated `POST /api/games/{slug}/ai-pack` in `app/routers/library.py` to bundle `stored_mod_audits.json` and `mod_blueprints.md` when stored reference mods exist.
+  - Added `test_mod_vault_upload_static_audit_promote_delete_and_ai_pack` (`tests/test_discovery.py`) and `test_mod_vault_zip_slip_and_fomod_xxe_rejection` (`tests/test_security.py`) (`55 passed`).
+
 ## 2026-11-25 18:35 — v0.1.40
 
 - **Prompt**: Add a live two-snapshot Action Diff finder so players can perform an in-game action and isolate/promote changed fields to categorized modding endpoints

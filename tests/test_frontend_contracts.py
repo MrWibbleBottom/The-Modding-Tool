@@ -71,6 +71,7 @@ class FrontendContractTests(unittest.TestCase):
             "state.js",
             "game_table.js",
             "active_game.js",
+            "mod_audit.js",
             "unreal_panel.js",
             "library.js",
             "analyzer.js",
@@ -265,16 +266,35 @@ class FrontendContractTests(unittest.TestCase):
             "ag-tab-btn-general",
             "ag-tab-btn-setup",
             "ag-tab-btn-mods",
+            "ag-tab-btn-modvault",
             "ag-tab-btn-modding",
             "ag-tab-btn-pcopt",
         ]
         positions = [html.find(f'id="{tid}"') for tid in ordered_ids]
         self.assertTrue(all(pos >= 0 for pos in positions), f"Missing Active Game subnav tab(s): {ordered_ids}")
-        self.assertEqual(positions, sorted(positions), "Active Game 5-tab subnav is out of required order")
+        self.assertEqual(positions, sorted(positions), "Active Game 6-tab subnav is out of required order")
 
-        for pane_id in ("ag-pane-general", "ag-pane-setup", "ag-pane-mods", "ag-pane-modding", "ag-pane-pcopt"):
+        for pane_id in (
+            "ag-pane-general",
+            "ag-pane-setup",
+            "ag-pane-mods",
+            "ag-pane-modvault",
+            "ag-pane-modding",
+            "ag-pane-pcopt",
+        ):
             self.assertIn(f'id="{pane_id}"', html)
-        for btn_id in ("btn-full-restore-game", "btn-create-ai-pack", "btn-verify-integrity", "cm-mods-tbody", "pcopt-rows-tbody"):
+        for btn_id in (
+            "btn-full-restore-game",
+            "btn-create-ai-pack",
+            "btn-verify-integrity",
+            "cm-mods-tbody",
+            "pcopt-rows-tbody",
+            "mv-upload-file",
+            "mv-upload-folder",
+            "mv-link-local-path",
+            "mv-stored-mods-tbody",
+            "mv-audit-editable-endpoints",
+        ):
             self.assertIn(f'id="{btn_id}"', html)
 
 

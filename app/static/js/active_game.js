@@ -11,6 +11,7 @@ import {
 import { ENTITIES, VARIABLES, mcpTestBridge, runFingerprintAndRescan, syncModBuilderWithGame } from "./mcp.js";
 import { importUnrealSettings, renderUnrealSettingsSection } from "./unreal_panel.js";
 import { refreshGamesList, renderGamesTable } from "./game_table.js";
+import { loadModVaultSection } from "./mod_audit.js";
 
 export async function rescanActiveGameMetadata() {
   const res = await apiPost("/api/games/rescan", { game_id: state.activeGameId });
@@ -608,6 +609,7 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
     const sec = state.activeGameSection || "general";
     if (sec === "setup") loadSetupChecklist(game.id);
     if (sec === "mods") loadCurrentModsSection(game.id);
+    if (sec === "modvault") loadModVaultSection(game.id);
     if (sec === "modding") loadModdingEndpoints(game.id);
     if (sec === "pcopt") loadPcOptimisation(false, game.id);
   }
@@ -1136,7 +1138,7 @@ export async function copyAiModdingContext() {
 }
 
 export function switchActiveGameSection(sectionKey = "general", { skipFetch = false } = {}) {
-  const valid = ["general", "setup", "mods", "modding", "pcopt"];
+  const valid = ["general", "setup", "mods", "modvault", "modding", "pcopt"];
   const key = valid.includes(sectionKey) ? sectionKey : "general";
   state.activeGameSection = key;
   for (const name of valid) {
@@ -1155,6 +1157,8 @@ export function switchActiveGameSection(sectionKey = "general", { skipFetch = fa
       loadGameSnapshots(state.activeGameId);
     } else if (key === "mods") {
       loadCurrentModsSection(state.activeGameId);
+    } else if (key === "modvault") {
+      loadModVaultSection(state.activeGameId);
     } else if (key === "modding") {
       loadModdingEndpoints(state.activeGameId);
     } else if (key === "pcopt") {
@@ -1373,6 +1377,7 @@ export async function loadCurrentModsSection(targetSlug = null) {
   }
   if (!mods.length) {
     tbody.innerHTML = '<tr><td colspan="7">No BepInEx, MelonLoader, Unreal ~mods, UE4SS, or Vortex/MO2 mods detected.</td></tr>';
+    await loadModVaultSection(slug, d.asset_conflicts || []);
     return d;
   }
   tbody.innerHTML = mods.map((m, idx) => {
@@ -1448,6 +1453,7 @@ export async function loadCurrentModsSection(targetSlug = null) {
       }
     });
   });
+  await loadModVaultSection(slug, d.asset_conflicts || []);
   return d;
 }
 

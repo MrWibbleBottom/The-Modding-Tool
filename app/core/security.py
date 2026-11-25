@@ -8,6 +8,7 @@ import ctypes.wintypes
 import os
 import secrets
 import sys
+from pathlib import Path
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -20,6 +21,15 @@ _SESSION_TOKEN = os.environ.get("MODTOOL_SESSION_TOKEN") or secrets.token_urlsaf
 
 def get_session_token() -> str:
     return _SESSION_TOKEN
+
+
+def ensure_within(target: Path | str, base_dir: Path | str) -> Path:
+    """Return resolved *target* if it lies inside *base_dir*; raise ValueError on traversal."""
+    resolved = Path(target).resolve()
+    base = Path(base_dir).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError(f"Path traversal blocked: '{target}' resolves outside '{base}'")
+    return resolved
 
 
 class _DATA_BLOB(ctypes.Structure):
