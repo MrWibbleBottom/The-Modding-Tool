@@ -394,6 +394,37 @@
     <!-- =================================================================== -->
     <div class="ag-tab-pane" id="ag-pane-modding" style="display:none;">
       <div class="grid">
+        <!-- CATEGORIZED ENDPOINT DISCOVERY ENGINE (SIMPLE / ADVANCED) -->
+        <div class="card full" id="card-categorized-endpoints">
+          <h2>
+            <span>Categorized Modding Endpoints &amp; Stored Baseline Defaults</span>
+            <div class="btn-group">
+              <span class="pill na" id="ep-summary-pill">Not Scanned</span>
+              <span class="badge" id="ep-defaults-badge">Defaults: —</span>
+              <div class="ep-mode-switch" id="ep-mode-switch" role="group" aria-label="Endpoint Display Mode">
+                <button type="button" class="ep-mode-btn active" id="ep-mode-btn-simple" onclick="setEndpointsUiMode('simple')">Simple Mode</button>
+                <button type="button" class="ep-mode-btn" id="ep-mode-btn-advanced" onclick="setEndpointsUiMode('advanced')">Advanced Mode</button>
+              </div>
+              <button type="button" class="success btn-sm" id="btn-scan-endpoints" onclick="scanModdingEndpoints()">Scan Endpoints</button>
+            </div>
+          </h2>
+          <div class="hint" style="margin-bottom:10px;">
+            Discovers game systems, player stats, engine configs, cheats, QoL settings, and error logs from Unreal <code>.ini</code> / UE4SS hooks and Unity <code>BepInEx/config/*.cfg</code> / live bridge / dump signatures. Baseline defaults are saved in <code>%LOCALAPPDATA%\TheModdingTool\game_defaults\&lt;slug&gt;.json</code> on first scan so any change can be reset in one click.
+          </div>
+          <div class="ep-cat-tabs" id="ep-category-tabs" role="tablist" aria-label="Modding Endpoint Categories">
+            <button type="button" class="ep-cat-pill active" id="ep-cat-btn-all" onclick="selectEndpointCategory('all')">All</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-game_systems" onclick="selectEndpointCategory('game_systems')">Game Systems</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-player_character" onclick="selectEndpointCategory('player_character')">Player Character</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-engine_settings" onclick="selectEndpointCategory('engine_settings')">Engine Settings</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-cheats" onclick="selectEndpointCategory('cheats')">Cheats</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-qol" onclick="selectEndpointCategory('qol')">QoL</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-error_logs" onclick="selectEndpointCategory('error_logs')">Error Log Capture</button>
+          </div>
+          <div id="ep-endpoints-list" class="ep-endpoints-list">
+            <div class="hint">Click <strong>Scan Endpoints</strong> to discover and categorize modding endpoints for the active game.</div>
+          </div>
+        </div>
+
         <div class="card full" id="adapter-status-notice" style="display:none; border-color:#3b82f6; background:rgba(30,58,138,0.2);">
           <h2 style="margin-bottom:6px;"><span id="adapter-notice-title">Engine Adapter Status</span> <span class="badge" id="adapter-notice-badge">—</span></h2>
           <div id="adapter-notice-body" style="font-size:0.84rem; color:#cbd5e1;"></div>

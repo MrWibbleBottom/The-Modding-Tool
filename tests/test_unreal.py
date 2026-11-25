@@ -19,6 +19,7 @@ from app.core.security import SESSION_HEADER, get_session_token  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routers import library as library_router  # noqa: E402
 from app.routers import system as system_router  # noqa: E402
+from app.services import endpoints as endpoints_service  # noqa: E402
 from app.services import game_snapshots  # noqa: E402
 
 
@@ -255,6 +256,116 @@ class UnrealTests(unittest.TestCase):
                 self.assertIn("; CustomUserEngineKeep=1", eng_cleaned)
                 self.assertIn("bSmoothFrameRate=False", eng_cleaned)
                 self.assertNotIn("TheModdingTool:ue_disable_motion_blur", eng_cleaned)
+
+    def test_unreal_endpoints_categorization_defaults_and_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            ue_dir = tmp_dir / "UnrealEndpointSample"
+            cfg_dir = ue_dir / "Saved" / "Config" / "WindowsNoEditor"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            gus_ini = cfg_dir / "GameUserSettings.ini"
+            eng_ini = cfg_dir / "Engine.ini"
+            scal_ini = cfg_dir / "Scalability.ini"
+            gus_ini.write_text(
+                "[/Script/Engine.GameUserSettings]\nFrameRateLimit=60.000000\nbUseVSync=True\n"
+                "[ScalabilityGroups]\nsg.ViewDistanceQuality=3\n",
+                encoding="utf-8",
+            )
+            eng_ini.write_text("[SystemSettings]\nr.ViewDistanceScale=1.0\n", encoding="utf-8")
+            scal_ini.write_text("[FoliageQuality@3]\nfoliage.DensityScale=1.0\n", encoding="utf-8")
+
+            lua_dir = ue_dir / "Proj" / "Binaries" / "Win64" / "Mods" / "GameplayCheatsMod" / "Scripts"
+            lua_dir.mkdir(parents=True, exist_ok=True)
+            (lua_dir.parent / "enabled.txt").write_text("", encoding="utf-8")
+            (lua_dir / "main.lua").write_text(
+                'RegisterHook("/Script/Engine.PlayerController:RevealMapObjects", function() end)\n',
+                encoding="utf-8",
+            )
+            (ue_dir / "Saved" / "Logs").mkdir(parents=True, exist_ok=True)
+            (ue_dir / "Saved" / "Logs" / "UnrealEndpointSample.log").write_text(
+                "LogScript: Error: Sample Unreal endpoint error\n",
+                encoding="utf-8",
+            )
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unreal_ep_sample",
+                        "name": "Unreal Endpoint Sample",
+                        "game_dir": str(ue_dir),
+                        "runtime": "Unreal Engine 4/5",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            snaps_root = tmp_dir / "game_snapshots"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                r_scan = self.client.post(
+                    "/api/games/unreal_ep_sample/endpoints/scan",
+                    json={},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_scan.status_code, 200)
+                sdata = r_scan.json()
+                self.assertEqual([c["id"] for c in sdata["categories"]], [
+                    "game_systems", "player_character", "engine_settings", "cheats", "qol", "error_logs"
+                ])
+                defaults_file = appdata_root / "game_defaults" / "unreal_ep_sample.json"
+                self.assertTrue(defaults_file.is_file())
+
+                eps = {e["id"]: e for e in sdata["endpoints"]}
+                vd_ep = eps["ue_ini:GameUserSettings.ini:ScalabilityGroups:sg.ViewDistanceQuality"]
+                for required_key in ("default_value", "current_value", "is_modified", "delivery_type", "simple_description", "advanced_details"):
+                    self.assertIn(required_key, vd_ep)
+                self.assertEqual(vd_ep["category"], "engine_settings")
+                self.assertEqual(vd_ep["delivery_type"], "Config")
+                self.assertEqual(vd_ep["default_value"], "3")
+                self.assertTrue(any(e["category"] == "cheats" and e["delivery_type"] == "Mod File" for e in sdata["endpoints"]))
+                self.assertTrue(any(e["category"] == "error_logs" for e in sdata["endpoints"]))
+
+                # Modify sg.ViewDistanceQuality to 1 and verify stored default stays 3 across re-scans
+                r_upd = self.client.post(
+                    "/api/games/unreal_ep_sample/endpoints/update",
+                    json={"endpoint_id": vd_ep["id"], "value": "1", "reset_to_default": False},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_upd.status_code, 200)
+                self.assertEqual(r_upd.json()["endpoint"]["current_value"], "1")
+                self.assertEqual(r_upd.json()["endpoint"]["default_value"], "3")
+                self.assertTrue(r_upd.json()["endpoint"]["is_modified"])
+
+                r_rescan = self.client.get("/api/games/unreal_ep_sample/endpoints?category=engine_settings")
+                self.assertEqual(r_rescan.status_code, 200)
+                rescanned_vd = next(e for e in r_rescan.json()["endpoints"] if e["id"] == vd_ep["id"])
+                self.assertEqual(rescanned_vd["default_value"], "3")
+                self.assertEqual(rescanned_vd["current_value"], "1")
+
+                # Reset single setting back to stored default
+                r_reset = self.client.post(
+                    "/api/games/unreal_ep_sample/endpoints/update",
+                    json={"endpoint_id": vd_ep["id"], "reset_to_default": True},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_reset.status_code, 200)
+                self.assertEqual(r_reset.json()["endpoint"]["current_value"], "3")
+                self.assertFalse(r_reset.json()["endpoint"]["is_modified"])
+                self.assertIn("sg.ViewDistanceQuality=3", gus_ini.read_text(encoding="utf-8"))
+                core_config.invalidate_games_cache()
 
 
 if __name__ == "__main__":

@@ -1145,3 +1145,93 @@ body.compact td, body.compact th { padding: 5px 8px; }
 .ag-tab-pane.active {
   display: block;
 }
+
+/* Categorized Modding Endpoints UI */
+.ep-mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ep-mode-btn {
+  border: none;
+  border-radius: 0;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--muted);
+  cursor: pointer;
+}
+.ep-mode-btn.active {
+  background: rgba(59, 130, 246, 0.28);
+  color: #fff;
+}
+.ep-cat-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ep-cat-pill {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ep-cat-pill.active {
+  background: rgba(59, 130, 246, 0.22);
+  color: #fff;
+  border-color: #3b82f6;
+}
+.ep-endpoints-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.ep-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.8);
+}
+.ep-card.is-modified {
+  border-color: rgba(245, 158, 11, 0.6);
+}
+.ep-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ep-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.ep-controls-row input,
+.ep-controls-row select {
+  width: auto;
+  min-width: 140px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+.ep-advanced-meta {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.25);
+  font-size: 0.74rem;
+  color: #94a3b8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}

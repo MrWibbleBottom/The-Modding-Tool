@@ -2,6 +2,17 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 16:06 — v0.1.40
+
+- **Prompt**: Build categorized modding endpoint discovery engine with stored baseline defaults and Simple/Advanced UI modes
+- **AG Feedback**: Created app/services/endpoints.py discovering Unreal INI/CVar/UE4SS hooks and Unity BepInEx/MCP/dump endpoints across 6 fixed categories (game_systems, player_character, engine_settings, cheats, qol, error_logs) with non-overwriting baseline defaults persisted under game_defaults/<slug>.json; exposed /endpoints/scan, /endpoints, and /endpoints/update routes; wired Simple/Advanced mode and per-setting Default reset UI in the Modding tab; verified all 41 pytest tests pass.
+- **Version Changes**:
+  - Added app/services/endpoints.py (6-category endpoint discovery, game_defaults/<slug>.json persistence, snapshot-safe update/reset)
+  - Exposed POST /api/games/{slug}/endpoints/scan, GET /api/games/{slug}/endpoints, and POST /api/games/{slug}/endpoints/update in app/routers/library.py
+  - Added categorized endpoints panel, category pills, and Simple/Advanced toggle in app/templates/partials/active_game.html and app/static/app.css
+  - Wired renderEndpointsList, setEndpointsUiMode, selectEndpointCategory, scanModdingEndpoints, and loadModdingEndpoints in app/static/js/active_game.js and app/static/js/library.js
+  - Added unit tests in tests/test_unreal.py and tests/test_mcp.py (41 passed)
+
 ## 2026-11-25 15:32 — v0.1.40
 
 - **Prompt**: Reorganize Active Game workspace into 5-section workflow and add Current Mods, PC Optimisation traffic lights, Platform Integrity Check, Full Restore, and downloadable AI Info Pack archive

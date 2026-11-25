@@ -574,11 +574,13 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
     loadGameSnapshots(game.id);
     loadSetupChecklist(game.id);
     loadCurrentModsSection(game.id);
+    loadModdingEndpoints(game.id);
     loadPcOptimisation(false, game.id);
   } else {
     const sec = state.activeGameSection || "general";
     if (sec === "setup") loadSetupChecklist(game.id);
     if (sec === "mods") loadCurrentModsSection(game.id);
+    if (sec === "modding") loadModdingEndpoints(game.id);
     if (sec === "pcopt") loadPcOptimisation(false, game.id);
   }
   switchActiveGameSection(state.activeGameSection || "general", { skipFetch: true });
@@ -1125,6 +1127,8 @@ export function switchActiveGameSection(sectionKey = "general", { skipFetch = fa
       loadGameSnapshots(state.activeGameId);
     } else if (key === "mods") {
       loadCurrentModsSection(state.activeGameId);
+    } else if (key === "modding") {
+      loadModdingEndpoints(state.activeGameId);
     } else if (key === "pcopt") {
       loadPcOptimisation(false, state.activeGameId);
     }
@@ -1474,4 +1478,238 @@ export async function applyPcOptimisation(mode = "optimal", settingKey = "", btn
       out.textContent = `PC optimisation apply failed: ${err?.message || err}`;
     }
   }
+}
+
+export function setEndpointsUiMode(mode = "simple") {
+  state.endpointsMode = mode === "advanced" ? "advanced" : "simple";
+  const sBtn = document.getElementById("ep-mode-btn-simple");
+  const aBtn = document.getElementById("ep-mode-btn-advanced");
+  if (sBtn) sBtn.classList.toggle("active", state.endpointsMode === "simple");
+  if (aBtn) aBtn.classList.toggle("active", state.endpointsMode === "advanced");
+  renderEndpointsList();
+}
+
+export function selectEndpointCategory(category = "all") {
+  state.endpointsCategory = category || "all";
+  const allCats = ["all", "game_systems", "player_character", "engine_settings", "cheats", "qol", "error_logs"];
+  for (const cid of allCats) {
+    const btn = document.getElementById(`ep-cat-btn-${cid}`);
+    if (btn) btn.classList.toggle("active", cid === state.endpointsCategory);
+  }
+  renderEndpointsList();
+}
+
+export async function loadModdingEndpoints(targetSlug = null) {
+  const slug = targetSlug || state.activeGameId;
+  const listEl = document.getElementById("ep-endpoints-list");
+  if (!slug || !listEl) return null;
+  const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/endpoints`);
+  if (!res.ok || !res.data) {
+    listEl.innerHTML = '<div class="hint">Could not load modding endpoints for this game.</div>';
+    return null;
+  }
+  state.endpointsReport = res.data;
+  renderEndpointsList();
+  return res.data;
+}
+
+export async function scanModdingEndpoints() {
+  const slug = state.activeGameId;
+  if (!slug) return null;
+  const btn = resolveBtn("btn-scan-endpoints");
+  try {
+    return await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/scan`, { reset_defaults: false });
+        state.endpointsReport = res;
+        renderEndpointsList();
+        return res;
+      },
+      {
+        pendingText: "Scanning configs, bridge, dumps & logs for modding endpoints...",
+        successText: (d) => `Discovered ${d?.total_count ?? 0} categorized endpoint(s)`,
+      },
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function renderEndpointsList() {
+  const report = state.endpointsReport;
+  const listEl = document.getElementById("ep-endpoints-list");
+  const sumPill = document.getElementById("ep-summary-pill");
+  const defBadge = document.getElementById("ep-defaults-badge");
+  if (!listEl) return;
+  if (!report || !Array.isArray(report.endpoints)) {
+    listEl.innerHTML = '<div class="hint">Click <strong>Scan Endpoints</strong> to discover endpoints for this game.</div>';
+    return;
+  }
+
+  const allEps = report.endpoints || [];
+  const catCounts = {};
+  for (const c of report.categories || []) {
+    catCounts[c.id] = c.count ?? 0;
+  }
+  const allBtn = document.getElementById("ep-cat-btn-all");
+  if (allBtn) allBtn.textContent = `All (${allEps.length})`;
+  for (const c of report.categories || []) {
+    const cBtn = document.getElementById(`ep-cat-btn-${c.id}`);
+    if (cBtn) cBtn.textContent = `${c.label} (${catCounts[c.id] ?? 0})`;
+  }
+
+  if (sumPill) {
+    const modCnt = Number(report.modified_count || 0);
+    sumPill.textContent = `${report.total_count ?? allEps.length} Endpoints | ${modCnt} Modified`;
+    sumPill.className = modCnt > 0 ? "pill warn" : "pill yes";
+  }
+  if (defBadge) {
+    defBadge.textContent = report.defaults_path ? `Defaults: ${report.slug}.json` : "Defaults: —";
+    defBadge.title = report.defaults_path || "";
+  }
+
+  const activeCat = state.endpointsCategory || "all";
+  const isAdv = state.endpointsMode === "advanced";
+  const visible = activeCat === "all" ? allEps : allEps.filter(e => e.category === activeCat);
+  if (!visible.length) {
+    listEl.innerHTML = '<div class="hint">No endpoints discovered in this category yet.</div>';
+    return;
+  }
+
+  listEl.innerHTML = visible.map((ep, idx) => {
+    const modCls = ep.is_modified ? " is-modified" : "";
+    const defPill = `<span class="badge" title="Stored baseline default">Default: ${escHtml(ep.default_value)}</span>`;
+    const diffBadge = ep.is_modified
+      ? `<span class="pill warn">MODIFIED</span>`
+      : `<span class="pill yes">DEFAULT</span>`;
+    const deliveryBadge = `<span class="badge">${escHtml(ep.delivery_type || "Config")}</span>`;
+
+    let controlHtml = "";
+    if (ep.can_edit) {
+      if (Array.isArray(ep.options) && ep.options.length > 0) {
+        const optsHtml = ep.options.map((o) => {
+          const sel = String(o) === String(ep.current_value) ? " selected" : "";
+          return `<option value="${escHtml(o)}"${sel}>${escHtml(o)}</option>`;
+        }).join("");
+        controlHtml = `<select class="ep-val-input" data-idx="${idx}">${optsHtml}</select>`;
+      } else if (ep.value_type === "number") {
+        const minAttr = ep.min !== null && ep.min !== undefined ? ` min="${escHtml(ep.min)}"` : "";
+        const maxAttr = ep.max !== null && ep.max !== undefined ? ` max="${escHtml(ep.max)}"` : "";
+        const stepAttr = ep.step !== null && ep.step !== undefined ? ` step="${escHtml(ep.step)}"` : "";
+        controlHtml = `<input type="number" class="ep-val-input" data-idx="${idx}" value="${escHtml(ep.current_value)}"${minAttr}${maxAttr}${stepAttr} />`;
+      } else {
+        controlHtml = `<input type="text" class="ep-val-input" data-idx="${idx}" value="${escHtml(ep.current_value)}" />`;
+      }
+      controlHtml += `<button type="button" class="success btn-sm ep-apply-btn" data-idx="${idx}">Apply</button>`;
+      controlHtml += `<button type="button" class="secondary btn-sm ep-reset-btn" data-idx="${idx}" title="Reset back to stored default">Default</button>`;
+    } else {
+      controlHtml = `<span class="pill ${ep.category === "error_logs" && !String(ep.current_value).startsWith("0 ") ? "warn" : "na"}">Value: ${escHtml(ep.current_value)}</span>`;
+    }
+
+    let advHtml = "";
+    if (isAdv) {
+      const adv = ep.advanced_details || {};
+      const techParts = [];
+      if (adv.file_path) techParts.push(`<span><strong>File:</strong> <code>${escHtml(adv.file_path)}</code></span>`);
+      if (adv.section) techParts.push(`<span><strong>Section:</strong> <code>[${escHtml(adv.section)}]</code></span>`);
+      if (adv.key) techParts.push(`<span><strong>Key:</strong> <code>${escHtml(adv.key)}</code></span>`);
+      if (adv.namespace) techParts.push(`<span><strong>Namespace:</strong> <code>${escHtml(adv.namespace)}</code></span>`);
+      if (adv.class_name) techParts.push(`<span><strong>Class:</strong> <code>${escHtml(adv.class_name)}</code></span>`);
+      if (adv.member) techParts.push(`<span><strong>Member:</strong> <code>${escHtml(adv.member)}</code></span>`);
+      if (adv.method_signature) techParts.push(`<span><strong>Signature:</strong> <code>${escHtml(adv.method_signature)}</code></span>`);
+      techParts.push(`<span><strong>Type:</strong> <code>${escHtml(ep.value_type)}</code></span>`);
+      techParts.push(`<span><strong>Delivery:</strong> ${deliveryBadge}</span>`);
+      techParts.push(`<span><strong>State:</strong> ${diffBadge} (${escHtml(ep.current_value)} vs ${escHtml(ep.default_value)})</span>`);
+      advHtml = `<div class="ep-advanced-meta">${techParts.join("")}</div>`;
+    }
+
+    return `
+      <div class="ep-card${modCls}">
+        <div class="ep-card-head">
+          <div>
+            <strong>${escHtml(ep.name)}</strong>
+            <span class="badge">${escHtml(ep.category_label)}</span>
+            ${isAdv ? deliveryBadge : ""}
+          </div>
+          <div>${diffBadge}</div>
+        </div>
+        <div style="font-size:0.78rem; color:#cbd5e1; margin-top:4px;">${escHtml(ep.simple_description)}</div>
+        <div class="ep-controls-row">
+          ${controlHtml}
+          ${defPill}
+        </div>
+        ${advHtml}
+      </div>
+    `;
+  }).join("");
+
+  const slug = state.activeGameId;
+  listEl.querySelectorAll(".ep-apply-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const ep = visible[idx];
+      const inp = listEl.querySelector(`.ep-val-input[data-idx="${idx}"]`);
+      if (!ep || !inp || !slug) return;
+      try {
+        await runTrackedAction(
+          btn,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/update`, {
+              endpoint_id: ep.id,
+              value: String(inp.value),
+              reset_to_default: false,
+            });
+            if (resp?.report) {
+              state.endpointsReport = resp.report;
+              renderEndpointsList();
+            } else {
+              await loadModdingEndpoints(slug);
+            }
+            await loadGameSnapshots(slug);
+            return resp;
+          },
+          {
+            pendingText: `Applying '${ep.name}'...`,
+            successText: (r) => r?.summary || "Updated endpoint value",
+          },
+        );
+      } catch {
+        // Error handled by runTrackedAction
+      }
+    });
+  });
+
+  listEl.querySelectorAll(".ep-reset-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const ep = visible[idx];
+      if (!ep || !slug) return;
+      try {
+        await runTrackedAction(
+          btn,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/update`, {
+              endpoint_id: ep.id,
+              reset_to_default: true,
+            });
+            if (resp?.report) {
+              state.endpointsReport = resp.report;
+              renderEndpointsList();
+            } else {
+              await loadModdingEndpoints(slug);
+            }
+            await loadGameSnapshots(slug);
+            return resp;
+          },
+          {
+            pendingText: `Resetting '${ep.name}' to default (${ep.default_value})...`,
+            successText: (r) => r?.summary || "Reset endpoint to stored default",
+          },
+        );
+      } catch {
+        // Error handled by runTrackedAction
+      }
+    });
+  });
 }

@@ -21,6 +21,7 @@ from app.routers import asset_audit  # noqa: E402
 from app.routers import branding as branding_router  # noqa: E402
 from app.routers import library as library_router  # noqa: E402
 from app.routers import mcp_bridge as mcp_router  # noqa: E402
+from app.services import endpoints as endpoints_service  # noqa: E402
 from app.services import game_snapshots  # noqa: E402
 
 
@@ -258,6 +259,117 @@ class McpTests(unittest.TestCase):
                     self.assertIn(heading, md)
                 self.assertIn("DemoMod.dll", md)
                 self.assertIn("NullReferenceException", md)
+
+    def test_unity_endpoints_cfg_bridge_defaults_and_simple_advanced_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            unity_dir = tmp_dir / "UnityEndpointSample"
+            (unity_dir / "BepInEx" / "config").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "BepInEx" / "interop").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "GameAssembly.dll").write_bytes(b"MZ")
+            (unity_dir / "BepInEx" / "interop" / "Jade.GameView.dll").write_bytes(b"DLL")
+            (unity_dir / "BepInEx" / "LogOutput.log").write_text("[Error : Demo] Missing method\n", encoding="utf-8")
+
+            cfg_file = unity_dir / "BepInEx" / "config" / "com.modtool.balance.cfg"
+            cfg_file.write_text(
+                "\n".join([
+                    "[HeroStats]",
+                    "## Sets maximum hero health points",
+                    "# Setting type: Int32",
+                    "# Default value: 22",
+                    "HeroMaxHealth = 30",
+                    "",
+                    "[Gameplay]",
+                    "## Multiplier for player attack damage",
+                    "# Setting type: Single",
+                    "# Default value: 1.0",
+                    "PlayerDamageScale = 1.0",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unity_ep_sample",
+                        "name": "Unity Endpoint Sample",
+                        "game_dir": str(unity_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            snaps_root = tmp_dir / "game_snapshots"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            fake_live_bridge = [
+                {
+                    "id": "live_mcp:CameraTargetCharacter:CurrencyGold",
+                    "category": "player_character",
+                    "name": "Party Gold (Live Bridge)",
+                    "namespace": "Jade.GameModel",
+                    "class_name": "PartyInventory",
+                    "member": "GoldAmount",
+                    "signature": "Jade.GameModel.PartyInventory.GoldAmount",
+                    "current_value": "500",
+                    "default_value": "100",
+                    "description": "Live party currency count via BepInExMCP.",
+                }
+            ]
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoints_service, "_probe_live_bepinex_bridge", return_value=fake_live_bridge),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                r_scan = self.client.post(
+                    "/api/games/unity_ep_sample/endpoints/scan",
+                    json={},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_scan.status_code, 200)
+                sdata = r_scan.json()
+                self.assertEqual(sdata["engine"], "unity")
+                self.assertTrue((appdata_root / "game_defaults" / "unity_ep_sample.json").is_file())
+
+                eps = {e["id"]: e for e in sdata["endpoints"]}
+                hp_ep = eps["bep_cfg:com.modtool.balance.cfg:HeroStats:HeroMaxHealth"]
+                self.assertEqual(hp_ep["category"], "player_character")
+                self.assertEqual(hp_ep["default_value"], "22")
+                self.assertEqual(hp_ep["current_value"], "30")
+                self.assertTrue(hp_ep["is_modified"])
+                self.assertEqual(hp_ep["delivery_type"], "Config")
+                self.assertIn("maximum hero health", hp_ep["simple_description"].lower())
+                self.assertEqual(hp_ep["advanced_details"]["section"], "HeroStats")
+                self.assertEqual(hp_ep["advanced_details"]["key"], "HeroMaxHealth")
+
+                live_ep = eps["live_mcp:CameraTargetCharacter:CurrencyGold"]
+                self.assertEqual(live_ep["delivery_type"], "Bridge")
+                self.assertEqual(live_ep["advanced_details"]["namespace"], "Jade.GameModel")
+                self.assertEqual(live_ep["advanced_details"]["class_name"], "PartyInventory")
+                self.assertEqual(live_ep["advanced_details"]["method_signature"], "Jade.GameModel.PartyInventory.GoldAmount")
+
+                # Reset BepInEx .cfg setting back to stored default (22)
+                r_reset = self.client.post(
+                    "/api/games/unity_ep_sample/endpoints/update",
+                    json={"endpoint_id": hp_ep["id"], "reset_to_default": True},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_reset.status_code, 200)
+                self.assertEqual(r_reset.json()["endpoint"]["current_value"], "22")
+                self.assertFalse(r_reset.json()["endpoint"]["is_modified"])
+                self.assertIn("HeroMaxHealth = 22", cfg_file.read_text(encoding="utf-8"))
+                core_config.invalidate_games_cache()
 
 
 if __name__ == "__main__":

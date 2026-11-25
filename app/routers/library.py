@@ -82,6 +82,7 @@ from app.services.discovery import (
     scan_manual_folders,
 )
 from app.services.conflict_guard import inspect_conflict_guard
+from app.services.endpoints import apply_or_reset_endpoint, scan_game_endpoints
 from app.services.game_snapshots import (
     create_game_snapshot,
     list_game_snapshots,
@@ -205,6 +206,16 @@ class PcOptimiseApplyRequest(BaseModel):
     setting_key: str = Field(default="")
     custom_ini_path: str = Field(default="")
     reference_tier_id: str = Field(default="auto")
+
+
+class EndpointScanRequest(BaseModel):
+    reset_defaults: bool = Field(default=False)
+
+
+class EndpointUpdateRequest(BaseModel):
+    endpoint_id: str
+    value: str | None = None
+    reset_to_default: bool = Field(default=False)
 
 
 class LibraryScanRequest(BaseModel):
@@ -1217,6 +1228,52 @@ async def post_apply_game_pc_optimisation(slug: str, req: PcOptimiseApplyRequest
         custom_ini_path=req.custom_ini_path,
         reference_tier_id=req.reference_tier_id,
     )
+
+
+@router.post("/api/games/{slug}/endpoints/scan")
+async def post_scan_game_endpoints(slug: str, req: EndpointScanRequest | None = None) -> dict[str, Any]:
+    """Discover and categorize modding endpoints across INI/CFG configs, bridge, dumps, and error logs."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    reset_flag = bool(req.reset_defaults) if req is not None else False
+    return scan_game_endpoints(target, reset_defaults=reset_flag)
+
+
+@router.get("/api/games/{slug}/endpoints")
+async def get_game_endpoints(slug: str, category: str = "all") -> dict[str, Any]:
+    """Return categorized modding endpoints with persisted baseline default values for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    res = scan_game_endpoints(target, reset_defaults=False)
+    clean_cat = (category or "all").strip().lower()
+    if clean_cat and clean_cat != "all":
+        res["endpoints"] = [e for e in res.get("endpoints", []) if e.get("category") == clean_cat]
+        res["filtered_count"] = len(res["endpoints"])
+    else:
+        res["filtered_count"] = len(res.get("endpoints", []))
+    return res
+
+
+@router.post("/api/games/{slug}/endpoints/update")
+async def post_update_game_endpoint(slug: str, req: EndpointUpdateRequest) -> dict[str, Any]:
+    """Update or reset a single discovered Config endpoint back to its stored baseline default."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        return apply_or_reset_endpoint(
+            slug,
+            target,
+            req.endpoint_id,
+            value=req.value,
+            reset_to_default=req.reset_to_default,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")
