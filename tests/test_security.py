@@ -314,6 +314,67 @@ class SecurityTests(unittest.TestCase):
             persisted = json.loads(store_file.read_text(encoding="utf-8"))
             self.assertEqual(persisted["games"][0]["plugin_build_dir"], expected_plugin)
 
+    def test_ct_xml_xxe_dtd_rejection_and_import_path_traversal(self) -> None:
+        from app.routers import library as library_router
+        from app.services import endpoint_catalog, endpoints as endpoints_service
+
+        xxe_ct = """<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini">
+]>
+<CheatTable>
+  <CheatEntries>
+    <CheatEntry>
+      <Description>"&xxe;"</Description>
+      <VariableType>4 Bytes</VariableType>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>
+"""
+        with self.assertRaises(ValueError):
+            endpoint_catalog.parse_cheat_engine_ct(xxe_ct, file_name="evil.ct")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            game_dir = tmp_dir / "SecGame"
+            game_dir.mkdir(parents=True, exist_ok=True)
+            (tmp_dir / "outside.ct").write_text("<CheatTable><CheatEntries/></CheatTable>", encoding="utf-8")
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "sec_ct_game",
+                        "name": "Security CT Game",
+                        "game_dir": str(game_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+            ):
+                core_config.invalidate_games_cache()
+                r_xxe = self.client.post(
+                    "/api/games/sec_ct_game/endpoints/import-community",
+                    json={"filename": "evil.ct", "content": xxe_ct},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_xxe.status_code, 400)
+                self.assertIn("forbidden", r_xxe.json().get("detail", "").lower())
+
+                r_trav = self.client.post(
+                    "/api/games/sec_ct_game/endpoints/import-community",
+                    json={"file_path": "../../outside.ct"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_trav.status_code, 400)
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

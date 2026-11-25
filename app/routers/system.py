@@ -59,6 +59,7 @@ from app.services.pc_specs import clear_local_pc_specs_cache, scrape_pc_specs
 from app.services.tool_installer import (
     get_modding_tools_status_impl,
     install_modding_tool_impl,
+    install_recommended_tools_impl,
     upgrade_modding_tool_impl,
 )
 
@@ -71,6 +72,13 @@ class InstallToolRequest(BaseModel):
     tool_id: str = Field(default="")
     game_id: str = Field(default="battleground")
     game_dir: str = Field(default=DEFAULT_GAME_DIR)
+    force: bool = Field(default=False)
+
+
+class InstallRecommendedToolsRequest(BaseModel):
+    game_id: str = Field(default="")
+    game_dir: str = Field(default=DEFAULT_GAME_DIR)
+    tool_ids: list[str] = Field(default_factory=list)
     force: bool = Field(default=False)
 
 
@@ -218,6 +226,18 @@ async def install_modding_tool(req: InstallToolRequest) -> dict[str, Any]:
         req.tool_id,
         req.game_id,
         req.game_dir,
+        force=req.force,
+        pc_specs_fn=scrape_pc_specs,
+    )
+
+
+@router.post("/api/tools/install-recommended")
+async def install_recommended_tools(req: InstallRecommendedToolsRequest) -> dict[str, Any]:
+    """Batch-install recommended modding tools, continuing past single-tool failures."""
+    return await install_recommended_tools_impl(
+        req.game_id,
+        req.game_dir,
+        tool_ids=req.tool_ids or None,
         force=req.force,
         pc_specs_fn=scrape_pc_specs,
     )

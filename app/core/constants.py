@@ -126,6 +126,121 @@ ENGINE_ADAPTER_REGISTRY: dict[str, str] = {
     "Unknown": "unknown",
 }
 
+TOOL_RELEASE_CATALOG: dict[str, dict[str, Any]] = {
+    "unity_explorer_il2cpp": {
+        "name": "UnityExplorer (BepInEx 6 IL2CPP)",
+        "github_repos": ["yukieiji/UnityExplorer", "sinai-dev/UnityExplorer"],
+        "asset_match": {
+            "include": ["UnityExplorer", "IL2CPP", ".zip"],
+            "prefer": ["BepInEx6", "CoreCLR", "net6"],
+            "exclude": ["Mono", "Standalone", "MelonLoader"],
+        },
+        "fallback_url": "https://github.com/sinai-dev/UnityExplorer/releases/download/4.9.0/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip",
+    },
+    "il2cpp_dumper": {
+        "name": "Il2CppDumper",
+        "github_repos": ["Perfare/Il2CppDumper"],
+        "asset_match": {
+            "include": ["Il2CppDumper", ".zip"],
+            "prefer": ["net6", "win"],
+            "exclude": ["net472"],
+        },
+        "fallback_url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
+    },
+    "bepinex_mono": {
+        "name": "BepInEx 5 (Unity Mono x64)",
+        "github_repos": ["BepInEx/BepInEx"],
+        "asset_match": {
+            "include": ["BepInEx", "win_x64", ".zip"],
+            "prefer": ["5.4", "x64"],
+            "exclude": ["unix", "macos", "linux", "x86", "BE"],
+        },
+        "fallback_url": "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.2/BepInEx_win_x64_5.4.23.2.zip",
+    },
+    "dnspy_ex": {
+        "name": "dnSpyEx Win64",
+        "github_repos": ["dnSpyEx/dnSpy"],
+        "asset_match": {
+            "include": ["dnSpy", "win64", ".zip"],
+            "prefer": ["net", "win64"],
+            "exclude": ["win32", "symbols", "pdb"],
+        },
+        "fallback_url": "https://github.com/dnSpyEx/dnSpy/releases/download/v6.5.1/dnSpy-net-win64.zip",
+    },
+    "ue4ss": {
+        "name": "RE-UE4SS",
+        "github_repos": ["UE4SS-RE/RE-UE4SS"],
+        "asset_match": {
+            "include": ["UE4SS", ".zip"],
+            "prefer": ["Release", "v3."],
+            "exclude": ["zDEV", "pdb"],
+        },
+    },
+    "fmodel": {
+        "name": "FModel",
+        "github_repos": ["4sval/FModel"],
+        "asset_match": {
+            "include": ["FModel", ".zip"],
+            "prefer": ["FModel"],
+            "exclude": ["debug"],
+        },
+    },
+    "ghidra_mcp": {
+        "name": "GhidraMCP",
+        "github_repos": ["LaurieWired/GhidraMCP"],
+        "asset_match": {
+            "include": ["GhidraMCP", ".zip"],
+            "prefer": ["GhidraMCP"],
+            "exclude": [],
+        },
+    },
+    "x64dbg": {
+        "name": "x64dbg",
+        "github_repos": ["x64dbg/x64dbg"],
+        "asset_match": {
+            "include": ["snapshot", ".zip"],
+            "prefer": ["snapshot"],
+            "exclude": [],
+        },
+    },
+    "gdre_tools": {
+        "name": "GDRE Tools",
+        "github_repos": ["GDRETools/gdsdecomp"],
+        "asset_match": {
+            "include": ["windows", ".zip"],
+            "prefer": ["windows"],
+            "exclude": ["linux", "macos"],
+        },
+    },
+    "mod_engine_2": {
+        "name": "Mod Engine 2",
+        "github_repos": ["soulsmods/ModEngine2"],
+        "asset_match": {
+            "include": ["ModEngine", ".zip"],
+            "prefer": ["ModEngine"],
+            "exclude": [],
+        },
+    },
+    "reframework": {
+        "name": "REFramework",
+        "github_repos": ["praydog/REFramework"],
+        "asset_match": {
+            "include": [".zip"],
+            "prefer": ["REFramework"],
+            "exclude": ["pdb"],
+        },
+    },
+    "xedit_creation": {
+        "name": "xEdit",
+        "github_repos": ["TES5Edit/TES5Edit"],
+        "asset_match": {
+            "include": ["Edit", ".zip"],
+            "prefer": ["Edit"],
+            "exclude": [],
+        },
+    },
+}
+
 UNREAL_HARDWARE_REFERENCE_ARRAY: list[dict[str, Any]] = [
     {
         "tier_id": "tier_flagship_24gb_4090",

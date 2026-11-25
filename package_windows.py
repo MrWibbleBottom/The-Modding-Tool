@@ -322,6 +322,8 @@ def build_pyinstaller_command(onefile: bool = False) -> list[str]:
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'data' / 'steam_games_reference.csv'};app/data",
         "--add-data",
+        f"{PROJECT_ROOT / 'app' / 'data' / 'engine_endpoints_reference.json'};app/data",
+        "--add-data",
         f"{PROJECT_ROOT / 'app' / 'engines'};app/engines",
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'services'};app/services",

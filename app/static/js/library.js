@@ -50,7 +50,9 @@ export {
   copyCrashContext,
   createGameSnapshot,
   downloadAiInfoPack,
+  exportEndpointProfile,
   fullRestoreActiveGame,
+  handleCommunityImportFile,
   installAllRecommendedTools,
   installModdingTool,
   launchActiveGame,
@@ -78,6 +80,7 @@ export {
   setEndpointsUiMode,
   switchActiveGameSection,
   toggleGameLogTail,
+  triggerCommunityImport,
   verifyActiveGameIntegrity,
 } from "./active_game.js";
 

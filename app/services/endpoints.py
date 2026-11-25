@@ -13,6 +13,19 @@ from app.core.audit import append_audit_log
 from app.core.config import APP_DATA_ROOT, TOOLS_ROOT, atomic_write_json, load_json_sanitized, sha256_text
 from app.engines.unreal import parse_unreal_ini_file
 from app.services.discovery import make_slug
+from app.services.endpoint_catalog import (
+    extract_endpoint_symbol,
+    load_game_imported_endpoints,
+    lookup_endpoint_knowledge,
+)
+from app.services.endpoint_parsers import (
+    load_engine_reference_entries,
+    parse_bepinex_cfg as _parse_bepinex_cfg_rich,
+    parse_unity_dump_metadata,
+    parse_unreal_property_identifier,
+    resolve_endpoint_classification,
+    scan_unreal_datatable_assets,
+)
 from app.services.game_snapshots import create_game_snapshot, ensure_within
 from app.services.game_store import inspect_game_modding_info
 from app.services.log_tail import read_game_log_tail
@@ -52,129 +65,7 @@ ENDPOINT_CATEGORIES: tuple[dict[str, str], ...] = (
 )
 
 _CATEGORY_LABEL_MAP: dict[str, str] = {c["id"]: c["label"] for c in ENDPOINT_CATEGORIES}
-
-_CURATED_UNREAL_KEY_META: dict[str, dict[str, Any]] = {
-    "sg.ViewDistanceQuality": {
-        "category": "engine_settings",
-        "name": "Draw / View Distance Quality",
-        "desc": "Controls object culling distance and distant terrain draw range.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "3",
-    },
-    "sg.FoliageQuality": {
-        "category": "engine_settings",
-        "name": "Foliage Density Quality",
-        "desc": "Controls grass, brush density, and tree LOD draw distance.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "3",
-    },
-    "sg.TextureQuality": {
-        "category": "engine_settings",
-        "name": "Texture Quality & Pool",
-        "desc": "Sets texture streaming pool budget and mipmap sharpness.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "3",
-    },
-    "sg.ShadowQuality": {
-        "category": "engine_settings",
-        "name": "Shadow Resolution & Cascading",
-        "desc": "Adjusts dynamic shadow map resolution and cascade distance.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "3",
-    },
-    "sg.GlobalIlluminationQuality": {
-        "category": "engine_settings",
-        "name": "Global Illumination / Lumen GI",
-        "desc": "Scales indirect bounce lighting complexity and ray-trace bounce count.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "3",
-    },
-    "sg.ResolutionQuality": {
-        "category": "engine_settings",
-        "name": "3D Render Resolution Scale (%)",
-        "desc": "Scales internal 3D rendering percentage relative to output resolution.",
-        "value_type": "number",
-        "min": 50,
-        "max": 100,
-        "step": 1,
-        "default": "100.000000",
-    },
-    "FrameRateLimit": {
-        "category": "engine_settings",
-        "name": "Frame Rate Limit (FPS Cap)",
-        "desc": "Caps frame pacing (0 = uncapped, or match monitor refresh rate).",
-        "value_type": "number",
-        "min": 0,
-        "max": 360,
-        "step": 5,
-        "default": "0.000000",
-    },
-    "bUseVSync": {
-        "category": "qol",
-        "name": "Vertical Sync (VSync)",
-        "desc": "Eliminates screen tearing at the cost of slight input latency on non-VRR monitors.",
-        "value_type": "bool",
-        "options": ["True", "False"],
-        "default": "True",
-    },
-    "FullscreenMode": {
-        "category": "qol",
-        "name": "Window / Fullscreen Mode",
-        "desc": "0 = Exclusive Fullscreen, 1 = Borderless Windowed Fullscreen, 2 = Windowed.",
-        "value_type": "select",
-        "options": ["0", "1", "2"],
-        "default": "1",
-    },
-    "bUseHDRDisplayOutput": {
-        "category": "qol",
-        "name": "HDR Display Output",
-        "desc": "Toggles HDR10 display output (turn False if Windows SDR colors appear washed out).",
-        "value_type": "bool",
-        "options": ["True", "False"],
-        "default": "False",
-    },
-    "r.Streaming.PoolSize": {
-        "category": "engine_settings",
-        "name": "Texture Streaming Pool Size (MB)",
-        "desc": "Sets VRAM pool size reserved for streamed textures in Engine.ini.",
-        "value_type": "number",
-        "min": 512,
-        "max": 16384,
-        "step": 256,
-        "default": "2048",
-    },
-    "r.ViewDistanceScale": {
-        "category": "engine_settings",
-        "name": "View Distance Scale Multiplier",
-        "desc": "Scales mesh and foliage culling distance beyond standard scalability presets.",
-        "value_type": "number",
-        "min": 0.5,
-        "max": 3.0,
-        "step": 0.1,
-        "default": "1.0",
-    },
-    "r.MotionBlurQuality": {
-        "category": "qol",
-        "name": "Motion Blur Quality",
-        "desc": "Set to 0 to cleanly disable camera and object motion blur.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "4",
-    },
-    "r.DepthOfFieldQuality": {
-        "category": "qol",
-        "name": "Depth of Field Blur Quality",
-        "desc": "Set to 0 to keep distant backgrounds crisp without cinematic blur.",
-        "value_type": "select",
-        "options": ["0", "1", "2", "3", "4"],
-        "default": "2",
-    },
-}
+_ALL_CATEGORY_LABELS: dict[str, str] = {**_CATEGORY_LABEL_MAP, "uncategorized": "Uncategorized"}
 
 
 def get_game_defaults_dir(defaults_dir: Path | None = None) -> Path:
@@ -183,21 +74,11 @@ def get_game_defaults_dir(defaults_dir: Path | None = None) -> Path:
     return root
 
 
-def _classify_keyword_category(text: str, *, fallback: str = "game_systems") -> str:
-    low = text.lower()
-    if any(k in low for k in ("error", "exception", "crash", "stacktrace", "logoutput", "ue4ss.log")):
-        return "error_logs"
-    if any(k in low for k in ("cheat", "god", "achieve", "mission", "quest", "reveal", "fogofwar", "mapreveal", "unlock", "allowconsole")):
-        return "cheats"
-    if any(k in low for k in ("health", "hp", "mana", "stamina", "stat", "money", "gold", "currency", "coin", "xp", "exp", "level", "character", "playerpiece")):
-        return "player_character"
-    if any(k in low for k in ("damage", "ammo", "loot", "drop", "spawn", "enemy", "inventory", "day", "night", "timeofday", "cooldown", "combat")):
-        return "game_systems"
-    if any(k in low for k in ("fov", "hud", "ui", "camera", "vsync", "hdr", "blur", "dof", "fullscreen", "mouse", "sensitivity", "subtitle", "aspect")):
-        return "qol"
-    if any(k in low for k in ("lod", "foliage", "draw", "distance", "shadow", "texture", "shader", "cache", "pool", "fps", "frame", "scalability", "quality", "gc", "render")):
-        return "engine_settings"
-    return fallback
+def _classify_keyword_category(text: str, *, fallback: str = "uncategorized") -> str:
+    res = resolve_endpoint_classification(text)
+    if res["confidence"] == "low" and fallback != "uncategorized":
+        return fallback
+    return str(res["category"])
 
 
 def _infer_value_type(raw_val: str) -> tuple[str, list[str]]:
@@ -226,17 +107,22 @@ def _make_endpoint(
     min_val: float | None = None,
     max_val: float | None = None,
     step_val: float | None = None,
+    classification_source: str = "heuristic",
+    confidence: str = "medium",
 ) -> dict[str, Any]:
-    cat = category if category in _CATEGORY_LABEL_MAP else "game_systems"
+    cat = category if category in _ALL_CATEGORY_LABELS else "uncategorized"
     inferred_type, inferred_opts = _infer_value_type(current_value or default_value)
     v_type = value_type or inferred_type
     opts = options if options is not None else inferred_opts
     cur_s = str(current_value)
     def_s = str(default_value)
+    adv_payload = dict(advanced_details)
+    adv_payload.setdefault("classification_source", classification_source)
+    adv_payload.setdefault("classification_confidence", confidence)
     return {
         "id": endpoint_id,
         "category": cat,
-        "category_label": _CATEGORY_LABEL_MAP[cat],
+        "category_label": _ALL_CATEGORY_LABELS[cat],
         "name": name,
         "value_type": v_type,
         "options": opts,
@@ -249,7 +135,9 @@ def _make_endpoint(
         "can_edit": can_edit,
         "delivery_type": delivery_type,
         "simple_description": simple_description,
-        "advanced_details": advanced_details,
+        "classification_source": classification_source,
+        "confidence": confidence,
+        "advanced_details": adv_payload,
     }
 
 
@@ -280,37 +168,38 @@ def _scan_unreal_endpoints(game_dir: Path, game_name: str, info: dict[str, Any])
                 if ep_id in seen_ids:
                     continue
                 seen_ids.add(ep_id)
-                curated = _CURATED_UNREAL_KEY_META.get(key)
-                if curated:
-                    cat = curated["category"]
-                    label = curated["name"]
-                    desc = curated["desc"]
-                    vtype = curated.get("value_type")
-                    opts = curated.get("options")
-                    def_val = curated.get("default", val)
-                    mn, mx, stp = curated.get("min"), curated.get("max"), curated.get("step")
-                else:
-                    cat = _classify_keyword_category(f"{fname} {sec_name} {key}", fallback="engine_settings")
-                    label = key
-                    desc = f"Unreal INI setting '{key}' under [{sec_name}] in {fname}."
-                    vtype, opts, def_val = None, None, val
-                    mn = mx = stp = None
-
+                ue_prop = parse_unreal_property_identifier(key, sec_name)
+                resolved = resolve_endpoint_classification(
+                    key,
+                    engine="unreal",
+                    reference_candidates=[key, f"{sec_name}.{key}"],
+                    embedded_source=ue_prop["source"] if ue_prop["source"] == "unreal_metadata" else "",
+                    embedded_context=f"{fname} {sec_name}",
+                    embedded_label=ue_prop["simple_label"],
+                    embedded_description=ue_prop["simple_description"],
+                    embedded_value_type=ue_prop["value_type"],
+                    embedded_options=ue_prop["options"],
+                    embedded_default=str(val),
+                    embedded_category=ue_prop["category"] if ue_prop["source"] == "unreal_metadata" else None,
+                    embedded_confidence=ue_prop["confidence"],
+                )
                 endpoints.append(
                     _make_endpoint(
                         endpoint_id=ep_id,
-                        category=cat,
-                        name=label,
-                        simple_description=desc,
+                        category=resolved["category"],
+                        name=resolved["simple_label"],
+                        simple_description=resolved["simple_description"],
                         current_value=str(val),
-                        default_value=str(def_val),
-                        delivery_type="Config",
+                        default_value=str(resolved["default_value"] if resolved["default_value"] is not None else val),
+                        delivery_type=resolved.get("delivery_type") or "Config",
                         can_edit=True,
-                        value_type=vtype,
-                        options=opts,
-                        min_val=mn,
-                        max_val=mx,
-                        step_val=stp,
+                        value_type=resolved.get("value_type"),
+                        options=resolved.get("options"),
+                        min_val=resolved.get("min"),
+                        max_val=resolved.get("max"),
+                        step_val=resolved.get("step"),
+                        classification_source=resolved["source"],
+                        confidence=resolved["confidence"],
                         advanced_details={
                             "source_kind": "unreal_ini",
                             "file_path": str(ini_path),
@@ -321,33 +210,41 @@ def _scan_unreal_endpoints(game_dir: Path, game_name: str, info: dict[str, Any])
                     )
                 )
 
-    # Curated Unreal Engine CVars (if Engine.ini exists or writable target resolved)
+    # Curated Unreal Engine CVars from bundled reference dictionary (Engine.ini targets)
     eng_target = targets.get("Engine.ini")
     if eng_target is not None:
         eng_sections = parse_unreal_ini_file(eng_target) if eng_target.is_file() else {}
-        for cvar, meta in _CURATED_UNREAL_KEY_META.items():
-            if not cvar.startswith("r."):
+        for ref_entry in load_engine_reference_entries():
+            if ref_entry.get("engine") != "unreal":
                 continue
-            section_name = "/Script/Engine.RendererSettings" if meta["category"] == "qol" else "SystemSettings"
+            cvar = str(ref_entry.get("pattern") or "")
+            if not cvar.startswith("r.") or "*" in cvar:
+                continue
+            section_name = str(ref_entry.get("default_section") or (
+                "/Script/Engine.RendererSettings" if ref_entry.get("category") == "qol" else "SystemSettings"
+            ))
             ep_id = f"ue_cvar:{cvar}"
             if any(ep["advanced_details"].get("key") == cvar for ep in endpoints):
                 continue
-            cur_val = str((eng_sections.get(section_name) or {}).get(cvar) or meta["default"])
+            def_val = str(ref_entry.get("default_value") if ref_entry.get("default_value") is not None else "1")
+            cur_val = str((eng_sections.get(section_name) or {}).get(cvar) or def_val)
             endpoints.append(
                 _make_endpoint(
                     endpoint_id=ep_id,
-                    category=meta["category"],
-                    name=f"{meta['name']} ({cvar})",
-                    simple_description=meta["desc"],
+                    category=str(ref_entry.get("category") or "engine_settings"),
+                    name=f"{ref_entry['simple_label']} ({cvar})",
+                    simple_description=str(ref_entry["simple_description"]),
                     current_value=cur_val,
-                    default_value=str(meta["default"]),
-                    delivery_type="Config",
+                    default_value=def_val,
+                    delivery_type=str(ref_entry.get("delivery_type") or "Config"),
                     can_edit=True,
-                    value_type=meta.get("value_type"),
-                    options=meta.get("options"),
-                    min_val=meta.get("min"),
-                    max_val=meta.get("max"),
-                    step_val=meta.get("step"),
+                    value_type=ref_entry.get("value_type"),
+                    options=ref_entry.get("options"),
+                    min_val=ref_entry.get("safe_min"),
+                    max_val=ref_entry.get("safe_max"),
+                    step_val=ref_entry.get("step"),
+                    classification_source="reference_dict",
+                    confidence="high",
                     advanced_details={
                         "source_kind": "unreal_cvar",
                         "file_path": str(eng_target),
@@ -358,6 +255,31 @@ def _scan_unreal_endpoints(game_dir: Path, game_name: str, info: dict[str, Any])
                 )
             )
 
+    # Unreal DataTable assets (DT_Weapons, DT_EnemyStats, DT_LootDrops, DT_PlayerStats, etc.)
+    for dt_asset in scan_unreal_datatable_assets(game_dir):
+        dt_stem = dt_asset["asset_stem"]
+        endpoints.append(
+            _make_endpoint(
+                endpoint_id=f"ue_datatable:{dt_stem}",
+                category=dt_asset["category"],
+                name=dt_asset["simple_label"],
+                simple_description=dt_asset["simple_description"],
+                current_value="Detected",
+                default_value="Detected",
+                delivery_type="Mod File",
+                can_edit=False,
+                value_type="string",
+                classification_source=dt_asset["source"],
+                confidence=dt_asset["confidence"],
+                advanced_details={
+                    "source_kind": "unreal_datatable",
+                    "file_path": dt_asset["file_path"],
+                    "file_name": dt_asset["file_name"],
+                    "asset_stem": dt_stem,
+                },
+            )
+        )
+
     # UE4SS Lua hooks & mods
     for lua_file in list(game_dir.glob("*/Binaries/Win64/Mods/*/Scripts/*.lua")) + list(game_dir.glob("*/Binaries/Win64/ue4ss/Mods/*/Scripts/*.lua")):
         if not lua_file.is_file():
@@ -367,20 +289,29 @@ def _scan_unreal_endpoints(game_dir: Path, game_name: str, info: dict[str, Any])
         hooks = re.findall(r'RegisterHook\(\s*["\']([^"\']+)["\']', txt)
         enabled = (lua_file.parent.parent / "enabled.txt").is_file()
         for h_idx, hook_sig in enumerate(hooks or [f"{mod_name}:main.lua"], start=1):
-            cat = _classify_keyword_category(f"{mod_name} {hook_sig}", fallback="game_systems")
+            resolved_hook = resolve_endpoint_classification(
+                hook_sig.split(":")[-1],
+                engine="unreal",
+                reference_candidates=[hook_sig, mod_name],
+                embedded_context=f"{mod_name} {hook_sig}",
+                embedded_label=f"UE4SS Hook: {mod_name} ({hook_sig.split(':')[-1]})",
+                embedded_description=f"Runtime Lua hook detected in UE4SS mod '{mod_name}'.",
+            )
             ep_id = f"ue4ss_hook:{mod_name}:{h_idx}"
             endpoints.append(
                 _make_endpoint(
                     endpoint_id=ep_id,
-                    category=cat,
-                    name=f"UE4SS Hook: {mod_name} ({hook_sig.split(':')[-1]})",
-                    simple_description=f"Runtime Lua hook detected in UE4SS mod '{mod_name}'.",
+                    category=resolved_hook["category"],
+                    name=resolved_hook["simple_label"],
+                    simple_description=resolved_hook["simple_description"],
                     current_value="Enabled" if enabled else "Disabled",
                     default_value="Disabled",
                     delivery_type="Mod File",
                     can_edit=True,
                     value_type="select",
                     options=["Enabled", "Disabled"],
+                    classification_source=resolved_hook["source"],
+                    confidence=resolved_hook["confidence"],
                     advanced_details={
                         "source_kind": "ue4ss_lua_hook",
                         "file_path": str(lua_file),
@@ -393,59 +324,8 @@ def _scan_unreal_endpoints(game_dir: Path, game_name: str, info: dict[str, Any])
     return endpoints
 
 
-def _parse_bepinex_cfg(cfg_path: Path) -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = []
-    section = "General"
-    desc_lines: list[str] = []
-    setting_type = ""
-    default_val = ""
-    acceptable_vals = ""
-
-    for raw in cfg_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line:
-            desc_lines.clear()
-            setting_type = ""
-            default_val = ""
-            acceptable_vals = ""
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1].strip() or "General"
-            desc_lines.clear()
-            setting_type = ""
-            default_val = ""
-            acceptable_vals = ""
-            continue
-        if line.startswith("##"):
-            desc_lines.append(line.lstrip("#").strip())
-            continue
-        if line.startswith("#"):
-            meta_txt = line.lstrip("#").strip()
-            if meta_txt.lower().startswith("setting type:"):
-                setting_type = meta_txt.split(":", 1)[1].strip()
-            elif meta_txt.lower().startswith("default value:"):
-                default_val = meta_txt.split(":", 1)[1].strip()
-            elif meta_txt.lower().startswith("acceptable values:"):
-                acceptable_vals = meta_txt.split(":", 1)[1].strip()
-            continue
-        if "=" in line:
-            k, v = line.split("=", 1)
-            key_clean = k.strip()
-            val_clean = v.strip()
-            entries.append({
-                "section": section,
-                "key": key_clean,
-                "value": val_clean,
-                "default_value": default_val if default_val != "" else val_clean,
-                "setting_type": setting_type,
-                "acceptable_values": acceptable_vals,
-                "description": " ".join(desc_lines).strip() or f"BepInEx config '{key_clean}' under [{section}].",
-            })
-            desc_lines.clear()
-            setting_type = ""
-            default_val = ""
-            acceptable_vals = ""
-    return entries
+def _parse_bepinex_cfg(cfg_path: Path) -> list[dict[str, Any]]:
+    return _parse_bepinex_cfg_rich(cfg_path)
 
 
 def _probe_live_bepinex_bridge(game: dict[str, Any], info: dict[str, Any]) -> list[dict[str, Any]]:
@@ -478,29 +358,44 @@ def _scan_unity_endpoints(
 ) -> list[dict[str, Any]]:
     endpoints: list[dict[str, Any]] = []
 
-    # 1. BepInEx/config/*.cfg entries
+    # 1. BepInEx/config/*.cfg entries (waterfall: reference_dict -> cfg_metadata -> heuristic)
     cfg_dir = game_dir / "BepInEx" / "config"
     if cfg_dir.is_dir():
         for cfg_file in sorted(cfg_dir.glob("*.cfg"), key=lambda p: p.name.lower()):
             for entry in _parse_bepinex_cfg(cfg_file):
-                cat = _classify_keyword_category(
-                    f"{cfg_file.stem} {entry['section']} {entry['key']} {entry['description']}",
-                    fallback="game_systems",
-                )
                 ep_id = f"bep_cfg:{cfg_file.name}:{entry['section']}:{entry['key']}"
-                st_low = entry["setting_type"].lower()
-                v_type = "bool" if "bool" in st_low else ("number" if any(t in st_low for t in ("int", "single", "float", "double")) else None)
+                choices = entry.get("choices") or []
+                resolved = resolve_endpoint_classification(
+                    entry["key"],
+                    engine="unity",
+                    reference_candidates=[f"{entry['section']}.{entry['key']}", entry["key"]],
+                    embedded_source=entry.get("metadata_source") or "cfg_metadata",
+                    embedded_context=f"{cfg_file.stem} {entry['section']} {entry['simple_description']}",
+                    embedded_label=f"{entry['key']} ({cfg_file.stem})",
+                    embedded_description=entry["simple_description"],
+                    embedded_value_type=entry.get("value_type"),
+                    embedded_options=list(choices) if choices else None,
+                    embedded_min=entry.get("min_value"),
+                    embedded_max=entry.get("max_value"),
+                    embedded_default=entry["default_value"],
+                )
                 endpoints.append(
                     _make_endpoint(
                         endpoint_id=ep_id,
-                        category=cat,
-                        name=f"{entry['key']} ({cfg_file.stem})",
-                        simple_description=entry["description"],
+                        category=resolved["category"],
+                        name=resolved["simple_label"],
+                        simple_description=resolved["simple_description"],
                         current_value=entry["value"],
-                        default_value=entry["default_value"],
-                        delivery_type="Config",
+                        default_value=str(resolved["default_value"] if resolved["default_value"] is not None else entry["default_value"]),
+                        delivery_type=resolved.get("delivery_type") or "Config",
                         can_edit=True,
-                        value_type=v_type,
+                        value_type=resolved.get("value_type"),
+                        options=resolved.get("options"),
+                        min_val=resolved.get("min"),
+                        max_val=resolved.get("max"),
+                        step_val=resolved.get("step"),
+                        classification_source=resolved["source"],
+                        confidence=resolved["confidence"],
                         advanced_details={
                             "source_kind": "bepinex_cfg",
                             "file_path": str(cfg_file),
@@ -508,6 +403,7 @@ def _scan_unity_endpoints(
                             "section": entry["section"],
                             "key": entry["key"],
                             "setting_type": entry["setting_type"],
+                            "acceptable_values": entry.get("acceptable_values", ""),
                         },
                     )
                 )
@@ -521,19 +417,34 @@ def _scan_unity_endpoints(
         cls = str(item.get("class_name") or item.get("component") or "UnknownComponent")
         member = str(item.get("member") or item.get("method") or f"member_{idx}")
         sig = str(item.get("signature") or f"{ns}.{cls}.{member}".lstrip("."))
-        cat = _classify_keyword_category(f"{cls} {member} {item.get('description', '')}", fallback="player_character")
+        resolved = resolve_endpoint_classification(
+            member,
+            engine="unity",
+            reference_candidates=[sig, f"{cls}.{member}", member],
+            embedded_context=f"{cls} {item.get('description', '')}",
+            embedded_label=str(item.get("name") or f"{cls}.{member}"),
+            embedded_description=str(item.get("description") or f"Live BepInExMCP bridge member '{member}' on {cls}."),
+            embedded_category=str(item.get("category")) if item.get("category") else None,
+        )
         cur_v = str(item.get("current_value") if item.get("current_value") is not None else item.get("value", "Live"))
         def_v = str(item.get("default_value") if item.get("default_value") is not None else cur_v)
         endpoints.append(
             _make_endpoint(
                 endpoint_id=str(item.get("id") or f"live_mcp:{cls}:{member}"),
-                category=str(item.get("category") or cat),
-                name=str(item.get("name") or f"{cls}.{member}"),
-                simple_description=str(item.get("description") or f"Live BepInExMCP bridge member '{member}' on {cls}."),
+                category=str(item.get("category") or resolved["category"]),
+                name=resolved["simple_label"],
+                simple_description=resolved["simple_description"],
                 current_value=cur_v,
                 default_value=def_v,
                 delivery_type="Bridge",
                 can_edit=True,
+                value_type=resolved.get("value_type"),
+                options=resolved.get("options"),
+                min_val=resolved.get("min"),
+                max_val=resolved.get("max"),
+                step_val=resolved.get("step"),
+                classification_source=resolved["source"],
+                confidence=resolved["confidence"],
                 advanced_details={
                     "source_kind": "live_bepinex_mcp",
                     "namespace": ns,
@@ -545,7 +456,7 @@ def _scan_unity_endpoints(
             )
         )
 
-    # 3. Curated IL2CPP/Mono dump signatures if interop / Managed / Il2CppDumper metadata is present
+    # 3. Curated & parsed IL2CPP/Mono dump signatures (dump.cs / script.json / interop / Managed)
     interop_dir = game_dir / "BepInEx" / "interop"
     managed_dirs = [d / "Managed" for d in game_dir.glob("*_Data") if (d / "Managed").is_dir()]
     has_dump_surface = interop_dir.is_dir() or bool(managed_dirs)
@@ -577,6 +488,8 @@ def _scan_unity_endpoints(
                         default_value=d_val,
                         delivery_type="Bridge",
                         can_edit=True,
+                        classification_source="reference_dict",
+                        confidence="high",
                         advanced_details={
                             "source_kind": "il2cpp_dump_signature",
                             "namespace": comp.rsplit(".", 1)[0],
@@ -587,36 +500,57 @@ def _scan_unity_endpoints(
                     )
                 )
 
-        # Scan Il2CppDumper dump.cs if generated locally (read first ~1MB cap)
-        for dump_cand in (game_dir / "dump.cs", TOOLS_ROOT / "Il2CppDumper" / "dump.cs"):
-            if dump_cand.is_file():
-                snippet = dump_cand.read_bytes()[:1024 * 1024].decode("utf-8", errors="ignore")
-                matches = re.findall(r"class\s+([A-Za-z0-9_]+)\s*(?::|\{)[^}]{0,260}?\b(Health|MaxAmmo|Damage|Currency|Gold|Experience|Level|RevealMap|SpawnRate)\b", snippet)
-                for cls_nm, tok in matches[:12]:
-                    cat = _classify_keyword_category(f"{cls_nm} {tok}", fallback="game_systems")
-                    ep_id = f"il2cpp_dump:{cls_nm}:{tok}"
-                    if any(e["id"] == ep_id for e in endpoints):
-                        continue
-                    endpoints.append(
-                        _make_endpoint(
-                            endpoint_id=ep_id,
-                            category=cat,
-                            name=f"{cls_nm}.{tok} (Dump)",
-                            simple_description=f"Discovered IL2CPP dump field/property '{tok}' on '{cls_nm}'.",
-                            current_value="Runtime",
-                            default_value="Runtime",
-                            delivery_type="Bridge",
-                            can_edit=True,
-                            advanced_details={
-                                "source_kind": "il2cpp_dump_cs",
-                                "file_path": str(dump_cand),
-                                "class_name": cls_nm,
-                                "member": tok,
-                                "method_signature": f"{cls_nm}.{tok}",
-                            },
-                        )
-                    )
+    # Scan Il2CppDumper dump.cs / script.json for [Header], [Tooltip], [Range] attributes & fields
+    dump_records = parse_unity_dump_metadata(game_dir, tools_root=TOOLS_ROOT if has_dump_surface else None)
+    for rec in dump_records:
+        cls_nm = rec["class_name"]
+        tok = rec["member"]
+        ep_id = f"il2cpp_dump:{cls_nm}:{tok}"
+        if any(e["id"] == ep_id for e in endpoints):
+            continue
+        ctx = f"{rec.get('namespace', '')} {cls_nm} {rec.get('header', '')} {rec.get('tooltip', '')}"
+        resolved = resolve_endpoint_classification(
+            tok,
+            engine="unity",
+            reference_candidates=[rec["signature"], f"{cls_nm}.{tok}", tok],
+            embedded_source="unity_dump",
+            embedded_context=ctx,
+            embedded_label=f"{rec['simple_label']} (Dump)",
+            embedded_description=rec["simple_description"],
+            embedded_value_type=rec.get("value_type"),
+            embedded_min=rec.get("min_value"),
+            embedded_max=rec.get("max_value"),
+            embedded_default="Runtime",
+        )
+        endpoints.append(
+            _make_endpoint(
+                endpoint_id=ep_id,
+                category=resolved["category"],
+                name=resolved["simple_label"],
+                simple_description=resolved["simple_description"],
+                current_value="Runtime",
+                default_value="Runtime",
+                delivery_type="Bridge",
+                can_edit=True,
+                value_type=resolved.get("value_type"),
+                min_val=resolved.get("min"),
+                max_val=resolved.get("max"),
+                classification_source=resolved["source"],
+                confidence=resolved["confidence"],
+                advanced_details={
+                    "source_kind": "il2cpp_dump_cs",
+                    "file_path": rec["file_path"],
+                    "namespace": rec.get("namespace", ""),
+                    "class_name": cls_nm,
+                    "member": tok,
+                    "method_signature": rec["signature"],
+                    "header": rec.get("header", ""),
+                    "tooltip": rec.get("tooltip", ""),
+                },
+            )
+        )
 
+    if has_dump_surface:
         # Standalone compiled BepInEx Mod File generator endpoint for Unity
         endpoints.append(
             _make_endpoint(
@@ -629,6 +563,8 @@ def _scan_unity_endpoints(
                 delivery_type="Mod File",
                 can_edit=True,
                 value_type="number",
+                classification_source="reference_dict",
+                confidence="high",
                 advanced_details={
                     "source_kind": "bepinex_compiled_dll",
                     "rule_type": "member_set",
@@ -771,17 +707,29 @@ def scan_game_endpoints(
             for cfg in sorted(list(game_dir.glob("*.ini")) + list(game_dir.glob("*.cfg")), key=lambda p: p.name.lower())[:5]:
                 for sec, kv in parse_unreal_ini_file(cfg).items():
                     for k, v in list(kv.items())[:20]:
-                        cat = _classify_keyword_category(f"{sec} {k}", fallback="engine_settings")
+                        resolved_gen = resolve_endpoint_classification(
+                            k,
+                            engine="generic",
+                            reference_candidates=[k, f"{sec}.{k}"],
+                            embedded_context=f"{cfg.stem} {sec}",
+                            embedded_description=f"Configuration setting '{k}' under [{sec}] in {cfg.name}.",
+                        )
                         discovered.append(
                             _make_endpoint(
                                 endpoint_id=f"generic_ini:{cfg.name}:{sec}:{k}",
-                                category=cat,
-                                name=k,
-                                simple_description=f"Configuration setting '{k}' under [{sec}] in {cfg.name}.",
+                                category=resolved_gen["category"],
+                                name=resolved_gen["simple_label"],
+                                simple_description=resolved_gen["simple_description"],
                                 current_value=str(v),
                                 default_value=str(v),
                                 delivery_type="Config",
                                 can_edit=True,
+                                value_type=resolved_gen.get("value_type"),
+                                options=resolved_gen.get("options"),
+                                min_val=resolved_gen.get("min"),
+                                max_val=resolved_gen.get("max"),
+                                classification_source=resolved_gen["source"],
+                                confidence=resolved_gen["confidence"],
                                 advanced_details={
                                     "source_kind": "generic_ini",
                                     "file_path": str(cfg),
@@ -793,6 +741,59 @@ def scan_game_endpoints(
                         )
 
     discovered.extend(_error_log_endpoints(game_dir, info))
+
+    # Merge any community-imported endpoints persisted for this game
+    seen_ep_ids = {str(ep.get("id")) for ep in discovered}
+    for imp_ep in load_game_imported_endpoints(slug, app_data_root=APP_DATA_ROOT):
+        if str(imp_ep.get("id")) not in seen_ep_ids:
+            seen_ep_ids.add(str(imp_ep.get("id")))
+            discovered.append(
+                _make_endpoint(
+                    endpoint_id=str(imp_ep["id"]),
+                    category=str(imp_ep.get("category") or "uncategorized"),
+                    name=str(imp_ep.get("name") or imp_ep["id"]),
+                    simple_description=str(imp_ep.get("simple_description") or ""),
+                    current_value=str(imp_ep.get("current_value") if imp_ep.get("current_value") is not None else imp_ep.get("default_value", "")),
+                    default_value=str(imp_ep.get("default_value") if imp_ep.get("default_value") is not None else ""),
+                    delivery_type=str(imp_ep.get("delivery_type") or "Config"),
+                    can_edit=bool(imp_ep.get("can_edit", False)),
+                    value_type=imp_ep.get("value_type"),
+                    options=imp_ep.get("options"),
+                    min_val=imp_ep.get("min"),
+                    max_val=imp_ep.get("max"),
+                    step_val=imp_ep.get("step"),
+                    classification_source=str(imp_ep.get("classification_source") or "community_import"),
+                    confidence=str(imp_ep.get("confidence") or "high"),
+                    advanced_details=dict(imp_ep.get("advanced_details") or {}),
+                )
+            )
+
+    # Check persistent self-learning endpoint_knowledge.json FIRST before finalized classification
+    engine_name = "unreal" if is_unreal else ("unity" if is_unity else "generic")
+    for ep in discovered:
+        if ep.get("category") == "error_logs" and str(ep.get("id", "")).startswith("err_log:"):
+            continue
+        adv = ep.get("advanced_details") or {}
+        cands = [
+            extract_endpoint_symbol(ep),
+            str(adv.get("symbol") or ""),
+            str(adv.get("method_signature") or ""),
+        ]
+        if not adv.get("section") and adv.get("key"):
+            cands.append(str(adv["key"]))
+        k_hit = lookup_endpoint_knowledge(engine_name, cands, app_data_root=APP_DATA_ROOT)
+        if k_hit is not None:
+            new_cat = k_hit["category"] if k_hit["category"] in _ALL_CATEGORY_LABELS else "uncategorized"
+            ep["category"] = new_cat
+            ep["category_label"] = _ALL_CATEGORY_LABELS[new_cat]
+            if k_hit.get("simple_description"):
+                ep["simple_description"] = str(k_hit["simple_description"])
+            ep["classification_source"] = "knowledge_cache"
+            ep["confidence"] = str(k_hit.get("confidence") or "high")
+            if isinstance(ep.get("advanced_details"), dict):
+                ep["advanced_details"]["classification_source"] = "knowledge_cache"
+                ep["advanced_details"]["classification_confidence"] = ep["confidence"]
+
     synced, defaults_path = _sync_game_defaults(slug, discovered, defaults_dir=defaults_dir, reset_defaults=reset_defaults)
 
     counts: dict[str, int] = {c["id"]: 0 for c in ENDPOINT_CATEGORIES}
@@ -815,6 +816,7 @@ def scan_game_endpoints(
             {**c, "count": counts.get(c["id"], 0)}
             for c in ENDPOINT_CATEGORIES
         ],
+        "uncategorized_count": counts.get("uncategorized", 0),
         "total_count": len(synced),
         "modified_count": sum(1 for e in synced if e.get("is_modified")),
         "endpoints": synced,

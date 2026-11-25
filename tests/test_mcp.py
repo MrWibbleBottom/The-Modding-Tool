@@ -482,6 +482,142 @@ class McpTests(unittest.TestCase):
                 self.assertIn("NullReferenceException", fdata["log_excerpt"])
                 core_config.invalidate_games_cache()
 
+    def test_unity_cfg_doc_ranges_dump_attributes_and_uncategorized_fallback(self) -> None:
+        from app.services import endpoint_parsers
+
+        # Direct unit check of Token + Type Heuristic Classifier & Reference Dict
+        low_heur = endpoint_parsers.classify_identifier_heuristic("XyzzyFrobnitzInternalSeed")
+        self.assertEqual(low_heur["category"], "uncategorized")
+        self.assertEqual(low_heur["confidence"], "low")
+
+        ref_fps = endpoint_parsers.lookup_engine_reference(["Application.targetFrameRate"], engine="unity")
+        self.assertIsNotNone(ref_fps)
+        self.assertEqual(ref_fps["category"], "engine_settings")
+        self.assertEqual(ref_fps["source"], "reference_dict")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            unity_dir = tmp_dir / "UnityParserSample"
+            (unity_dir / "BepInEx" / "config").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "BepInEx" / "interop").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "GameAssembly.dll").write_bytes(b"MZ")
+            (unity_dir / "BepInEx" / "interop" / "Assembly-CSharp.dll").write_bytes(b"DLL")
+
+            (unity_dir / "BepInEx" / "config" / "BepInEx.cfg").write_text(
+                "\n".join([
+                    "[Logging.Console]",
+                    "## Enables live console debug output",
+                    "# Setting type: Boolean",
+                    "# Default value: false",
+                    "Enabled = true",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            (unity_dir / "BepInEx" / "config" / "com.demo.tweaks.cfg").write_text(
+                "\n".join([
+                    "[Combat]",
+                    "## Scales outgoing melee and spell damage",
+                    "# Setting type: Single",
+                    "# Default value: 1.0",
+                    "# Acceptable value range: From 0.5 to 5.0",
+                    "PlayerDamageMultiplier = 1.5",
+                    "",
+                    "[Visuals]",
+                    "## Selects preset particle density",
+                    "# Setting type: String",
+                    "# Default value: Medium",
+                    "# Acceptable values: Low, Medium, High",
+                    "ParticlePreset = High",
+                    "",
+                    "[Internal]",
+                    "# Setting type: Int32",
+                    "# Default value: 7",
+                    "XyzzyOpaqueCounter = 7",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            (unity_dir / "dump.cs").write_text(
+                "\n".join([
+                    "// Namespace: Game.Combat",
+                    "public class WeaponController : MonoBehaviour",
+                    "{",
+                    '    [Header("Weapon Balance")]',
+                    '    [Tooltip("Multiplies projectile damage for all equipped weapons")]',
+                    "    [Range(0.25f, 8.0f)]",
+                    "    public float ProjectileDamageScale; // 0x20",
+                    "}",
+                    "// Namespace: Game.Core",
+                    "public class InternalState",
+                    "{",
+                    '    [Tooltip("Opaque diagnostic build tag")]',
+                    "    public int ZxQwertyBuildNumber; // 0x10",
+                    "}",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unity_parser_sample",
+                        "name": "Unity Parser Sample",
+                        "game_dir": str(unity_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoints_service, "_probe_live_bepinex_bridge", return_value=[]),
+            ):
+                core_config.invalidate_games_cache()
+                r_scan = self.client.post(
+                    "/api/games/unity_parser_sample/endpoints/scan",
+                    json={},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_scan.status_code, 200)
+                sdata = r_scan.json()
+                self.assertEqual(sdata["uncategorized_count"], 2)
+                eps = {e["id"]: e for e in sdata["endpoints"]}
+
+                con_ep = eps["bep_cfg:BepInEx.cfg:Logging.Console:Enabled"]
+                self.assertEqual(con_ep["category"], "error_logs")
+                self.assertEqual(con_ep["classification_source"], "reference_dict")
+
+                dmg_ep = eps["bep_cfg:com.demo.tweaks.cfg:Combat:PlayerDamageMultiplier"]
+                self.assertEqual(dmg_ep["category"], "game_systems")
+                self.assertEqual(dmg_ep["classification_source"], "cfg_metadata")
+                self.assertEqual(dmg_ep["min"], 0.5)
+                self.assertEqual(dmg_ep["max"], 5.0)
+                self.assertIn("outgoing melee", dmg_ep["simple_description"].lower())
+
+                vis_ep = eps["bep_cfg:com.demo.tweaks.cfg:Visuals:ParticlePreset"]
+                self.assertEqual(vis_ep["value_type"], "select")
+                self.assertEqual(vis_ep["options"], ["Low", "Medium", "High"])
+
+                dump_ep = eps["il2cpp_dump:WeaponController:ProjectileDamageScale"]
+                self.assertEqual(dump_ep["classification_source"], "unity_dump")
+                self.assertEqual(dump_ep["min"], 0.25)
+                self.assertEqual(dump_ep["max"], 8)
+                self.assertEqual(dump_ep["advanced_details"]["method_signature"], "Game.Combat.WeaponController.ProjectileDamageScale")
+                self.assertIn("projectile damage", dump_ep["simple_description"].lower())
+
+                unk_cfg = eps["bep_cfg:com.demo.tweaks.cfg:Internal:XyzzyOpaqueCounter"]
+                self.assertEqual(unk_cfg["category"], "uncategorized")
+                self.assertEqual(unk_cfg["confidence"], "low")
+
+                unk_dump = eps["il2cpp_dump:InternalState:ZxQwertyBuildNumber"]
+                self.assertEqual(unk_dump["category"], "uncategorized")
+                self.assertEqual(unk_dump["confidence"], "low")
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

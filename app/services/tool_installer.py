@@ -31,13 +31,19 @@ from app.core.config import (
     sha256_file,
     sha256_text,
 )
-from app.core.constants import PLUGIN_DEPLOY_FILES
+from app.core.constants import PLUGIN_DEPLOY_FILES, TOOL_RELEASE_CATALOG
 from app.services.conflict_guard import inspect_conflict_guard
 from app.services.game_snapshots import create_game_snapshot, list_game_snapshots
 from app.services.game_store import enrich_game_status, inspect_game_modding_info
 
 
-async def _download_and_extract_zip(url: str, target_dir: Path, archive_name: str) -> tuple[Path, str, int]:
+async def _download_and_extract_zip(
+    url: str,
+    target_dir: Path,
+    archive_name: str,
+    *,
+    strip_nested_bepinex_root: bool = False,
+) -> tuple[Path, str, int]:
     """Download a zip archive over HTTPS, compute its SHA-256, and extract it into *target_dir*."""
     import httpx
 
@@ -51,61 +57,201 @@ async def _download_and_extract_zip(url: str, target_dir: Path, archive_name: st
     file_hash = sha256_file(archive_path)
     extracted_count = 0
     if archive_name.lower().endswith(".zip") and zipfile.is_zipfile(archive_path):
+        extract_dest = target_dir
         with zipfile.ZipFile(archive_path, "r") as zf:
-            zf.extractall(target_dir)
+            names = [n for n in zf.namelist() if n and not n.endswith("/")]
+            if (
+                strip_nested_bepinex_root
+                and target_dir.name.lower() == "bepinex"
+                and names
+                and all(n.lower().startswith("bepinex/") for n in names)
+            ):
+                extract_dest = target_dir.parent
+            zf.extractall(extract_dest)
             extracted_count = len(zf.namelist())
     return (archive_path, file_hash, extracted_count)
 
 
-async def _install_github_release_tool(
-    repo: str,
-    target_dir: Path,
-    asset_keyword: str = ".zip",
-) -> tuple[str, str, int]:
-    """Query GitHub latest release API for *repo*, download matching asset, and extract if zip."""
+def _score_github_asset(
+    asset: dict[str, Any],
+    asset_match: dict[str, Any] | None,
+    *,
+    is_prerelease: bool = False,
+) -> int | None:
+    name = str(asset.get("name") or "").strip()
+    dl_url = str(asset.get("browser_download_url") or "").strip()
+    if not name or not dl_url:
+        return None
+    name_low = name.lower()
+    rules = asset_match or {}
+    include_tokens = [str(t).strip().lower() for t in (rules.get("include") or []) if str(t).strip()]
+    prefer_tokens = [str(t).strip().lower() for t in (rules.get("prefer") or []) if str(t).strip()]
+    exclude_tokens = [str(t).strip().lower() for t in (rules.get("exclude") or []) if str(t).strip()]
+
+    for tok in include_tokens:
+        if tok not in name_low:
+            return None
+    for tok in exclude_tokens:
+        if tok in name_low:
+            return None
+
+    score = 100
+    if name_low.endswith(".zip"):
+        score += 10
+    if not is_prerelease:
+        score += 15
+    for idx, tok in enumerate(prefer_tokens):
+        if tok in name_low:
+            score += 20 + max(0, len(prefer_tokens) - idx)
+    return score
+
+
+def resolve_github_release_asset_info(
+    repos: list[str] | tuple[str, ...] | str,
+    asset_match: dict[str, Any] | None = None,
+    fallback_url: str | None = None,
+    *,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Query GitHub Releases API across ordered *repos* and score matching assets; fall back only if rate-limited/offline."""
     import httpx
 
+    repo_list = [repos] if isinstance(repos, str) else [str(r).strip() for r in (repos or []) if str(r or "").strip()]
+    rules = dict(asset_match or {})
+    if "include" not in rules:
+        rules["include"] = [".zip"]
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "TheModdingTool/1.0",
+    }
+    saw_unavailable = False
+    last_error = ""
+
+    with httpx.Client(follow_redirects=True, timeout=timeout) as client:
+        for repo in repo_list:
+            candidate_releases: list[dict[str, Any]] = []
+            try:
+                resp = client.get(f"https://api.github.com/repos/{repo}/releases/latest", headers=headers)
+                if resp.status_code in (403, 429) or resp.status_code >= 500:
+                    saw_unavailable = True
+                    last_error = f"GitHub API HTTP {resp.status_code} for {repo}"
+                    continue
+                if resp.status_code == 200:
+                    latest_rel = resp.json()
+                    if isinstance(latest_rel, dict):
+                        candidate_releases.append(latest_rel)
+
+                # Fallback to /releases list if /latest is 404 or had no assets
+                if resp.status_code == 404 or not (candidate_releases and candidate_releases[0].get("assets")):
+                    resp_all = client.get(f"https://api.github.com/repos/{repo}/releases?per_page=10", headers=headers)
+                    if resp_all.status_code in (403, 429) or resp_all.status_code >= 500:
+                        saw_unavailable = True
+                        last_error = f"GitHub API HTTP {resp_all.status_code} for {repo}/releases"
+                        continue
+                    if resp_all.status_code == 200:
+                        rel_list = resp_all.json()
+                        if isinstance(rel_list, list):
+                            candidate_releases.extend(r for r in rel_list if isinstance(r, dict) and not r.get("draft"))
+                    elif resp_all.status_code == 404:
+                        last_error = f"No GitHub releases found for {repo}"
+                        continue
+                    else:
+                        last_error = f"GitHub API HTTP {resp_all.status_code} for {repo}/releases"
+                        continue
+            except Exception as exc:
+                saw_unavailable = True
+                last_error = f"{type(exc).__name__}: {exc}"
+                continue
+
+            best_tuple: tuple[int, dict[str, Any], dict[str, Any]] | None = None
+            for rel in candidate_releases:
+                is_pre = bool(rel.get("prerelease"))
+                for asset in rel.get("assets") or []:
+                    if not isinstance(asset, dict):
+                        continue
+                    sc = _score_github_asset(asset, rules, is_prerelease=is_pre)
+                    if sc is None:
+                        continue
+                    if best_tuple is None or sc > best_tuple[0]:
+                        best_tuple = (sc, asset, rel)
+
+            if best_tuple is not None:
+                _, chosen_asset, chosen_rel = best_tuple
+                dl_url = str(chosen_asset.get("browser_download_url") or "")
+                digest_raw = str(chosen_asset.get("digest") or "")
+                sha_digest = digest_raw.split(":", 1)[1].strip().lower() if digest_raw.startswith("sha256:") else ""
+                return {
+                    "url": dl_url,
+                    "repo": repo,
+                    "tag": str(chosen_rel.get("tag_name") or "latest"),
+                    "asset_name": str(chosen_asset.get("name") or "asset.zip"),
+                    "sha256": sha_digest,
+                    "used_fallback": False,
+                }
+            last_error = f"No matching asset in {repo} for {rules.get('include')}"
+
+    if saw_unavailable and fallback_url:
+        return {
+            "url": fallback_url,
+            "repo": repo_list[0] if repo_list else "",
+            "tag": "fallback",
+            "asset_name": Path(fallback_url).name or "download.zip",
+            "sha256": "",
+            "used_fallback": True,
+        }
+    raise RuntimeError(last_error or f"Could not resolve matching GitHub release asset across {repo_list}.")
+
+
+def resolve_github_release_asset(
+    repos: list[str] | tuple[str, ...] | str,
+    asset_match: dict[str, Any] | None = None,
+    fallback_url: str | None = None,
+) -> str:
+    """Resolve live `browser_download_url` across ordered GitHub repos, falling back to `fallback_url` only if offline/rate-limited."""
+    info = resolve_github_release_asset_info(repos, asset_match, fallback_url=fallback_url)
+    return str(info["url"])
+
+
+async def _install_github_release_tool(
+    repo: str | list[str] | tuple[str, ...],
+    target_dir: Path,
+    asset_keyword_or_match: str | dict[str, Any] = ".zip",
+    *,
+    fallback_url: str | None = None,
+    strip_nested_bepinex_root: bool = False,
+) -> tuple[str, str, int]:
+    """Resolve matching GitHub release asset across repo(s), download, and extract into *target_dir*."""
     target_dir.mkdir(parents=True, exist_ok=True)
-    api_url = f"https://api.github.com/repos/{repo}/releases/latest"
-    async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-        resp = await client.get(api_url, headers={"User-Agent": "TheModdingTool/1.0"})
-        resp.raise_for_status()
-        rel = resp.json()
-
-    tag_name = rel.get("tag_name", "latest")
-    assets = rel.get("assets", []) or []
-    chosen_asset = None
-    for a in assets:
-        aname = str(a.get("name", "")).lower()
-        if asset_keyword.lower() in aname and aname.endswith(".zip"):
-            chosen_asset = a
-            break
-    if chosen_asset is None:
-        for a in assets:
-            aname = str(a.get("name", "")).lower()
-            if aname.endswith(".zip"):
-                chosen_asset = a
-                break
-    if chosen_asset is None and assets:
-        chosen_asset = assets[0]
-
-    if chosen_asset and chosen_asset.get("browser_download_url"):
-        dl_url = chosen_asset["browser_download_url"]
-        aname = chosen_asset.get("name", f"{repo.replace('/', '_')}_{tag_name}.zip")
-        _, file_hash, count = await _download_and_extract_zip(dl_url, target_dir, aname)
-        (target_dir / "release_info.json").write_text(
-            json.dumps({"repo": repo, "tag": tag_name, "asset": aname, "download_url": dl_url}, indent=2),
-            encoding="utf-8",
-        )
-        return (f"{aname} ({tag_name})", file_hash, count)
-
-    info_file = target_dir / "release_info.json"
-    info_text = json.dumps(
-        {"repo": repo, "tag": tag_name, "html_url": rel.get("html_url", f"https://github.com/{repo}/releases")},
-        indent=2,
+    asset_match = (
+        dict(asset_keyword_or_match)
+        if isinstance(asset_keyword_or_match, dict)
+        else {"include": [asset_keyword_or_match, ".zip"] if asset_keyword_or_match != ".zip" else [".zip"]}
     )
-    info_file.write_text(info_text, encoding="utf-8")
-    return (f"{repo} ({tag_name})", sha256_text(info_text), 1)
+    info = resolve_github_release_asset_info(repo, asset_match, fallback_url=fallback_url)
+    dl_url = info["url"]
+    aname = info["asset_name"] or f"{Path(dl_url).name or 'asset.zip'}"
+    tag_name = info["tag"]
+    _, file_hash, count = await _download_and_extract_zip(
+        dl_url,
+        target_dir,
+        aname,
+        strip_nested_bepinex_root=strip_nested_bepinex_root,
+    )
+    (target_dir / "release_info.json").write_text(
+        json.dumps(
+            {
+                "repo": info["repo"],
+                "tag": tag_name,
+                "asset": aname,
+                "download_url": dl_url,
+                "used_fallback": info["used_fallback"],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return (f"{aname} ({tag_name})", file_hash, count)
 
 
 async def install_modding_tool_impl(
@@ -187,74 +333,42 @@ async def install_modding_tool_impl(
             h = sha256_file(main_dll) if main_dll.is_file() else sha256_text(str(dest_dir))
             msg = f"Deployed BepInExMCP.IL2CPP + Roslyn ({copied} files) to {dest_dir}"
 
-        elif tool_id == "il2cpp_dumper":
-            dest_dir = TOOLS_ROOT / "Il2CppDumper"
-            url = "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip"
-            _, h, count = await _download_and_extract_zip(url, dest_dir, "Il2CppDumper-net6-v6.7.46.zip")
-            msg = f"Downloaded & extracted Il2CppDumper v6.7.46 ({count} files) to {dest_dir}"
+        elif tool_id in TOOL_RELEASE_CATALOG:
+            cat_meta = TOOL_RELEASE_CATALOG[tool_id]
+            strip_bep = False
+            if tool_id == "unity_explorer_il2cpp":
+                dest_dir = (
+                    (game_dir / "BepInEx")
+                    if (dir_exists and (game_dir / "GameAssembly.dll").is_file())
+                    else (TOOLS_ROOT / "UnityExplorer_IL2CPP")
+                )
+                strip_bep = True
+            elif tool_id == "bepinex_mono":
+                is_mono_game = dir_exists and not (game_dir / "GameAssembly.dll").is_file() and bool(list(game_dir.glob("*_Data")))
+                dest_dir = game_dir if is_mono_game else (TOOLS_ROOT / "BepInEx5_Mono")
+            else:
+                dir_names = {
+                    "il2cpp_dumper": "Il2CppDumper",
+                    "dnspy_ex": "dnSpyEx",
+                    "ue4ss": "UE4SS",
+                    "fmodel": "FModel",
+                    "ghidra_mcp": "GhidraMCP",
+                    "x64dbg": "x64dbg",
+                    "gdre_tools": "GDRETools",
+                    "mod_engine_2": "ModEngine2",
+                    "reframework": "REFramework",
+                    "xedit_creation": "xEdit",
+                }
+                dest_dir = TOOLS_ROOT / dir_names[tool_id]
 
-        elif tool_id == "unity_explorer_il2cpp":
-            dest_dir = (
-                (game_dir / "BepInEx")
-                if (dir_exists and (game_dir / "GameAssembly.dll").is_file())
-                else (TOOLS_ROOT / "UnityExplorer_IL2CPP")
+            label, h, count = await _install_github_release_tool(
+                cat_meta["github_repos"],
+                dest_dir,
+                cat_meta.get("asset_match") or {"include": [".zip"]},
+                fallback_url=cat_meta.get("fallback_url"),
+                strip_nested_bepinex_root=strip_bep,
             )
-            url = "https://github.com/sinai-dev/UnityExplorer/releases/download/4.9.0/UnityExplorer.BepInEx6.IL2CPP.zip"
-            _, h, count = await _download_and_extract_zip(url, dest_dir, "UnityExplorer.BepInEx6.IL2CPP.zip")
-            msg = f"Installed UnityExplorer (BepInEx 6 IL2CPP, {count} files) to {dest_dir}"
-
-        elif tool_id == "bepinex_mono":
-            is_mono_game = dir_exists and not (game_dir / "GameAssembly.dll").is_file() and bool(list(game_dir.glob("*_Data")))
-            dest_dir = game_dir if is_mono_game else (TOOLS_ROOT / "BepInEx5_Mono")
-            url = "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.2/BepInEx_win_x64_5.4.23.2.zip"
-            _, h, count = await _download_and_extract_zip(url, dest_dir, "BepInEx_win_x64_5.4.23.2.zip")
-            msg = f"Installed BepInEx 5.4.23.2 (Unity Mono x64, {count} files) to {dest_dir}"
-
-        elif tool_id == "dnspy_ex":
-            dest_dir = TOOLS_ROOT / "dnSpyEx"
-            url = "https://github.com/dnSpyEx/dnSpy/releases/download/v6.5.1/dnSpy-net-win64.zip"
-            _, h, count = await _download_and_extract_zip(url, dest_dir, "dnSpy-net-win64.zip")
-            msg = f"Installed dnSpyEx v6.5.1 Win64 ({count} files) to {dest_dir}"
-
-        elif tool_id == "ue4ss":
-            dest_dir = TOOLS_ROOT / "UE4SS"
-            label, h, count = await _install_github_release_tool("UE4SS-RE/RE-UE4SS", dest_dir, "UE4SS")
-            msg = f"Installed RE-UE4SS [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "fmodel":
-            dest_dir = TOOLS_ROOT / "FModel"
-            label, h, count = await _install_github_release_tool("4sval/FModel", dest_dir, "FModel")
-            msg = f"Installed FModel [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "ghidra_mcp":
-            dest_dir = TOOLS_ROOT / "GhidraMCP"
-            label, h, count = await _install_github_release_tool("LaurieWired/GhidraMCP", dest_dir, "GhidraMCP")
-            msg = f"Installed GhidraMCP [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "x64dbg":
-            dest_dir = TOOLS_ROOT / "x64dbg"
-            label, h, count = await _install_github_release_tool("x64dbg/x64dbg", dest_dir, "snapshot")
-            msg = f"Installed x64dbg [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "gdre_tools":
-            dest_dir = TOOLS_ROOT / "GDRETools"
-            label, h, count = await _install_github_release_tool("GDRETools/gdsdecomp", dest_dir, "windows")
-            msg = f"Installed GDRE Tools [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "mod_engine_2":
-            dest_dir = TOOLS_ROOT / "ModEngine2"
-            label, h, count = await _install_github_release_tool("soulsmods/ModEngine2", dest_dir, "ModEngine")
-            msg = f"Installed Mod Engine 2 [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "reframework":
-            dest_dir = TOOLS_ROOT / "REFramework"
-            label, h, count = await _install_github_release_tool("praydog/REFramework", dest_dir, ".zip")
-            msg = f"Installed REFramework [{label}] ({count} files) to {dest_dir}"
-
-        elif tool_id == "xedit_creation":
-            dest_dir = TOOLS_ROOT / "xEdit"
-            label, h, count = await _install_github_release_tool("TES5Edit/TES5Edit", dest_dir, "Edit")
-            msg = f"Installed xEdit [{label}] ({count} files) to {dest_dir}"
+            msg = f"Installed {cat_meta['name']} [{label}] ({count} files) to {dest_dir}"
 
         else:
             raise HTTPException(status_code=400, detail=f"Unknown modding tool_id: '{tool_id}'")
@@ -305,6 +419,132 @@ async def install_modding_tool_impl(
         "setup_checklist": setup_checklist,
         "game": enriched_target,
     }
+
+
+async def install_recommended_tools_impl(
+    game_id: str,
+    game_dir_str: str,
+    *,
+    tool_ids: list[str] | None = None,
+    force: bool = False,
+    pc_specs_fn: Callable[[bool], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Install all recommended (or specified) modding tools sequentially, continuing past single-tool errors."""
+    game_dir = Path(game_dir_str.strip()) if game_dir_str.strip() else Path(DEFAULT_GAME_DIR)
+    store = load_managed_games()
+    target = next((g for g in store.get("games", []) if g.get("id") == game_id), None)
+    game_name = str((target or {}).get("name") or game_dir.name or game_id)
+
+    name_map: dict[str, str] = {
+        tid: str(meta.get("name") or tid) for tid, meta in TOOL_RELEASE_CATALOG.items()
+    }
+    ordered_ids: list[str] = [str(t).strip().lower() for t in (tool_ids or []) if str(t).strip()]
+    if not ordered_ids:
+        info = inspect_game_modding_info(game_dir, game_name, pc_specs_fn=pc_specs_fn) if game_dir.is_dir() else {}
+        for app_entry in info.get("modding_apps", []):
+            aid = str(app_entry.get("id") or "").strip().lower()
+            if aid:
+                name_map[aid] = str(app_entry.get("name") or aid)
+            if app_entry.get("recommended") and aid:
+                ordered_ids.append(aid)
+
+    installed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    latest_game: dict[str, Any] | None = None
+    latest_checklist: dict[str, Any] | None = None
+
+    for tid in ordered_ids:
+        tname = name_map.get(tid, tid)
+        try:
+            res = await install_modding_tool_impl(
+                tid,
+                game_id,
+                game_dir_str,
+                force=force,
+                pc_specs_fn=pc_specs_fn,
+            )
+            if res.get("status") == "conflict_warning":
+                skipped.append({
+                    "tool_id": tid,
+                    "name": tname,
+                    "status": "skipped",
+                    "reason": res.get("message") or "Skipped due to conflict guard warning.",
+                    "conflict_warnings": res.get("warnings", []),
+                })
+            else:
+                installed.append({
+                    "tool_id": tid,
+                    "name": tname,
+                    "status": "installed",
+                    "message": res.get("message") or f"Installed {tname}",
+                    "install_dir": res.get("install_dir", ""),
+                    "sha256": res.get("sha256", ""),
+                })
+                if res.get("game") is not None:
+                    latest_game = res["game"]
+                if res.get("setup_checklist") is not None:
+                    latest_checklist = res["setup_checklist"]
+        except HTTPException as exc:
+            failed.append({
+                "tool_id": tid,
+                "name": tname,
+                "status": "failed",
+                "status_code": exc.status_code,
+                "reason": str(exc.detail),
+            })
+        except Exception as exc:
+            failed.append({
+                "tool_id": tid,
+                "name": tname,
+                "status": "failed",
+                "reason": str(exc),
+            })
+
+    if latest_game is None and target is not None:
+        latest_game = enrich_game_status(target, pc_specs_fn=pc_specs_fn)
+    if latest_checklist is None:
+        latest_checklist = build_setup_verification_checklist(
+            game_dir,
+            game_name,
+            slug=game_id or game_dir.name,
+            info=(latest_game or {}).get("modding_info") if latest_game else None,
+        )
+
+    if not failed:
+        batch_status = "ok"
+    elif installed:
+        batch_status = "partial"
+    else:
+        batch_status = "error"
+
+    summary = f"Installed {len(installed)}/{len(ordered_ids)} tool(s)"
+    if skipped:
+        summary += f", {len(skipped)} skipped"
+    if failed:
+        summary += f", {len(failed)} failed"
+
+    append_audit_log(
+        action="tools.install_recommended",
+        status="ok" if not failed else "warning",
+        summary=summary,
+        details={"game_id": game_id, "installed": [x["tool_id"] for x in installed], "failed": failed, "skipped": skipped},
+    )
+    return {
+        "status": batch_status,
+        "summary": summary,
+        "installed": installed,
+        "skipped": skipped,
+        "failed": failed,
+        "installed_count": len(installed),
+        "skipped_count": len(skipped),
+        "failed_count": len(failed),
+        "game": latest_game,
+        "setup_checklist": latest_checklist,
+    }
+
+
+install_recommended_tools = install_recommended_tools_impl
 
 
 def build_setup_verification_checklist(

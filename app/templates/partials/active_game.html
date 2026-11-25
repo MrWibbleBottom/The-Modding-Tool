@@ -405,6 +405,9 @@
                 <button type="button" class="ep-mode-btn active" id="ep-mode-btn-simple" onclick="setEndpointsUiMode('simple')">Simple Mode</button>
                 <button type="button" class="ep-mode-btn" id="ep-mode-btn-advanced" onclick="setEndpointsUiMode('advanced')">Advanced Mode</button>
               </div>
+              <input type="file" id="ep-community-file-input" accept=".ct,.cfg,.lua,.json,.ini" style="display:none;" onchange="handleCommunityImportFile(this)" />
+              <button type="button" class="secondary btn-sm" id="btn-import-community-endpoints" onclick="triggerCommunityImport()">Import Community Table/Schema</button>
+              <button type="button" class="secondary btn-sm" id="btn-export-endpoint-profile" onclick="exportEndpointProfile()">Export Endpoint Profile</button>
               <button type="button" class="success btn-sm" id="btn-scan-endpoints" onclick="scanModdingEndpoints()">Scan Endpoints</button>
             </div>
           </h2>
@@ -419,6 +422,7 @@
             <button type="button" class="ep-cat-pill" id="ep-cat-btn-cheats" onclick="selectEndpointCategory('cheats')">Cheats</button>
             <button type="button" class="ep-cat-pill" id="ep-cat-btn-qol" onclick="selectEndpointCategory('qol')">QoL</button>
             <button type="button" class="ep-cat-pill" id="ep-cat-btn-error_logs" onclick="selectEndpointCategory('error_logs')">Error Log Capture</button>
+            <button type="button" class="ep-cat-pill" id="ep-cat-btn-uncategorized" onclick="selectEndpointCategory('uncategorized')">Uncategorized <span class="badge" id="ep-uncategorized-count-badge">0</span></button>
           </div>
           <div id="ep-error-panel" class="snapshot-conflict-notice" style="display:none; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">

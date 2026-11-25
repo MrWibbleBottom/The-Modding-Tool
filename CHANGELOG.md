@@ -2,6 +2,39 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 17:36 — v0.1.40
+
+- **Prompt**: Fix 404 Not Found error for unity_explorer_il2cpp and replace hardcoded GitHub release URLs with dynamic GitHub Releases API resolution and resilient batch install
+- **AG Feedback**: Added TOOL_RELEASE_CATALOG, dynamic resolve_github_release_asset(), resilient batch install_recommended_tools_impl + /api/tools/install-recommended route, partial-failure batch feedback & Ready in Game card refresh in active_game.js, and mocked regression tests in tests/test_system.py; full pytest suite passed (48 passed).
+- **Version Changes**:
+  - Added TOOL_RELEASE_CATALOG in app/core/constants.py with ordered github_repos (including yukieiji/UnityExplorer -> sinai-dev/UnityExplorer), asset_match include/prefer/exclude scoring tokens, and offline fallback URLs.
+  - Added resolve_github_release_asset(), resolve_github_release_asset_info(), and resilient install_recommended_tools_impl() in app/services/tool_installer.py so GitHub-hosted tools resolve live release assets and batch installs continue past single-tool errors.
+  - Exposed POST /api/tools/install-recommended in app/routers/system.py.
+  - Updated installAllRecommendedTools() in app/static/js/active_game.js to surface per-tool installed/skipped/failed summaries and immediately refresh tool cards.
+  - Added test_github_release_resolver_and_resilient_batch_install in tests/test_system.py (48/48 passed).
+
+## 2026-11-25 16:56 — v0.1.40
+
+- **Prompt**: Add community modding artifact importers (.CT, UE4SS/BepInEx schemas), persistent self-learning endpoint knowledge cache, portable per-AppID profiles, and Uncategorized triage UI
+- **AG Feedback**: Implemented endpoint_catalog service, import/categorize/export routes, Uncategorized triage pill + inline category dropdown + toolbar import/export UI, and security/discovery tests; full pytest suite passed (47 passed).
+- **Version Changes**:
+  - Added app/services/endpoint_catalog.py with self-learning endpoint_knowledge.json cache (keyed by engine+normalized_symbol), XXE/DTD-safe Cheat Engine .CT XML parser, UE4SS .lua / Thunderstore manifest + .cfg / portable JSON importer, and path-stripped game_profiles/<appid>.json exporter.
+  - Wired first-priority endpoint_knowledge.json lookup and imported endpoint merging in app/services/endpoints.py.
+  - Added POST /api/games/{slug}/endpoints/import-community, POST /api/games/{slug}/endpoints/categorize, and GET /api/games/{slug}/endpoints/export-profile in app/routers/library.py.
+  - Updated app/templates/partials/active_game.html, app/static/js/active_game.js, and app/static/js/library.js with the Uncategorized filter pill + badge, inline category assignment select, and Import/Export toolbar controls.
+  - Added XXE/DTD rejection, path-traversal, CT/Lua/manifest import, knowledge cache persistence, and portable AppID export tests in tests/test_discovery.py and tests/test_security.py (47/47 passed).
+
+## 2026-11-25 16:49 — v0.1.40
+
+- **Prompt**: Add offline deterministic metadata parsers and curated engine endpoint reference dictionary for app/services/endpoints.py
+- **AG Feedback**: Created app/data/engine_endpoints_reference.json and app/services/endpoint_parsers.py, wired 3-stage offline classification waterfall into app/services/endpoints.py, updated package_windows.py to bundle app/data/engine_endpoints_reference.json, and added unit tests; full pytest suite passed (45 passed).
+- **Version Changes**:
+  - Added app/data/engine_endpoints_reference.json with curated Unreal CVars/INI/scalability entries and Unity/BepInEx/QualitySettings entries mapped to the 6 workflow categories.
+  - Added app/services/endpoint_parsers.py with BepInEx .cfg doc/range parser, Unreal DataTable/INI section/Hungarian prefix parser, Unity dump.cs/script.json attribute parser, and Token+Type heuristic with low-confidence uncategorized routing.
+  - Updated app/services/endpoints.py to apply the reference_dict -> file metadata -> heuristic waterfall and expose classification_source, confidence, and uncategorized_count.
+  - Updated package_windows.py to bundle app/data/engine_endpoints_reference.json in build_pyinstaller_command().
+  - Added offline parser & fallback tests in tests/test_unreal.py and tests/test_mcp.py (45/45 tests pass).
+
 ## 2026-11-25 16:18 — v0.1.40
 
 - **Prompt**: Implement contextual endpoint application (config, mod_file, bridge) with automated snapshots, post-change validation, and inline game/bridge error reporting

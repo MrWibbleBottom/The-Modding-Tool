@@ -545,6 +545,170 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertTrue(any(m["mod_type"] == "unreal_pak" for m in r_ue.json()["mods"]))
                 core_config.invalidate_games_cache()
 
+    def test_community_imports_knowledge_cache_categorize_and_portable_profile(self) -> None:
+        from app.services import endpoints as endpoints_service
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            game_dir = tmp_dir / "CommunityCatalogGame"
+            (game_dir / "BepInEx" / "config").mkdir(parents=True, exist_ok=True)
+            (game_dir / "GameAssembly.dll").write_bytes(b"MZ")
+            (game_dir / "BepInEx" / "config" / "custom.cfg").write_text(
+                "[CustomMisc]\n# Setting type: Int32\n# Default value: 12\nOpaqueMysteryKey = 12\n",
+                encoding="utf-8",
+            )
+
+            ct_xml = """<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="45">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>1</ID>
+      <Description>"Player Character"</Description>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>2</ID>
+          <Description>"Party Gold"</Description>
+          <VariableType>4 Bytes</VariableType>
+          <Address>GameAssembly.dll+1234</Address>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>3</ID>
+          <Description>"God Mode Invincible"</Description>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+nop
+[DISABLE]
+ret
+</AssemblerScript>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>
+"""
+            lua_schema = "\n".join([
+                "-- Multiplier for enemy damage scaling",
+                "Config.EnemyDamageScale = 1.5",
+                'RegisterHook("/Script/Engine.PlayerController:RevealMapObjects", function() end)',
+            ])
+            manifest_dir = game_dir / "ModSchemas"
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+            manifest_file = manifest_dir / "manifest.json"
+            manifest_file.write_text(
+                json.dumps({
+                    "name": "LootDropsTweak",
+                    "version_number": "1.2.0",
+                    "description": "Increases rare loot drop rates",
+                }),
+                encoding="utf-8",
+            )
+            (manifest_dir / "LootDropsTweak.cfg").write_text(
+                "[Loot]\n## Multiplier for chest loot drops\n# Setting type: Single\n# Default value: 1.0\nLootDropRate = 2.0\n",
+                encoding="utf-8",
+            )
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "comm_catalog_game",
+                        "name": "Community Catalog Game",
+                        "steam_appid": "1484280",
+                        "game_dir": str(game_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                # 1. Import Cheat Engine .CT via uploaded filename+content
+                r_ct = self.client.post(
+                    "/api/games/comm_catalog_game/endpoints/import-community",
+                    json={"filename": "hero_table.ct", "content": ct_xml},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_ct.status_code, 200)
+                ct_data = r_ct.json()
+                self.assertEqual(ct_data["imported_count"], 2)
+                ct_eps = {e["name"]: e for e in ct_data["imported_endpoints"]}
+                self.assertEqual(ct_eps["Party Gold"]["category"], "player_character")
+                self.assertEqual(ct_eps["Party Gold"]["delivery_type"], "Bridge")
+                self.assertEqual(ct_eps["God Mode Invincible"]["category"], "cheats")
+                self.assertEqual(ct_eps["God Mode Invincible"]["delivery_type"], "Mod File")
+
+                # 2. Import UE4SS/Lua schema and local Thunderstore manifest + sibling .cfg
+                r_lua = self.client.post(
+                    "/api/games/comm_catalog_game/endpoints/import-community",
+                    json={"filename": "config.lua", "content": lua_schema},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_lua.status_code, 200)
+                self.assertEqual(r_lua.json()["imported_count"], 2)
+
+                r_man = self.client.post(
+                    "/api/games/comm_catalog_game/endpoints/import-community",
+                    json={"file_path": str(manifest_file)},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_man.status_code, 200)
+                self.assertEqual(r_man.json()["imported_count"], 2)
+
+                # 3. Assign OpaqueMysteryKey from 'uncategorized' -> 'game_systems' & verify knowledge cache persistence across rescan
+                mystery_id = "bep_cfg:custom.cfg:CustomMisc:OpaqueMysteryKey"
+                r_pre = self.client.get("/api/games/comm_catalog_game/endpoints?category=uncategorized")
+                self.assertEqual(r_pre.status_code, 200)
+                self.assertTrue(any(e["id"] == mystery_id for e in r_pre.json()["endpoints"]))
+
+                r_cat = self.client.post(
+                    "/api/games/comm_catalog_game/endpoints/categorize",
+                    json={
+                        "endpoint_id": mystery_id,
+                        "category": "game_systems",
+                        "simple_description": "Controls custom wave spawn rate multiplier",
+                    },
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_cat.status_code, 200)
+                self.assertTrue((appdata_root / "endpoint_knowledge.json").is_file())
+
+                r_rescan = self.client.post(
+                    "/api/games/comm_catalog_game/endpoints/scan",
+                    json={},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_rescan.status_code, 200)
+                rescan_eps = {e["id"]: e for e in r_rescan.json()["endpoints"]}
+                learned = rescan_eps[mystery_id]
+                self.assertEqual(learned["category"], "game_systems")
+                self.assertEqual(learned["classification_source"], "knowledge_cache")
+                self.assertIn("wave spawn rate", learned["simple_description"].lower())
+
+                # 4. Export sanitized portable AppID profile without local filesystem paths
+                r_exp = self.client.get("/api/games/comm_catalog_game/endpoints/export-profile")
+                self.assertEqual(r_exp.status_code, 200)
+                profile = r_exp.json()
+                self.assertEqual(profile["app_id"], "1484280")
+                self.assertTrue((appdata_root / "game_profiles" / "1484280.json").is_file())
+                serialized_profile = json.dumps(profile)
+                self.assertNotIn(str(tmp_dir), serialized_profile)
+                for p_ep in profile["endpoints"]:
+                    self.assertNotIn("file_path", p_ep)
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

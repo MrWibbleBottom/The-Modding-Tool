@@ -409,42 +409,59 @@ export async function installAllRecommendedTools() {
     }
     return;
   }
-  const results = [];
+  const gameDir = document.getElementById("fp-game-dir")?.value || game.game_dir || "";
+  if (out) {
+    out.style.display = "block";
+    out.textContent = `Installing ${apps.length} recommended modding app(s)...\n` + apps.map(a => `• ${a.name}`).join("\n");
+  }
   try {
     await runTrackedAction(
       btn,
       async ({ setProgress }) => {
-        for (let i = 0; i < apps.length; i++) {
-          const app = apps[i];
-          setProgress(Math.round((i / apps.length) * 100), `Installing ${app.name} (${i + 1}/${apps.length})...`);
-          if (out) {
-            out.style.display = "block";
-            out.textContent = `Installing ${app.name} (${app.id})...\n` + results.join("\n");
-          }
-          const res = await apiPost("/api/tools/install", {
-            tool_id: app.id,
-            game_id: state.activeGameId,
-            game_dir: document.getElementById("fp-game-dir")?.value || game.game_dir || "",
-          });
-          const data = res?.data ?? res;
-          results.push(`[OK] ${app.name}: ${data?.message || "Installed"}`);
+        setProgress(25, `Resolving & installing ${apps.length} recommended tool(s)...`);
+        const res = await apiPost("/api/tools/install-recommended", {
+          game_id: state.activeGameId,
+          game_dir: gameDir,
+          tool_ids: apps.map(a => a.id),
+          force: false,
+        });
+        const data = res?.data ?? res;
+        const lines = [];
+        for (const item of (data?.installed || [])) {
+          lines.push(`[OK] ${item.name || item.tool_id}: ${item.message || "Installed"}`);
         }
-        setProgress(100, `Installed ${apps.length} recommended app(s)`);
+        for (const item of (data?.skipped || [])) {
+          lines.push(`[SKIPPED] ${item.name || item.tool_id}: ${item.reason || "Skipped"}`);
+        }
+        for (const item of (data?.failed || [])) {
+          lines.push(`[FAILED] ${item.name || item.tool_id}: ${item.reason || "Install error"}`);
+        }
+        setProgress(100, data?.summary || `Processed ${apps.length} recommended app(s)`);
         if (out) {
-          out.textContent = `Finished installing recommended apps for ${game.name}:\n` + results.join("\n");
+          out.style.display = "block";
+          out.textContent = `${data?.summary || `Batch result for ${game.name}`}\n` + lines.join("\n");
         }
-        await refreshGamesList(true);
-        await loadSetupChecklist(state.activeGameId);
-        return results;
+        if (data?.game) {
+          applyGameSettingsToUI(data.game);
+        }
+        await Promise.all([
+          refreshGamesList(true),
+          loadSetupChecklist(state.activeGameId),
+          loadGameSnapshots(state.activeGameId),
+        ]);
+        return data;
       },
       {
         pendingText: `Installing ${apps.length} recommended modding app(s)...`,
-        successText: `Installed ${apps.length} recommended app(s) for ${game.name}`,
+        successText: (d) => d?.summary || `Processed ${apps.length} recommended app(s) for ${game.name}`,
         mode: "determinate",
       },
     );
   } catch (err) {
-    if (out) out.textContent = `Recommended tool install failed: ${err?.message || err}`;
+    if (out) {
+      out.style.display = "block";
+      out.textContent = `Recommended tool batch failed: ${err?.message || err}`;
+    }
   }
 }
 
@@ -1491,7 +1508,7 @@ export function setEndpointsUiMode(mode = "simple") {
 
 export function selectEndpointCategory(category = "all") {
   state.endpointsCategory = category || "all";
-  const allCats = ["all", "game_systems", "player_character", "engine_settings", "cheats", "qol", "error_logs"];
+  const allCats = ["all", "game_systems", "player_character", "engine_settings", "cheats", "qol", "error_logs", "uncategorized"];
   for (const cid of allCats) {
     const btn = document.getElementById(`ep-cat-btn-${cid}`);
     if (btn) btn.classList.toggle("active", cid === state.endpointsCategory);
@@ -1557,6 +1574,11 @@ export function renderEndpointsList() {
   for (const c of report.categories || []) {
     const cBtn = document.getElementById(`ep-cat-btn-${c.id}`);
     if (cBtn) cBtn.textContent = `${c.label} (${catCounts[c.id] ?? 0})`;
+  }
+  const uncatBadge = document.getElementById("ep-uncategorized-count-badge");
+  if (uncatBadge) {
+    const uCnt = Number(report.uncategorized_count ?? allEps.filter((e) => e.category === "uncategorized").length);
+    uncatBadge.textContent = String(uCnt);
   }
 
   if (sumPill) {
@@ -1669,12 +1691,25 @@ export function renderEndpointsList() {
       ? `<div class="snapshot-conflict-notice" style="margin-top:8px;"><strong>${escHtml(vState.error_details || "Validation failed.")}</strong>${vState.log_excerpt ? `<pre style="margin:6px 0 0 0; max-height:110px; font-size:0.72rem;">${escHtml(vState.log_excerpt)}</pre>` : ""}</div>`
       : "";
 
+    const triageHtml = ep.category === "uncategorized"
+      ? `<select class="ep-triage-cat-select" data-idx="${idx}" title="Assign category and save to endpoint knowledge cache" style="margin-left:6px; font-size:0.75rem; padding:3px 6px;">
+          <option value="">-- Assign Category --</option>
+          <option value="game_systems">Game Systems</option>
+          <option value="player_character">Player Character</option>
+          <option value="engine_settings">Engine Settings</option>
+          <option value="cheats">Cheats</option>
+          <option value="qol">QoL</option>
+          <option value="error_logs">Error Log Capture</option>
+        </select>`
+      : "";
+
     return `
       <div class="ep-card${modCls}">
         <div class="ep-card-head">
           <div>
             <strong>${escHtml(ep.name)}</strong>
             <span class="badge">${escHtml(ep.category_label)}</span>
+            ${triageHtml}
             ${isAdv ? deliveryBadge : ""}
           </div>
           <div class="btn-group">${valBadgeHtml}${diffBadge}</div>
@@ -1793,4 +1828,110 @@ export function renderEndpointsList() {
       }
     });
   });
+
+  listEl.querySelectorAll(".ep-triage-cat-select").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const idx = Number(sel.dataset.idx);
+      const ep = visible[idx];
+      const newCat = String(sel.value || "").trim();
+      if (!ep || !newCat || !slug) return;
+      try {
+        await runTrackedAction(
+          sel,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/categorize`, {
+              endpoint_id: ep.id,
+              category: newCat,
+            });
+            if (resp?.report) {
+              state.endpointsReport = resp.report;
+            } else {
+              await loadModdingEndpoints(slug);
+            }
+            renderEndpointsList();
+            return resp;
+          },
+          {
+            pendingText: `Categorizing '${ep.name}'...`,
+            successText: () => `Saved '${ep.name}' category for future scans`,
+          },
+        );
+      } catch {
+        sel.value = "";
+      }
+    });
+  });
+}
+
+export function triggerCommunityImport() {
+  const inp = document.getElementById("ep-community-file-input");
+  if (inp) inp.click();
+}
+
+export async function handleCommunityImportFile(inputEl) {
+  const file = inputEl?.files?.[0];
+  const slug = state.activeGameId;
+  if (!file || !slug) return null;
+  const btn = resolveBtn("btn-import-community-endpoints");
+  try {
+    const content = await file.text();
+    return await runTrackedAction(
+      btn,
+      async () => {
+        const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/import-community`, {
+          filename: file.name,
+          content,
+        });
+        if (resp?.report) {
+          state.endpointsReport = resp.report;
+        } else {
+          await loadModdingEndpoints(slug);
+        }
+        renderEndpointsList();
+        return resp;
+      },
+      {
+        pendingText: `Importing ${file.name} into modding catalog...`,
+        successText: (r) => `Imported ${r?.imported_count ?? 0} endpoint(s) from ${file.name}`,
+      },
+    );
+  } catch {
+    return null;
+  } finally {
+    if (inputEl) inputEl.value = "";
+  }
+}
+
+export async function exportEndpointProfile() {
+  const slug = state.activeGameId;
+  if (!slug) return null;
+  const btn = resolveBtn("btn-export-endpoint-profile");
+  try {
+    return await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/endpoints/export-profile`);
+        if (!res.ok || !res.data) {
+          throw new Error(res.data?.detail || "Export profile failed");
+        }
+        const profile = res.data;
+        const blob = new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${profile.app_id || slug}_endpoint_profile.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return profile;
+      },
+      {
+        pendingText: "Exporting portable AppID endpoint profile...",
+        successText: (p) => `Exported ${p?.endpoint_count ?? 0} sanitized endpoint(s) for ${p?.app_id || slug}`,
+      },
+    );
+  } catch {
+    return null;
+  }
 }

@@ -87,6 +87,12 @@ from app.services.endpoint_applier import (
     get_deployed_mod_download_path,
     validate_endpoint_state,
 )
+from app.services import endpoints as _endpoints_svc
+from app.services.endpoint_catalog import (
+    categorize_endpoints_in_catalog,
+    export_portable_endpoint_profile,
+    import_community_artifact,
+)
 from app.services.endpoints import apply_or_reset_endpoint, scan_game_endpoints
 from app.services.game_snapshots import (
     create_game_snapshot,
@@ -233,6 +239,29 @@ class EndpointApplyRequest(BaseModel):
 class EndpointValidateRequest(BaseModel):
     endpoint_id: str
     expected_value: str | None = None
+
+
+class EndpointImportCommunityRequest(BaseModel):
+    file_path: str = ""
+    content: str = ""
+    filename: str = ""
+
+
+class EndpointCategorizeItem(BaseModel):
+    endpoint_id: str
+    category: str
+    simple_description: str | None = None
+    simple_label: str | None = None
+    symbol: str | None = None
+
+
+class EndpointCategorizeRequest(BaseModel):
+    endpoint_id: str = ""
+    category: str = ""
+    simple_description: str | None = None
+    simple_label: str | None = None
+    symbol: str | None = None
+    updates: list[EndpointCategorizeItem] = Field(default_factory=list)
 
 
 class LibraryScanRequest(BaseModel):
@@ -1338,6 +1367,111 @@ async def get_download_endpoint_mod(slug: str, endpoint_id: str) -> FileResponse
     if zp is None or not zp.is_file():
         raise HTTPException(status_code=404, detail=f"No generated mod package found for endpoint '{endpoint_id}'.")
     return FileResponse(zp, media_type="application/zip", filename=zp.name)
+
+
+@router.post("/api/games/{slug}/endpoints/import-community")
+async def post_import_community_endpoints(slug: str, request: Request) -> dict[str, Any]:
+    """Import a community `.ct`, `.cfg`, `.lua`, `.ini`, or `.json` schema/profile into the game's catalog."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+
+    ct_header = (request.headers.get("content-type") or "").lower()
+    file_path = ""
+    content = ""
+    filename = ""
+    if "multipart/form-data" in ct_header:
+        form = await request.form()
+        file_path = str(form.get("file_path") or "")
+        up_file = form.get("file")
+        if up_file is not None and hasattr(up_file, "read"):
+            filename = str(getattr(up_file, "filename", "") or form.get("filename") or "")
+            raw_bytes = await up_file.read()
+            content = raw_bytes.decode("utf-8-sig", errors="ignore")
+        else:
+            filename = str(form.get("filename") or "")
+            content = str(form.get("content") or "")
+    else:
+        try:
+            raw_body = await request.json()
+        except Exception:
+            raw_body = {}
+        req_model = EndpointImportCommunityRequest(**(raw_body if isinstance(raw_body, dict) else {}))
+        file_path = req_model.file_path
+        content = req_model.content
+        filename = req_model.filename
+
+    try:
+        res = import_community_artifact(
+            target,
+            file_path=file_path,
+            content=content,
+            filename=filename,
+            app_data_root=_endpoints_svc.APP_DATA_ROOT,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    report = scan_game_endpoints(target, reset_defaults=False)
+    return {**res, "report": report}
+
+
+@router.post("/api/games/{slug}/endpoints/categorize")
+async def post_categorize_game_endpoints(slug: str, req: EndpointCategorizeRequest) -> dict[str, Any]:
+    """Assign category/description overrides to single or multiple endpoints and persist to endpoint_knowledge.json."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+
+    upd_items: list[dict[str, Any]] = [u.model_dump() for u in req.updates]
+    if req.endpoint_id.strip():
+        upd_items.append({
+            "endpoint_id": req.endpoint_id,
+            "category": req.category,
+            "simple_description": req.simple_description,
+            "simple_label": req.simple_label,
+            "symbol": req.symbol,
+        })
+    if not upd_items:
+        raise HTTPException(status_code=400, detail="Provide 'endpoint_id' + 'category' or non-empty 'updates'.")
+
+    current_report = scan_game_endpoints(target, reset_defaults=False)
+    try:
+        res = categorize_endpoints_in_catalog(
+            target,
+            upd_items,
+            current_report.get("endpoints", []),
+            app_data_root=_endpoints_svc.APP_DATA_ROOT,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    updated_report = scan_game_endpoints(target, reset_defaults=False)
+    return {**res, "report": updated_report}
+
+
+@router.get("/api/games/{slug}/endpoints/export-profile")
+async def get_export_endpoint_profile(slug: str) -> JSONResponse:
+    """Export a sanitized, path-free portable JSON endpoint profile keyed by AppID/slug."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    report = scan_game_endpoints(target, reset_defaults=False)
+    profile = export_portable_endpoint_profile(
+        target,
+        report,
+        save_to_profiles_dir=True,
+        app_data_root=_endpoints_svc.APP_DATA_ROOT,
+    )
+    fname = f"{make_slug(str(profile.get('app_id') or slug))}_endpoint_profile.json"
+    return JSONResponse(
+        content=profile,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")

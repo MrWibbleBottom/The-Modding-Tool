@@ -657,6 +657,187 @@ class SystemTests(unittest.TestCase):
                     self.assertIn("Sample crash detail", zf.read("logs/game_log_errors.log").decode("utf-8"))
                 core_config.invalidate_games_cache()
 
+    def test_github_release_resolver_and_resilient_batch_install(self) -> None:
+        import io
+        import httpx
+        from app.services import game_store, tool_installer
+
+        cat_uexp = constants.TOOL_RELEASE_CATALOG["unity_explorer_il2cpp"]
+        self.assertEqual(cat_uexp["github_repos"], ["yukieiji/UnityExplorer", "sinai-dev/UnityExplorer"])
+
+        # 1. Primary repo match picks UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip over Mono/Standalone
+        def handler_primary(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/repos/yukieiji/UnityExplorer/releases/latest":
+                self.assertEqual(request.headers.get("accept"), "application/vnd.github+json")
+                self.assertTrue(request.headers.get("user-agent"))
+                return httpx.Response(200, json={
+                    "tag_name": "4.10.2",
+                    "assets": [
+                        {"name": "UnityExplorer.BepInEx5.Mono.zip", "browser_download_url": "https://dl.test/mono.zip"},
+                        {"name": "UnityExplorer.Standalone.IL2CPP.zip", "browser_download_url": "https://dl.test/standalone.zip"},
+                        {"name": "UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip", "browser_download_url": "https://dl.test/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip"},
+                    ],
+                })
+            return httpx.Response(404)
+
+        orig_client = httpx.Client
+        with patch.object(
+            httpx,
+            "Client",
+            side_effect=lambda *a, **kw: orig_client(transport=httpx.MockTransport(handler_primary)),
+        ):
+            chosen = tool_installer.resolve_github_release_asset(
+                cat_uexp["github_repos"],
+                cat_uexp["asset_match"],
+                fallback_url=cat_uexp["fallback_url"],
+            )
+        self.assertEqual(chosen, "https://dl.test/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip")
+
+        # 2. Fallback from yukieiji/UnityExplorer -> sinai-dev/UnityExplorer (/releases fallback when /latest is 404)
+        def handler_fallback_repo(request: httpx.Request) -> httpx.Response:
+            p = request.url.path
+            if p.startswith("/repos/yukieiji/UnityExplorer"):
+                return httpx.Response(404)
+            if p == "/repos/sinai-dev/UnityExplorer/releases/latest":
+                return httpx.Response(404)
+            if p == "/repos/sinai-dev/UnityExplorer/releases":
+                return httpx.Response(200, json=[{
+                    "tag_name": "4.9.0",
+                    "prerelease": False,
+                    "assets": [
+                        {"name": "UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip", "browser_download_url": "https://github.com/sinai-dev/UnityExplorer/releases/download/4.9.0/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip"},
+                        {"name": "UnityExplorer.BepInEx5.Mono.zip", "browser_download_url": "https://github.com/sinai-dev/UnityExplorer/releases/download/4.9.0/UnityExplorer.BepInEx5.Mono.zip"},
+                    ],
+                }])
+            return httpx.Response(404)
+
+        with patch.object(
+            httpx,
+            "Client",
+            side_effect=lambda *a, **kw: orig_client(transport=httpx.MockTransport(handler_fallback_repo)),
+        ):
+            chosen_fb = tool_installer.resolve_github_release_asset(
+                cat_uexp["github_repos"],
+                cat_uexp["asset_match"],
+                fallback_url=cat_uexp["fallback_url"],
+            )
+        self.assertEqual(
+            chosen_fb,
+            "https://github.com/sinai-dev/UnityExplorer/releases/download/4.9.0/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip",
+        )
+
+        # 3. Rate-limit fallback to fallback_url
+        def handler_ratelimit(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403, json={"message": "API rate limit exceeded"})
+
+        with patch.object(
+            httpx,
+            "Client",
+            side_effect=lambda *a, **kw: orig_client(transport=httpx.MockTransport(handler_ratelimit)),
+        ):
+            offline_url = tool_installer.resolve_github_release_asset(
+                cat_uexp["github_repos"],
+                cat_uexp["asset_match"],
+                fallback_url="https://fallback.example/uexp.zip",
+            )
+        self.assertEqual(offline_url, "https://fallback.example/uexp.zip")
+
+        # 4. Batch tool installation continues when dnspy_ex returns 404 while il2cpp_dumper & unity_explorer_il2cpp succeed
+        dumper_buf = io.BytesIO()
+        with zipfile.ZipFile(dumper_buf, "w") as zf:
+            zf.writestr("Il2CppDumper.exe", b"MZ")
+        dumper_bytes = dumper_buf.getvalue()
+
+        uexp_buf = io.BytesIO()
+        with zipfile.ZipFile(uexp_buf, "w") as zf:
+            zf.writestr("plugins/UnityExplorer.BIE.IL2CPP.CoreCLR.dll", b"DLL")
+        uexp_bytes = uexp_buf.getvalue()
+
+        def handler_batch_sync(request: httpx.Request) -> httpx.Response:
+            p = request.url.path
+            if p == "/repos/Perfare/Il2CppDumper/releases/latest":
+                return httpx.Response(200, json={
+                    "tag_name": "v6.7.46",
+                    "assets": [{"name": "Il2CppDumper-net6-v6.7.46.zip", "browser_download_url": "https://dl.test/Il2CppDumper-net6.zip"}],
+                })
+            if p == "/repos/yukieiji/UnityExplorer/releases/latest":
+                return httpx.Response(200, json={
+                    "tag_name": "4.10.2",
+                    "assets": [{"name": "UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip", "browser_download_url": "https://dl.test/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip"}],
+                })
+            if p.startswith("/repos/dnSpyEx/dnSpy"):
+                return httpx.Response(404)
+            return httpx.Response(404)
+
+        def handler_batch_async(request: httpx.Request) -> httpx.Response:
+            u = str(request.url)
+            if u == "https://dl.test/Il2CppDumper-net6.zip":
+                return httpx.Response(200, content=dumper_bytes)
+            if u == "https://dl.test/UnityExplorer.BepInEx6.IL2CPP.CoreCLR.zip":
+                return httpx.Response(200, content=uexp_bytes)
+            return httpx.Response(404)
+
+        orig_async_client = httpx.AsyncClient
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            game_dir = tmp_dir / "BatchUnityGame"
+            (game_dir / "BepInEx" / "plugins").mkdir(parents=True, exist_ok=True)
+            (game_dir / "GameAssembly.dll").write_bytes(b"MZ")
+            tools_root = tmp_dir / "tools"
+            snaps_root = tmp_dir / "game_snapshots"
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "batch_unity",
+                        "name": "Batch Unity Game",
+                        "game_dir": str(game_dir),
+                        "runtime": "Unity_IL2CPP",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(tool_installer, "TOOLS_ROOT", tools_root),
+                patch.object(game_store, "TOOLS_ROOT", tools_root),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+                patch.object(system_router, "scrape_pc_specs", return_value={"gpu": {"vram_total_gb": 8.0}}),
+                patch.object(httpx, "Client", side_effect=lambda *a, **kw: orig_client(transport=httpx.MockTransport(handler_batch_sync))),
+                patch.object(httpx, "AsyncClient", side_effect=lambda *a, **kw: orig_async_client(transport=httpx.MockTransport(handler_batch_async))),
+            ):
+                core_config.invalidate_games_cache()
+                r_batch = self.client.post(
+                    "/api/tools/install-recommended",
+                    json={
+                        "game_id": "batch_unity",
+                        "game_dir": str(game_dir),
+                        "tool_ids": ["il2cpp_dumper", "dnspy_ex", "unity_explorer_il2cpp"],
+                        "force": True,
+                    },
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_batch.status_code, 200)
+                bdata = r_batch.json()
+                self.assertEqual(bdata["status"], "partial")
+                self.assertEqual(bdata["installed_count"], 2)
+                self.assertEqual(bdata["failed_count"], 1)
+                self.assertEqual([x["tool_id"] for x in bdata["installed"]], ["il2cpp_dumper", "unity_explorer_il2cpp"])
+                self.assertEqual(bdata["failed"][0]["tool_id"], "dnspy_ex")
+                self.assertIn("dnSpyEx/dnSpy", bdata["failed"][0]["reason"])
+                self.assertTrue((tools_root / "Il2CppDumper" / "Il2CppDumper.exe").is_file())
+                self.assertTrue((game_dir / "BepInEx" / "plugins" / "UnityExplorer.BIE.IL2CPP.CoreCLR.dll").is_file())
+                apps_map = {a["id"]: a for a in bdata["game"]["modding_info"]["modding_apps"]}
+                self.assertTrue(apps_map["unity_explorer_il2cpp"]["installed_in_game"])
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

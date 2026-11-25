@@ -482,6 +482,116 @@ class UnrealTests(unittest.TestCase):
                 self.assertIn("GameUserSettings.ini", fdata["log_excerpt"])
                 core_config.invalidate_games_cache()
 
+    def test_unreal_offline_reference_dict_structural_and_uncategorized_fallback(self) -> None:
+        from app.services import endpoint_parsers
+        import package_windows
+
+        cmd = package_windows.build_pyinstaller_command()
+        self.assertTrue(any("app/data" in arg and "engine_endpoints_reference.json" in arg for arg in cmd))
+        ref_hit = endpoint_parsers.lookup_engine_reference(["foliage.DensityScale"], engine="unreal")
+        self.assertIsNotNone(ref_hit)
+        self.assertEqual(ref_hit["source"], "reference_dict")
+        self.assertEqual(ref_hit["category"], "engine_settings")
+        wildcard_hit = endpoint_parsers.lookup_engine_reference(["sg.ReflectionQuality"], engine="unreal")
+        self.assertIsNotNone(wildcard_hit)
+        self.assertEqual(wildcard_hit["pattern"], "sg.*")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            ue_dir = tmp_dir / "UnrealParserGame"
+            cfg_dir = ue_dir / "Saved" / "Config" / "WindowsNoEditor"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            (cfg_dir / "Engine.ini").write_text(
+                "\n".join([
+                    "[SystemSettings]",
+                    "r.ViewDistanceScale=1.5",
+                    "foliage.DensityScale=0.8",
+                    "[/Script/Engine.RendererSettings]",
+                    "r.MotionBlurQuality=0",
+                    "[/Script/Engine.InputSettings]",
+                    "bEnableMouseSmoothing=False",
+                    "[GameBalance]",
+                    "bGodMode=True",
+                    "fDamageMultiplier=2.5",
+                    "iMaxAmmo=99",
+                    "[CustomOpaqueModule]",
+                    "XyzzyOpaqueCustomFlag=1",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            dt_dir = ue_dir / "UnrealParserGame" / "Content" / "Data"
+            dt_dir.mkdir(parents=True, exist_ok=True)
+            (dt_dir / "DT_Weapons.uasset").write_bytes(b"UASSET")
+            (dt_dir / "DT_PlayerStats.uasset").write_bytes(b"UASSET")
+            (dt_dir / "DT_Quests.uasset").write_bytes(b"UASSET")
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unreal_parser_sample",
+                        "name": "Unreal Parser Sample",
+                        "game_dir": str(ue_dir),
+                        "runtime": "Unreal Engine 4/5",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+            ):
+                core_config.invalidate_games_cache()
+                r_scan = self.client.post(
+                    "/api/games/unreal_parser_sample/endpoints/scan",
+                    json={},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_scan.status_code, 200)
+                eps = {e["id"]: e for e in r_scan.json()["endpoints"]}
+
+                vd = eps["ue_ini:Engine.ini:SystemSettings:r.ViewDistanceScale"]
+                self.assertEqual(vd["category"], "engine_settings")
+                self.assertEqual(vd["classification_source"], "reference_dict")
+                self.assertEqual(vd["confidence"], "high")
+                self.assertEqual(vd["min"], 0.5)
+                self.assertEqual(vd["max"], 3.0)
+
+                mb = eps["ue_ini:Engine.ini:/Script/Engine.RendererSettings:r.MotionBlurQuality"]
+                self.assertEqual(mb["category"], "qol")
+                self.assertEqual(mb["classification_source"], "reference_dict")
+
+                ms = eps["ue_ini:Engine.ini:/Script/Engine.InputSettings:bEnableMouseSmoothing"]
+                self.assertEqual(ms["category"], "qol")
+                self.assertEqual(ms["classification_source"], "reference_dict")
+
+                god = eps["ue_ini:Engine.ini:GameBalance:bGodMode"]
+                self.assertEqual(god["category"], "cheats")
+                self.assertEqual(god["value_type"], "bool")
+                self.assertEqual(god["classification_source"], "unreal_metadata")
+
+                dmg = eps["ue_ini:Engine.ini:GameBalance:fDamageMultiplier"]
+                self.assertEqual(dmg["category"], "game_systems")
+                self.assertEqual(dmg["value_type"], "number")
+                self.assertEqual(dmg["classification_source"], "unreal_metadata")
+
+                ammo = eps["ue_ini:Engine.ini:GameBalance:iMaxAmmo"]
+                self.assertEqual(ammo["category"], "game_systems")
+                self.assertEqual(ammo["value_type"], "number")
+
+                self.assertEqual(eps["ue_datatable:DT_Weapons"]["category"], "game_systems")
+                self.assertEqual(eps["ue_datatable:DT_Weapons"]["classification_source"], "unreal_metadata")
+                self.assertEqual(eps["ue_datatable:DT_PlayerStats"]["category"], "player_character")
+                self.assertEqual(eps["ue_datatable:DT_Quests"]["category"], "cheats")
+
+                unk = eps["ue_ini:Engine.ini:CustomOpaqueModule:XyzzyOpaqueCustomFlag"]
+                self.assertEqual(unk["category"], "uncategorized")
+                self.assertEqual(unk["category_label"], "Uncategorized")
+                self.assertEqual(unk["confidence"], "low")
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()
