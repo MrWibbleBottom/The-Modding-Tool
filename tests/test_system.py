@@ -10,6 +10,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -21,6 +22,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 from app.core import audit as core_audit  # noqa: E402
+from app.core import config as core_config  # noqa: E402
 from app.core import constants  # noqa: E402
 from app.core.security import SESSION_HEADER, get_session_token  # noqa: E402
 from app.engines import (  # noqa: E402
@@ -33,9 +35,11 @@ from app.engines import (  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routers import branding as branding_router  # noqa: E402
 from app.routers import git_sync  # noqa: E402
+from app.routers import library as library_router  # noqa: E402
 from app.routers import system as system_router  # noqa: E402
+from app.services import game_snapshots  # noqa: E402
 from app.services import jobs as job_service  # noqa: E402
-from app.services import discovery, game_store, mod_builder, pc_specs, tool_installer  # noqa: E402
+from app.services import discovery, game_store, mod_builder, pc_optimizer, pc_specs, tool_installer  # noqa: E402
 import backup_manager  # noqa: E402
 import package_windows  # noqa: E402
 import version_manager  # noqa: E402
@@ -504,6 +508,154 @@ class SystemTests(unittest.TestCase):
         self.assertIsNotNone(final_job)
         self.assertEqual(final_job["status"], "done")
         self.assertEqual(final_job["result"], {"value": 99})
+
+    def test_verify_integrity_pc_optimisation_full_restore_and_ai_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            ue_dir = tmp_dir / "OptUnrealGame"
+            cfg_dir = ue_dir / "Saved" / "Config" / "WindowsNoEditor"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            gus_ini = cfg_dir / "GameUserSettings.ini"
+            gus_ini.write_text(
+                "[/Script/Engine.GameUserSettings]\nResolutionSizeX=3840\nResolutionSizeY=2160\nbUseVSync=True\n"
+                "[ScalabilityGroups]\nsg.ShadowQuality=3\nsg.GlobalIlluminationQuality=3\nsg.TextureQuality=3\n",
+                encoding="utf-8",
+            )
+            (ue_dir / "Saved" / "Logs").mkdir(parents=True, exist_ok=True)
+            (ue_dir / "Saved" / "Logs" / "OptUnrealGame.log").write_text(
+                "LogInit: Display: Booting\nLogScript: Error: Sample crash detail\n",
+                encoding="utf-8",
+            )
+            (ue_dir / "Proj" / "Content" / "Paks" / "~mods").mkdir(parents=True, exist_ok=True)
+            (ue_dir / "Proj" / "Content" / "Paks" / "~mods" / "Sample_P.pak").write_bytes(b"PAK")
+
+            unity_dir = tmp_dir / "CustomUnityGame"
+            (unity_dir / "BepInEx" / "plugins").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "CustomUnityGame_Data").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "CustomUnityGame_Data" / "boot.config").write_text("wait-for-native-debugger=0\n", encoding="utf-8")
+            (unity_dir / "doorstop_config.ini").write_text("enabled=true\n", encoding="utf-8")
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "active_game_id": "opt_unreal",
+                    "games": [
+                        {
+                            "id": "opt_unreal",
+                            "name": "Opt Unreal",
+                            "game_dir": str(ue_dir),
+                            "steam_appid": "123456",
+                            "runtime": "Unreal Engine 4/5",
+                        },
+                        {
+                            "id": "custom_unity",
+                            "name": "Custom Unity",
+                            "game_dir": str(unity_dir),
+                            "source": "epic",
+                            "runtime": "Unity_IL2CPP",
+                        },
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            snaps_root = tmp_dir / "game_snapshots"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+            fake_specs = {
+                "cpu": {"name": "Test 8C CPU", "physical_cores": 8, "logical_threads": 16},
+                "gpu": {"name": "NVIDIA RTX 3060 8GB", "vram_total_gb": 8.0},
+                "ram": {"total_gb": 16.0, "available_gb": 10.0},
+                "display": {"width": 1920, "height": 1080, "resolution_label": "1920x1080", "refresh_rate_hz": 144},
+                "tier": {"name": "Mainstream 8GB"},
+            }
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+                patch.object(library_router, "_launch_platform_uri", return_value=True) as mock_launch,
+                patch.object(library_router, "scrape_pc_specs", return_value=fake_specs),
+                patch.object(pc_optimizer, "scrape_pc_specs", return_value=fake_specs),
+            ):
+                core_config.invalidate_games_cache()
+
+                # 1. Verify Steam Integrity + audit log entry
+                r_steam = self.client.post(
+                    "/api/games/opt_unreal/verify-integrity",
+                    json={"launch": True},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_steam.status_code, 200)
+                sdata = r_steam.json()
+                self.assertEqual(sdata.get("platform"), "steam")
+                self.assertEqual(sdata.get("validate_uri"), "steam://validate/123456")
+                self.assertTrue(sdata.get("launched"))
+                mock_launch.assert_called_once_with("steam://validate/123456")
+
+                r_epic = self.client.post(
+                    "/api/games/custom_unity/verify-integrity",
+                    json={"launch": False},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_epic.status_code, 200)
+                self.assertEqual(r_epic.json().get("platform"), "epic")
+                self.assertTrue(r_epic.json().get("instructions"))
+
+                logged = [json.loads(ln) for ln in temp_audit.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                self.assertTrue(any(e.get("action") == "VERIFY_INTEGRITY" and e.get("details", {}).get("validate_uri") == "steam://validate/123456" for e in logged))
+
+                # 2. PC Optimisation traffic lights
+                r_pcopt = self.client.get(f"/api/games/opt_unreal/pc-optimisation?custom_ini_path={gus_ini}")
+                self.assertEqual(r_pcopt.status_code, 200)
+                opt_data = r_pcopt.json()
+                self.assertTrue(opt_data.get("is_unreal"))
+                self.assertGreater(len(opt_data.get("rows", [])), 0)
+                statuses = {r["status"] for r in opt_data["rows"]}
+                self.assertTrue(bool(statuses & {"red", "amber"}))
+                self.assertIn("green_count", opt_data.get("summary", {}))
+
+                # 3. Snapshots + Full Restore to earliest baseline
+                s1 = game_snapshots.create_game_snapshot(
+                    "custom_unity", unity_dir, label="Baseline 1", engine="unity", snapshots_root=snaps_root, audit=False
+                )
+                time.sleep(0.02)
+                (unity_dir / "doorstop_config.ini").write_text("enabled=false\n", encoding="utf-8")
+                s2 = game_snapshots.create_game_snapshot(
+                    "custom_unity", unity_dir, label="Later Snap 2", engine="unity", snapshots_root=snaps_root, audit=False
+                )
+                self.assertNotEqual(s1["snapshot_id"], s2["snapshot_id"])
+                r_full = self.client.post(
+                    "/api/games/custom_unity/full-restore",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_full.status_code, 200)
+                self.assertEqual(r_full.json().get("baseline_snapshot", {}).get("snapshot_id"), s1["snapshot_id"])
+                self.assertEqual((unity_dir / "doorstop_config.ini").read_text(encoding="utf-8"), "enabled=true\n")
+
+                # 4. Downloadable AI Info Pack .zip
+                r_pack = self.client.post(
+                    "/api/games/opt_unreal/ai-pack",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_pack.status_code, 200)
+                self.assertIn("application/zip", r_pack.headers.get("content-type", ""))
+                with zipfile.ZipFile(io.BytesIO(r_pack.content), "r") as zf:
+                    names = set(zf.namelist())
+                    for expected_member in (
+                        "game_summary.md",
+                        "app_info.json",
+                        "installed_mods.json",
+                        "snapshots.json",
+                        "logs/game_log_errors.log",
+                    ):
+                        self.assertIn(expected_member, names)
+                    self.assertIn("Opt Unreal", zf.read("game_summary.md").decode("utf-8"))
+                    self.assertIn("Sample crash detail", zf.read("logs/game_log_errors.log").decode("utf-8"))
+                core_config.invalidate_games_cache()
 
 
 if __name__ == "__main__":

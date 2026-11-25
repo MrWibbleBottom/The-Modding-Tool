@@ -2,6 +2,18 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 15:32 — v0.1.40
+
+- **Prompt**: Reorganize Active Game workspace into 5-section workflow and add Current Mods, PC Optimisation traffic lights, Platform Integrity Check, Full Restore, and downloadable AI Info Pack archive
+- **AG Feedback**: Reorganized Active Game into General Game Info, Setup, Current Mods, Modding, and PC Optimisation sub-tabs with persistent Full Restore (Rollback All) and Create AI Info Pack (.zip) header actions; added installed_mods.py and pc_optimizer.py services, verify-integrity/mods/pc-optimisation/full-restore/ai-pack/setup-status routes, guided setup verification checklist, and regression tests; all 39 pytest tests pass.
+- **Version Changes**:
+  - Added app/services/installed_mods.py (Unity/Unreal/Vortex/MO2 mod scanner, .disabled/enabled.txt toggle, snapshot-safe removal)
+  - Added app/services/pc_optimizer.py (CPU/GPU/VRAM/RAM/display traffic-light scorer and snapshot-safe apply/default)
+  - Updated app/services/tool_installer.py (build_setup_verification_checklist and setup_checklist output) and fixed inspect_unreal_game_settings argument in app/services/unreal_ini.py
+  - Updated app/routers/library.py with /verify-integrity, /full-restore, /ai-pack (.zip), /setup-status, /mods, /mods/toggle, /mods/remove, /pc-optimisation, and /pc-optimisation/apply
+  - Reorganized app/templates/partials/active_game.html into the 5-tab workflow and wired app/static/app.css, app/static/js/active_game.js, and app/static/js/library.js
+  - Added test coverage in tests/test_frontend_contracts.py, tests/test_discovery.py, and tests/test_system.py (39 passed)
+
 ## 2026-11-25 15:12 — v0.1.40
 
 - **Prompt**: Perform full-stack audit and automatic migration for legacy names and paths (Battleground, ModToolPoC, poc-ui, un-prefixed bepinex-mcp, bepinex-mcp/.venv)

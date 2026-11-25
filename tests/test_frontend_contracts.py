@@ -259,6 +259,24 @@ class FrontendContractTests(unittest.TestCase):
         main_js = (ROOT / "app" / "static" / "js" / "main.js").read_text(encoding="utf-8")
         self.assertIn("sanitizeBrowserLocalStorage()", main_js)
 
+    def test_active_game_five_section_navigation_and_controls(self) -> None:
+        html = self.client.get("/").text
+        ordered_ids = [
+            "ag-tab-btn-general",
+            "ag-tab-btn-setup",
+            "ag-tab-btn-mods",
+            "ag-tab-btn-modding",
+            "ag-tab-btn-pcopt",
+        ]
+        positions = [html.find(f'id="{tid}"') for tid in ordered_ids]
+        self.assertTrue(all(pos >= 0 for pos in positions), f"Missing Active Game subnav tab(s): {ordered_ids}")
+        self.assertEqual(positions, sorted(positions), "Active Game 5-tab subnav is out of required order")
+
+        for pane_id in ("ag-pane-general", "ag-pane-setup", "ag-pane-mods", "ag-pane-modding", "ag-pane-pcopt"):
+            self.assertIn(f'id="{pane_id}"', html)
+        for btn_id in ("btn-full-restore-game", "btn-create-ai-pack", "btn-verify-integrity", "cm-mods-tbody", "pcopt-rows-tbody"):
+            self.assertIn(f'id="{btn_id}"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,16 +43,22 @@ export {
 export {
   _renderConflictNotice,
   applyGameSettingsToUI,
+  applyPcOptimisation,
   checkActiveGameConflicts,
   closeGameLogTail,
   copyAiModdingContext,
   copyCrashContext,
   createGameSnapshot,
+  downloadAiInfoPack,
+  fullRestoreActiveGame,
   installAllRecommendedTools,
   installModdingTool,
   launchActiveGame,
+  loadCurrentModsSection,
   loadGameSnapshots,
   loadGameSteamAssets,
+  loadPcOptimisation,
+  loadSetupChecklist,
   openGameLogTailDrawer,
   openToolFolder,
   refreshGameLogTail,
@@ -65,7 +71,9 @@ export {
   restoreGameSnapshot,
   runReadinessFix,
   saveActiveGameNotes,
+  switchActiveGameSection,
   toggleGameLogTail,
+  verifyActiveGameIntegrity,
 } from "./active_game.js";
 
 export {

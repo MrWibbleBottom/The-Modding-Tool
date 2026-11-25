@@ -434,6 +434,7 @@ export async function installAllRecommendedTools() {
           out.textContent = `Finished installing recommended apps for ${game.name}:\n` + results.join("\n");
         }
         await refreshGamesList(true);
+        await loadSetupChecklist(state.activeGameId);
         return results;
       },
       {
@@ -571,7 +572,16 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
   renderReadinessStrip(game);
   if (gameChanged || state.activeGameSnapshotsSlug !== game.id) {
     loadGameSnapshots(game.id);
+    loadSetupChecklist(game.id);
+    loadCurrentModsSection(game.id);
+    loadPcOptimisation(false, game.id);
+  } else {
+    const sec = state.activeGameSection || "general";
+    if (sec === "setup") loadSetupChecklist(game.id);
+    if (sec === "mods") loadCurrentModsSection(game.id);
+    if (sec === "pcopt") loadPcOptimisation(false, game.id);
   }
+  switchActiveGameSection(state.activeGameSection || "general", { skipFetch: true });
 
   const hasCachedMeta = Boolean(game.metadata_scraped || game.modding_info?.metadata_scraped);
   const canInspectDisk = Boolean(game.dir_exists !== false && !game.missing_on_disk);
@@ -1092,5 +1102,376 @@ export async function copyAiModdingContext() {
     );
   } catch {
     // Error handled by runTrackedAction
+  }
+}
+
+export function switchActiveGameSection(sectionKey = "general", { skipFetch = false } = {}) {
+  const valid = ["general", "setup", "mods", "modding", "pcopt"];
+  const key = valid.includes(sectionKey) ? sectionKey : "general";
+  state.activeGameSection = key;
+  for (const name of valid) {
+    const btn = document.getElementById(`ag-tab-btn-${name}`);
+    const pane = document.getElementById(`ag-pane-${name}`);
+    const active = name === key;
+    if (btn) btn.classList.toggle("active", active);
+    if (pane) {
+      pane.classList.toggle("active", active);
+      pane.style.display = active ? "block" : "none";
+    }
+  }
+  if (!skipFetch && state.activeGameId) {
+    if (key === "setup") {
+      loadSetupChecklist(state.activeGameId);
+      loadGameSnapshots(state.activeGameId);
+    } else if (key === "mods") {
+      loadCurrentModsSection(state.activeGameId);
+    } else if (key === "pcopt") {
+      loadPcOptimisation(false, state.activeGameId);
+    }
+  }
+}
+
+export async function fullRestoreActiveGame() {
+  const slug = state.activeGameId;
+  const game = state.lastRenderedGame || state.managedGames.find(g => g.id === slug) || {};
+  if (!slug) return;
+  if (!confirm(`Full Restore (Rollback All) will revert '${game.name || slug}' to its earliest saved clean baseline snapshot and remove later mod/INI changes. Proceed?`)) {
+    return;
+  }
+  const btn = resolveBtn("btn-full-restore-game");
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/full-restore`, {});
+        await Promise.all([
+          rescanActiveGameMetadata(),
+          loadGameSnapshots(slug),
+          loadSetupChecklist(slug),
+          loadCurrentModsSection(slug),
+        ]);
+        return res;
+      },
+      {
+        pendingText: "Restoring earliest clean baseline snapshot...",
+        successText: (d) => d?.summary || "Full Restore completed",
+      },
+    );
+  } catch {
+    // Handled by runTrackedAction
+  }
+}
+
+export async function downloadAiInfoPack() {
+  const slug = state.activeGameId;
+  if (!slug) return;
+  const btn = resolveBtn("btn-create-ai-pack");
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiFetch(`/api/games/${encodeURIComponent(slug)}/ai-pack`, { method: "POST" });
+        if (!res.ok) {
+          let msg = `HTTP ${res.status}`;
+          try {
+            const j = await res.json();
+            if (j?.detail) msg = j.detail;
+          } catch {}
+          throw new Error(msg);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${slug}_ai_info_pack.zip`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        return { filename: `${slug}_ai_info_pack.zip`, bytes: blob.size };
+      },
+      {
+        pendingText: "Packaging AI Info Pack (.zip)...",
+        successText: (d) => `Downloaded ${d?.filename || "ai_info_pack.zip"} (${Math.max(1, Math.round((d?.bytes || 0) / 1024))} KB)`,
+      },
+    );
+  } catch {
+    // Handled by runTrackedAction
+  }
+}
+
+export async function verifyActiveGameIntegrity() {
+  const slug = state.activeGameId;
+  if (!slug) return;
+  const btn = resolveBtn("btn-verify-integrity");
+  const out = document.getElementById("verify-integrity-output");
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/verify-integrity`, { launch: true });
+        if (out) {
+          out.style.display = "block";
+          const steps = Array.isArray(res?.instructions) ? res.instructions.join("\n") : "";
+          out.textContent = `${res?.summary || "Integrity check prepared"}\n${steps}`;
+        }
+        return res;
+      },
+      {
+        pendingText: "Checking platform integrity options...",
+        successText: (d) => d?.summary || "Integrity verification ready",
+      },
+    );
+  } catch (err) {
+    if (out) {
+      out.style.display = "block";
+      out.textContent = `Verify integrity failed: ${err?.message || err}`;
+    }
+  }
+}
+
+export async function loadSetupChecklist(targetSlug = null) {
+  const slug = targetSlug || state.activeGameId;
+  const badge = document.getElementById("setup-checklist-badge");
+  const grid = document.getElementById("setup-checklist-grid");
+  if (!slug || !grid) return null;
+  const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/setup-status`);
+  if (!res.ok || !res.data) return null;
+  const d = res.data;
+  if (badge) {
+    badge.textContent = d.readiness_label || (d.all_ready ? "Ready" : "Setup Needed");
+    badge.className = d.all_ready ? "pill yes" : "pill warn";
+  }
+  const steps = Array.isArray(d.steps) ? d.steps : [];
+  grid.innerHTML = steps.map((st) => {
+    const cls = st.status === "ready" ? "ok" : (st.status === "missing" ? "missing" : "pending");
+    const pillCls = st.status === "ready" ? "yes" : (st.status === "missing" ? "no" : "warn");
+    const pillTxt = st.status === "ready" ? "READY" : (st.status === "warning" ? "WARNING" : (st.status === "missing" ? "MISSING" : "PENDING"));
+    return `
+      <div class="step-card ${cls}">
+        <div class="step-card-top">
+          <span class="step-card-title">${escHtml(st.title || "")}</span>
+          <span class="pill ${pillCls}">${pillTxt}</span>
+        </div>
+        <div class="step-card-detail">${escHtml(st.detail || "")}</div>
+      </div>
+    `;
+  }).join("");
+  return d;
+}
+
+export async function loadCurrentModsSection(targetSlug = null) {
+  const slug = targetSlug || state.activeGameId;
+  const tbody = document.getElementById("cm-mods-tbody");
+  const pill = document.getElementById("cm-summary-pill");
+  const mgrBadge = document.getElementById("cm-managers-badge");
+  if (!slug || !tbody) return null;
+  const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/mods`);
+  if (!res.ok || !res.data) {
+    tbody.innerHTML = '<tr><td colspan="7">Could not scan installed mods.</td></tr>';
+    return null;
+  }
+  const d = res.data;
+  const mods = Array.isArray(d.mods) ? d.mods : [];
+  if (pill) {
+    pill.textContent = `${d.enabled_count ?? 0}/${d.total_count ?? mods.length} Enabled`;
+    pill.className = mods.length ? "pill yes" : "pill na";
+  }
+  if (mgrBadge) {
+    const tags = ["Filesystem"];
+    if (d.vortex_detected) tags.push("Vortex");
+    if (d.mo2_detected) tags.push("MO2");
+    mgrBadge.textContent = tags.join(" + ");
+  }
+  if (!mods.length) {
+    tbody.innerHTML = '<tr><td colspan="7">No BepInEx, MelonLoader, Unreal ~mods, UE4SS, or Vortex/MO2 mods detected.</td></tr>';
+    return d;
+  }
+  tbody.innerHTML = mods.map((m, idx) => {
+    const statusPill = m.enabled ? '<span class="pill yes">Enabled</span>' : '<span class="pill warn">Disabled</span>';
+    const toggleBtn = m.can_toggle
+      ? `<button type="button" class="secondary btn-sm cm-toggle-btn" data-idx="${idx}">${m.enabled ? "Disable" : "Enable"}</button>`
+      : "";
+    const removeBtn = m.can_remove
+      ? `<button type="button" class="danger btn-sm cm-remove-btn" data-idx="${idx}">Remove</button>`
+      : "";
+    const actionHtml = (toggleBtn || removeBtn) ? `<div class="btn-group">${toggleBtn}${removeBtn}</div>` : '<span class="badge">Manifest</span>';
+    return `
+      <tr>
+        <td><strong>${escHtml(m.name)}</strong></td>
+        <td><span class="badge">${escHtml(m.engine_surface)}</span> <small>${escHtml(m.mod_type)}</small></td>
+        <td>${statusPill}</td>
+        <td>${escHtml(m.source || "Filesystem")}</td>
+        <td>${m.size_kb ? `${m.size_kb} KB` : "—"}</td>
+        <td><code>${escHtml(m.rel_path)}</code></td>
+        <td>${actionHtml}</td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll(".cm-toggle-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const m = mods[Number(btn.dataset.idx)];
+      if (!m) return;
+      try {
+        await runTrackedAction(
+          btn,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/mods/toggle`, {
+              rel_path: m.rel_path,
+              enabled: !m.enabled,
+            });
+            await loadCurrentModsSection(slug);
+            return resp;
+          },
+          {
+            pendingText: `${m.enabled ? "Disabling" : "Enabling"} ${m.name}...`,
+            successText: (r) => r?.summary || "Updated mod status",
+          },
+        );
+      } catch {
+        // Error shown by runTrackedAction
+      }
+    });
+  });
+
+  tbody.querySelectorAll(".cm-remove-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const m = mods[Number(btn.dataset.idx)];
+      if (!m) return;
+      if (!confirm(`Remove '${m.rel_path}'? A pre-removal snapshot will be created automatically first.`)) return;
+      try {
+        await runTrackedAction(
+          btn,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/mods/remove`, {
+              rel_path: m.rel_path,
+            });
+            await Promise.all([loadCurrentModsSection(slug), loadGameSnapshots(slug)]);
+            return resp;
+          },
+          {
+            pendingText: `Snapshotting & removing ${m.name}...`,
+            successText: (r) => r?.summary || "Mod removed",
+          },
+        );
+      } catch {
+        // Error shown by runTrackedAction
+      }
+    });
+  });
+  return d;
+}
+
+export async function loadPcOptimisation(forceRefresh = false, targetSlug = null) {
+  const slug = targetSlug || state.activeGameId;
+  const tbody = document.getElementById("pcopt-rows-tbody");
+  const specsEl = document.getElementById("pcopt-specs-summary");
+  const overallPill = document.getElementById("pcopt-overall-pill");
+  const gPill = document.getElementById("pcopt-green-pill");
+  const aPill = document.getElementById("pcopt-amber-pill");
+  const rPill = document.getElementById("pcopt-red-pill");
+  const btnOptimal = document.getElementById("btn-pcopt-apply-optimal");
+  const btnDefault = document.getElementById("btn-pcopt-apply-default");
+  if (!slug || !tbody) return null;
+
+  const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/pc-optimisation?force_refresh=${forceRefresh ? "true" : "false"}`);
+  if (!res.ok || !res.data) {
+    tbody.innerHTML = '<tr><td colspan="6">Could not evaluate PC optimisation settings.</td></tr>';
+    return null;
+  }
+  const d = res.data;
+  const sp = d.specs_summary || {};
+  const sum = d.summary || {};
+  if (specsEl) {
+    specsEl.innerHTML =
+      `<strong>Hardware:</strong> ${escHtml(sp.cpu || "CPU")} (${sp.cores || "?"}C/${sp.threads || "?"}T) | ` +
+      `<strong>GPU:</strong> ${escHtml(sp.gpu || "GPU")} (${sp.vram_gb ?? "?"} GB VRAM) | ` +
+      `<strong>RAM:</strong> ${sp.ram_gb ?? "?"} GB | <strong>Display:</strong> ${escHtml(sp.display || "?")} @ ${sp.refresh_hz ?? "?"} Hz | ` +
+      `<strong>Matched Tier:</strong> ${escHtml(d.matched_tier?.tier_name || "Auto")}`;
+  }
+  const ov = sum.overall_status || "green";
+  if (overallPill) {
+    overallPill.textContent = ov === "red" ? "RED — Bottleneck" : (ov === "amber" ? "AMBER — Sub-Optimal" : "GREEN — Optimal");
+    overallPill.className = ov === "red" ? "pill no" : (ov === "amber" ? "pill warn" : "pill yes");
+  }
+  if (gPill) gPill.textContent = `${sum.green_count ?? 0} Green`;
+  if (aPill) aPill.textContent = `${sum.amber_count ?? 0} Amber`;
+  if (rPill) rPill.textContent = `${sum.red_count ?? 0} Red`;
+  if (btnOptimal) btnOptimal.disabled = !d.can_apply_optimal;
+  if (btnDefault) btnDefault.disabled = !d.can_apply_optimal;
+
+  const rows = Array.isArray(d.rows) ? d.rows : [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6">No graphics or hardware settings found to evaluate.</td></tr>';
+    return d;
+  }
+  tbody.innerHTML = rows.map((row, idx) => {
+    const pillCls = row.status === "red" ? "no" : (row.status === "amber" ? "warn" : "yes");
+    const lightTxt = (row.status || "green").toUpperCase();
+    const actHtml = row.apply_supported
+      ? `<div class="btn-group"><button type="button" class="success btn-sm pcopt-row-opt" data-idx="${idx}">Apply</button><button type="button" class="secondary btn-sm pcopt-row-def" data-idx="${idx}">Default</button></div>`
+      : '<span class="badge">Advisory</span>';
+    return `
+      <tr>
+        <td><span class="pill ${pillCls}">${lightTxt}</span></td>
+        <td><strong>${escHtml(row.label)}</strong><div style="font-size:0.72rem; color:var(--muted);">${escHtml(row.category)} | <code>${escHtml(row.key)}</code></div></td>
+        <td>${escHtml(row.current_value)}</td>
+        <td style="color:#93c5fd;">${escHtml(row.recommended_value)}</td>
+        <td style="font-size:0.76rem;">${escHtml(row.reason)}</td>
+        <td>${actHtml}</td>
+      </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll(".pcopt-row-opt").forEach((b) => {
+    b.addEventListener("click", () => {
+      const r = rows[Number(b.dataset.idx)];
+      if (r) applyPcOptimisation("optimal", r.key, b);
+    });
+  });
+  tbody.querySelectorAll(".pcopt-row-def").forEach((b) => {
+    b.addEventListener("click", () => {
+      const r = rows[Number(b.dataset.idx)];
+      if (r) applyPcOptimisation("default", r.key, b);
+    });
+  });
+  return d;
+}
+
+export async function applyPcOptimisation(mode = "optimal", settingKey = "", btnOverride = null) {
+  const slug = state.activeGameId;
+  if (!slug) return;
+  const btn = btnOverride || resolveBtn(mode === "default" ? "btn-pcopt-apply-default" : "btn-pcopt-apply-optimal");
+  const out = document.getElementById("pcopt-action-output");
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/pc-optimisation/apply`, {
+          mode,
+          setting_key: settingKey || "",
+        });
+        if (out) {
+          out.style.display = "block";
+          out.textContent = res?.summary || "PC optimisation settings updated.";
+        }
+        await Promise.all([loadPcOptimisation(false, slug), loadGameSnapshots(slug)]);
+        const active = state.lastRenderedGame || state.managedGames.find(g => g.id === slug);
+        if (active && classifyGameEngine(active).isUnreal) {
+          await importUnrealSettings("");
+        }
+        return res;
+      },
+      {
+        pendingText: mode === "default" ? "Restoring default settings..." : "Applying optimal PC settings (auto-snapshot)...",
+        successText: (d) => d?.summary || "Applied PC optimisation settings",
+      },
+    );
+  } catch (err) {
+    if (out) {
+      out.style.display = "block";
+      out.textContent = `PC optimisation apply failed: ${err?.message || err}`;
+    }
   }
 }

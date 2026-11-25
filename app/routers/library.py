@@ -8,7 +8,9 @@ import io
 import json
 import os
 import subprocess
+import sys
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core.audit import append_audit_log
+from app.core.audit import append_audit_log, read_audit_logs
 from app.core.config import (
     DEFAULT_BEPINEX_SHA256,
     DEFAULT_BEPINEX_ZIP,
@@ -28,6 +30,9 @@ from app.core.config import (
     GAMES_RESPONSE_CACHE,
     GAMES_STORE_PATH,
     LIBRARY_CACHE_PATH,
+    WORKSPACE_DIR,
+    _load_workspace_module,
+    get_app_data_root,
     load_managed_games,
     save_managed_games,
     sha256_text,
@@ -82,8 +87,15 @@ from app.services.game_snapshots import (
     list_game_snapshots,
     restore_game_snapshot,
 )
+from app.services.installed_mods import (
+    remove_installed_mod,
+    scan_game_installed_mods,
+    toggle_installed_mod,
+)
 from app.services.jobs import start_background_job
-from app.services.log_tail import build_ai_modding_context
+from app.services.log_tail import build_ai_modding_context, read_game_log_tail
+from app.services.pc_optimizer import apply_pc_optimisation, evaluate_pc_optimisation
+from app.services.tool_installer import build_setup_verification_checklist
 from app.services.unreal_ini import (
     apply_unreal_ini_tweaks,
     list_unreal_ini_tweaks,
@@ -173,6 +185,26 @@ class UnrealIniTweaksRequest(BaseModel):
     engine_ini_path: str = Field(default="")
     gus_ini_path: str = Field(default="")
     label: str = Field(default="Pre-INI tweak edit")
+
+
+class VerifyIntegrityRequest(BaseModel):
+    launch: bool = Field(default=True)
+
+
+class ModToggleRequest(BaseModel):
+    rel_path: str
+    enabled: bool | None = None
+
+
+class ModRemoveRequest(BaseModel):
+    rel_path: str
+
+
+class PcOptimiseApplyRequest(BaseModel):
+    mode: str = Field(default="optimal")
+    setting_key: str = Field(default="")
+    custom_ini_path: str = Field(default="")
+    reference_tier_id: str = Field(default="auto")
 
 
 class LibraryScanRequest(BaseModel):
@@ -902,6 +934,289 @@ async def get_game_ai_context(slug: str) -> dict[str, Any]:
     if not target:
         raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
     return build_ai_modding_context(target)
+
+
+def _launch_platform_uri(uri: str) -> bool:
+    if sys.platform == "win32":
+        try:
+            os.startfile(uri)  # type: ignore[attr-defined]
+            return True
+        except OSError:
+            return False
+    return False
+
+
+@router.post("/api/games/{slug}/verify-integrity")
+async def post_verify_game_integrity(slug: str, req: VerifyIntegrityRequest | None = None) -> dict[str, Any]:
+    """Trigger Steam file validation (`steam://validate/{app_id}`) or return platform verification instructions."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    game_name = str(target.get("name") or slug)
+
+    appid = str(target.get("steam_appid") or "").strip()
+    if not appid and gdir.is_dir():
+        found_id, _ = _find_steam_appid_and_assets(gdir)
+        appid = str(found_id or "").strip()
+
+    source_low = str(target.get("source") or target.get("platform_label") or "").lower()
+    if appid.isdigit():
+        validate_uri = f"steam://validate/{appid}"
+        should_launch = True if req is None else bool(req.launch)
+        launched = _launch_platform_uri(validate_uri) if should_launch else False
+        summary = f"Steam integrity validation prepared for AppID {appid} ({validate_uri})"
+        append_audit_log(
+            action="VERIFY_INTEGRITY",
+            status="ok",
+            summary=summary,
+            details={"slug": slug, "platform": "steam", "app_id": appid, "validate_uri": validate_uri, "launched": launched},
+        )
+        return {
+            "status": "ok",
+            "platform": "steam",
+            "app_id": appid,
+            "validate_uri": validate_uri,
+            "launched": launched,
+            "summary": summary,
+            "instructions": [
+                f"URI: {validate_uri}",
+                "Steam will verify all local game files against its depot manifests.",
+            ],
+        }
+
+    if "epic" in source_low or (gdir.is_dir() and (gdir / ".egstore").is_dir()):
+        platform = "epic"
+        instructions = [
+            "Open the Epic Games Launcher -> Library.",
+            f"Click the '...' menu on '{game_name}' -> Manage -> Verify.",
+        ]
+    elif "gog" in source_low or (gdir.is_dir() and list(gdir.glob("goggame-*.info"))):
+        platform = "gog"
+        instructions = [
+            "Open GOG GALAXY -> Owned Games.",
+            f"Select '{game_name}' -> Settings/More -> Manage Installation -> Verify / Repair.",
+        ]
+    else:
+        platform = "custom"
+        instructions = [
+            f"Manual/Custom install detected at '{gdir}'.",
+            "Use your storefront/archive checksum or click Full Restore (Rollback All) to revert modded files to your earliest clean baseline snapshot.",
+        ]
+
+    summary = f"Provided {platform} integrity verification steps for '{game_name}'"
+    append_audit_log(
+        action="VERIFY_INTEGRITY",
+        status="ok",
+        summary=summary,
+        details={"slug": slug, "platform": platform, "game_dir": str(gdir)},
+    )
+    return {
+        "status": "ok",
+        "platform": platform,
+        "app_id": "",
+        "validate_uri": "",
+        "launched": False,
+        "summary": summary,
+        "instructions": instructions,
+    }
+
+
+@router.post("/api/games/{slug}/full-restore")
+async def post_full_restore_earliest_snapshot(slug: str) -> dict[str, Any]:
+    """Restore a managed game to its earliest saved clean baseline snapshot."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        snaps = list_game_snapshots(slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not snaps:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No clean baseline snapshot found for '{slug}'. Create a snapshot first before Full Restore.",
+        )
+
+    earliest = sorted(snaps, key=lambda s: (str(s.get("created_at") or ""), str(s.get("snapshot_id") or "")))[0]
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    try:
+        res = restore_game_snapshot(
+            slug,
+            str(earliest["snapshot_id"]),
+            target_game_dir=gdir if gdir.is_dir() else None,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    append_audit_log(
+        action="game.full_restore",
+        status="ok",
+        summary=f"Full Restore reverted '{target.get('name', slug)}' to earliest baseline snapshot '{earliest['snapshot_id']}'",
+        details={"slug": slug, "snapshot_id": earliest["snapshot_id"]},
+    )
+    res["baseline_snapshot"] = earliest
+    return res
+
+
+@router.post("/api/games/{slug}/ai-pack")
+async def post_download_ai_info_pack(slug: str) -> Response:
+    """Generate and return a downloadable .zip AI Info Pack for uploading to an LLM."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    safe_slug = make_slug(slug) or "game"
+    gdir = Path(str(target.get("game_dir", "")).strip())
+
+    ctx = build_ai_modding_context(target)
+    mods_report = scan_game_installed_mods(gdir)
+    snapshots = list_game_snapshots(safe_slug)
+    info = target.get("cached_modding_info") if isinstance(target.get("cached_modding_info"), dict) else {}
+    proj_name = str(info.get("detected_project_name") or "")
+    tail_all = read_game_log_tail(gdir, lines=200, errors_only=False, detected_project_name=proj_name)
+    tail_errs = read_game_log_tail(gdir, lines=200, errors_only=True, detected_project_name=proj_name)
+    setup_status = build_setup_verification_checklist(
+        gdir, str(target.get("name") or safe_slug), slug=safe_slug, info=info or None, snapshots=snapshots
+    )
+
+    ver_info: dict[str, Any] = {}
+    try:
+        vm = _load_workspace_module("version_manager", "version_manager.py")
+        ver_info = vm.load_version_data()
+    except Exception:
+        ver_info = {"version": "unknown"}
+
+    app_info = {
+        "app_name": "The Modding Tool",
+        "version": ver_info.get("version"),
+        "channel": ver_info.get("channel"),
+        "workspace_dir": str(WORKSPACE_DIR),
+        "app_data_dir": str(get_app_data_root()),
+        "game": {
+            "id": target.get("id"),
+            "slug": safe_slug,
+            "name": target.get("name"),
+            "game_dir": str(gdir),
+            "runtime": target.get("runtime"),
+            "detected_engine": info.get("mcp_category"),
+        },
+        "setup_checklist": setup_status,
+    }
+
+    recent_audit = read_audit_logs(limit=40, category="all")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("game_summary.md", ctx.get("markdown", ""))
+        zf.writestr("app_info.json", json.dumps(app_info, indent=2, default=str))
+        zf.writestr("installed_mods.json", json.dumps(mods_report, indent=2, default=str))
+        zf.writestr("snapshots.json", json.dumps(snapshots, indent=2, default=str))
+        zf.writestr("logs/game_log_tail.log", tail_all.get("text") or "(No game log lines available.)")
+        zf.writestr("logs/game_log_errors.log", tail_errs.get("text") or "(No matching error lines found.)")
+        zf.writestr("logs/audit_recent.json", json.dumps(recent_audit, indent=2, default=str))
+
+    append_audit_log(
+        action="game.ai_pack",
+        status="ok",
+        summary=f"Created downloadable AI Info Pack archive ({safe_slug}_ai_info_pack.zip)",
+        details={"slug": safe_slug, "mods_count": mods_report.get("total_count", 0), "snapshots_count": len(snapshots)},
+    )
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_slug}_ai_info_pack.zip"'},
+    )
+
+
+@router.get("/api/games/{slug}/setup-status")
+async def get_game_setup_status(slug: str) -> dict[str, Any]:
+    """Return guided step-by-step setup readiness checks for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    info = target.get("cached_modding_info") if isinstance(target.get("cached_modding_info"), dict) else None
+    return build_setup_verification_checklist(gdir, str(target.get("name") or slug), slug=slug, info=info)
+
+
+@router.get("/api/games/{slug}/mods")
+async def get_game_installed_mods(slug: str) -> dict[str, Any]:
+    """Scan and list installed Unity, Unreal, and Vortex/MO2 mods for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    primary_exe = _find_primary_game_exe(gdir, str(target.get("name") or "")) if gdir.is_dir() else None
+    res = scan_game_installed_mods(gdir, primary_exe=primary_exe)
+    res["slug"] = make_slug(slug)
+    return res
+
+
+@router.post("/api/games/{slug}/mods/toggle")
+async def post_toggle_game_mod(slug: str, req: ModToggleRequest) -> dict[str, Any]:
+    """Enable or disable a detected mod inside *slug* using `.disabled` or `enabled.txt`."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    try:
+        return toggle_installed_mod(gdir, req.rel_path, enabled=req.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/api/games/{slug}/mods/remove")
+async def post_remove_game_mod(slug: str, req: ModRemoveRequest) -> dict[str, Any]:
+    """Create a pre-removal snapshot and safely remove a detected mod file/folder."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    try:
+        return remove_installed_mod(slug, gdir, req.rel_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/api/games/{slug}/pc-optimisation")
+async def get_game_pc_optimisation(
+    slug: str,
+    force_refresh: bool = False,
+    reference_tier_id: str = "auto",
+    custom_ini_path: str = "",
+) -> dict[str, Any]:
+    """Evaluate game graphics/runtime settings against live PC specs with traffic-light ratings."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    return evaluate_pc_optimisation(
+        target,
+        force_specs_refresh=force_refresh,
+        pc_specs_fn=scrape_pc_specs,
+        custom_ini_path=custom_ini_path,
+        reference_tier_id=reference_tier_id,
+    )
+
+
+@router.post("/api/games/{slug}/pc-optimisation/apply")
+async def post_apply_game_pc_optimisation(slug: str, req: PcOptimiseApplyRequest) -> dict[str, Any]:
+    """Apply optimal or default PC optimisation settings after auto-creating a snapshot."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    return apply_pc_optimisation(
+        slug,
+        target,
+        mode=req.mode,
+        setting_key=req.setting_key,
+        custom_ini_path=req.custom_ini_path,
+        reference_tier_id=req.reference_tier_id,
+    )
 
 
 @router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")

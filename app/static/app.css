@@ -1111,3 +1111,37 @@ body.compact td, body.compact th { padding: 5px 8px; }
   font-size: 0.74rem;
   line-height: 1.4;
 }
+
+/* Active Game 5-Section Sub-Navigation */
+.ag-subnav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.ag-subnav-btn {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.7);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ag-subnav-btn:hover {
+  color: #fff;
+  border-color: var(--accent);
+}
+.ag-subnav-btn.active {
+  background: rgba(59, 130, 246, 0.22);
+  color: #fff;
+  border-color: #3b82f6;
+}
+.ag-tab-pane {
+  display: none;
+}
+.ag-tab-pane.active {
+  display: block;
+}

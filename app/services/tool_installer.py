@@ -33,7 +33,7 @@ from app.core.config import (
 )
 from app.core.constants import PLUGIN_DEPLOY_FILES
 from app.services.conflict_guard import inspect_conflict_guard
-from app.services.game_snapshots import create_game_snapshot
+from app.services.game_snapshots import create_game_snapshot, list_game_snapshots
 from app.services.game_store import enrich_game_status, inspect_game_modding_info
 
 
@@ -287,6 +287,13 @@ async def install_modding_tool_impl(
         target["metadata_scraped"] = True
         save_managed_games(store)
 
+    enriched_target = enrich_game_status(target, pc_specs_fn=pc_specs_fn) if target else None
+    setup_checklist = build_setup_verification_checklist(
+        game_dir,
+        str(target.get("name", game_dir.name)) if target else game_dir.name,
+        slug=game_id or game_dir.name,
+        info=(enriched_target or {}).get("modding_info") if enriched_target else None,
+    )
     return {
         "status": "ok",
         "tool_id": tool_id,
@@ -295,7 +302,109 @@ async def install_modding_tool_impl(
         "message": msg,
         "snapshot_id": pre_snapshot_id,
         "conflict_warnings": guard_result.get("warnings", []),
-        "game": enrich_game_status(target, pc_specs_fn=pc_specs_fn) if target else None,
+        "setup_checklist": setup_checklist,
+        "game": enriched_target,
+    }
+
+
+def build_setup_verification_checklist(
+    game_dir: Path,
+    game_name: str,
+    *,
+    slug: str = "",
+    info: dict[str, Any] | None = None,
+    snapshots: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Evaluate step-by-step guided setup readiness checks until required tools report Ready."""
+    dir_exists = game_dir.is_dir()
+    resolved_info = info if isinstance(info, dict) else (
+        inspect_game_modding_info(game_dir, game_name) if dir_exists else {}
+    )
+    resolved_slug = slug or game_dir.name or "game"
+    resolved_snaps = snapshots if snapshots is not None else list_game_snapshots(resolved_slug)
+    guard = inspect_conflict_guard(game_dir) if dir_exists else {"has_conflicts": False, "warnings": [], "summary": ""}
+
+    cat = str(resolved_info.get("mcp_category") or "")
+    has_ga = bool(dir_exists and (game_dir / "GameAssembly.dll").is_file())
+    backend_low = str(resolved_info.get("scripting_backend") or "").lower()
+    is_unity = ("unity" in cat.lower()) or has_ga or ("il2cpp" in backend_low) or ("mono" in backend_low)
+    is_unreal = bool(resolved_info.get("is_unreal_engine") or "unreal" in cat.lower())
+
+    bep_ready = bool(resolved_info.get("doorstop_installed") and resolved_info.get("bepinex_installed"))
+    bridge_ready = bool(resolved_info.get("mcp_bridge_installed"))
+    ue_ini_ready = bool((resolved_info.get("unreal_settings") or {}).get("ini_found"))
+    ue4ss_ready = bool(
+        dir_exists and (list(game_dir.glob("*/Binaries/Win64/UE4SS.dll")) or list(game_dir.glob("*/Binaries/Win64/dwmapi.dll")))
+    )
+
+    steps = [
+        {
+            "id": "game_folder",
+            "title": "1. Game Directory & Executable",
+            "status": "ready" if dir_exists else "missing",
+            "detail": f"Located at {game_dir}" if dir_exists else f"Folder not found: {game_dir}",
+            "required": True,
+        },
+        {
+            "id": "baseline_snapshot",
+            "title": "2. Clean Baseline Snapshot",
+            "status": "ready" if resolved_snaps else "pending",
+            "detail": (
+                f"{len(resolved_snaps)} snapshot(s) saved (earliest: {resolved_snaps[-1]['snapshot_id']})"
+                if resolved_snaps
+                else "Auto-created on tool install or via Create Snapshot"
+            ),
+            "required": True,
+        },
+        {
+            "id": "mod_loader",
+            "title": "3. Mod Loader / Runtime Hook",
+            "status": (
+                ("ready" if bep_ready else "pending")
+                if is_unity
+                else (("ready" if (ue4ss_ready or ue_ini_ready) else "pending") if is_unreal else ("ready" if dir_exists else "pending"))
+            ),
+            "detail": (
+                ("Doorstop + BepInEx detected" if bep_ready else "Install BepInEx 6 (IL2CPP) or BepInEx 5 (Mono)")
+                if is_unity
+                else (
+                    ("RE-UE4SS / Unreal INI workspace verified" if (ue4ss_ready or ue_ini_ready) else "Install RE-UE4SS or rescan Unreal config")
+                    if is_unreal
+                    else "Standard folder / native config modding"
+                )
+            ),
+            "required": True,
+        },
+        {
+            "id": "mcp_bridge",
+            "title": "4. Live Bridge / Config Surface",
+            "status": (
+                ("ready" if bridge_ready else "pending")
+                if is_unity
+                else ("ready" if (not is_unreal or ue_ini_ready) else "pending")
+            ),
+            "detail": (
+                ("BepInExMCP plugin deployed" if bridge_ready else "Deploy BepInExMCP live bridge plugin")
+                if is_unity
+                else ("Config / INI surface accessible" if (not is_unreal or ue_ini_ready) else "Launch game once or select Unreal INI profile")
+            ),
+            "required": is_unity,
+        },
+        {
+            "id": "conflict_check",
+            "title": "5. Mod Manager / Proxy Conflict Check",
+            "status": "warning" if guard.get("has_conflicts") else "ready",
+            "detail": guard.get("summary") or "No Vortex/MO2 or proxy DLL conflicts detected",
+            "required": False,
+        },
+    ]
+
+    all_ready = all(s["status"] == "ready" for s in steps if s.get("required"))
+    return {
+        "status": "ok",
+        "all_ready": all_ready,
+        "readiness_label": "Ready" if all_ready else "Setup Needed",
+        "steps": steps,
     }
 
 

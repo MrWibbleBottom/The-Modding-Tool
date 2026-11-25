@@ -456,6 +456,95 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual((game_dir / "winhttp.dll").read_bytes(), b"EXISTING_WINHTTP")
                 core_config.invalidate_games_cache()
 
+    def test_installed_mods_detection_toggle_and_remove(self) -> None:
+        from app.services import game_snapshots
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            unity_dir = tmp_dir / "ModdedUnity"
+            ue_dir = tmp_dir / "ModdedUnreal"
+            (unity_dir / "BepInEx" / "plugins" / "CoolMod").mkdir(parents=True)
+            (unity_dir / "BepInEx" / "patchers").mkdir(parents=True)
+            (unity_dir / "BepInEx" / "plugins" / "CoolMod" / "CoolMod.dll").write_bytes(b"DLL1")
+            (unity_dir / "BepInEx" / "patchers" / "PreloadFix.dll.disabled").write_bytes(b"DLL2")
+            (unity_dir / "vortex.deployment.json").write_text(
+                json.dumps({"files": [{"relPath": "BepInEx/plugins/CoolMod/CoolMod.dll", "source": "CoolModArchive"}]}),
+                encoding="utf-8",
+            )
+            (unity_dir / "modlist.txt").write_text("+ActiveMO2Mod\n-DisabledMO2Mod\n", encoding="utf-8")
+
+            (ue_dir / "MyProj" / "Content" / "Paks" / "~mods").mkdir(parents=True)
+            (ue_dir / "MyProj" / "Content" / "Paks" / "~mods" / "UltraTextures_P.pak").write_bytes(b"PAK1")
+
+            temp_games_store = tmp_dir / "managed_games.json"
+            temp_games_store.write_text(
+                json.dumps({
+                    "active_game_id": "mod_unity",
+                    "games": [
+                        {"id": "mod_unity", "name": "Mod Unity", "game_dir": str(unity_dir), "runtime": "Unity_IL2CPP"},
+                        {"id": "mod_unreal", "name": "Mod Unreal", "game_dir": str(ue_dir), "runtime": "Unreal Engine 4/5"},
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            snaps_root = tmp_dir / "game_snapshots"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                r_unity = self.client.get("/api/games/mod_unity/mods")
+                self.assertEqual(r_unity.status_code, 200)
+                udata = r_unity.json()
+                self.assertTrue(udata.get("vortex_detected"))
+                self.assertTrue(udata.get("mo2_detected"))
+                rels = {m["rel_path"]: m for m in udata["mods"]}
+                self.assertTrue(rels["BepInEx/plugins/CoolMod/CoolMod.dll"]["enabled"])
+                self.assertFalse(rels["BepInEx/patchers/PreloadFix.dll.disabled"]["enabled"])
+
+                # Disable CoolMod.dll -> CoolMod.dll.disabled
+                r_dis = self.client.post(
+                    "/api/games/mod_unity/mods/toggle",
+                    json={"rel_path": "BepInEx/plugins/CoolMod/CoolMod.dll", "enabled": False},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_dis.status_code, 200)
+                self.assertFalse(r_dis.json()["enabled"])
+                self.assertTrue((unity_dir / "BepInEx" / "plugins" / "CoolMod" / "CoolMod.dll.disabled").is_file())
+
+                # Re-enable back
+                r_en = self.client.post(
+                    "/api/games/mod_unity/mods/toggle",
+                    json={"rel_path": "BepInEx/plugins/CoolMod/CoolMod.dll.disabled", "enabled": True},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_en.status_code, 200)
+                self.assertTrue(r_en.json()["enabled"])
+                self.assertTrue((unity_dir / "BepInEx" / "plugins" / "CoolMod" / "CoolMod.dll").is_file())
+
+                # Remove creates snapshot then unlinks file
+                r_rem = self.client.post(
+                    "/api/games/mod_unity/mods/remove",
+                    json={"rel_path": "BepInEx/plugins/CoolMod/CoolMod.dll"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_rem.status_code, 200)
+                self.assertTrue(r_rem.json().get("snapshot_id"))
+                self.assertFalse((unity_dir / "BepInEx" / "plugins" / "CoolMod" / "CoolMod.dll").exists())
+
+                r_ue = self.client.get("/api/games/mod_unreal/mods")
+                self.assertEqual(r_ue.status_code, 200)
+                self.assertTrue(any(m["mod_type"] == "unreal_pak" for m in r_ue.json()["mods"]))
+                core_config.invalidate_games_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

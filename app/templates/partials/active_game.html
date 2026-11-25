@@ -1,53 +1,10 @@
   <!-- ===================================================================== -->
-  <!-- TAB 2: ACTIVE GAME WORKSPACE (AUTO-OPENED ON LOAD GAME)               -->
+  <!-- TAB 2: ACTIVE GAME WORKSPACE (5-SECTION WORKFLOW)                     -->
   <!-- ===================================================================== -->
   <div class="tab-pane" id="tab-pane-game">
     <div class="wip-section-banner" id="wip-banner-game">WIP - In Progress</div>
     <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
 
-    <!-- 4-STEP MODDING READINESS STRIP + SNAPSHOTS & ROLLBACK -->
-    <section class="readiness-strip-wrap" id="readiness-strip-wrap" aria-label="Modding Readiness Pipeline">
-      <div class="readiness-strip" id="readiness-strip">
-        <div class="readiness-step pending" id="rs-step-fingerprint">
-          <div class="readiness-step-head"><span class="readiness-step-num">1</span><span class="readiness-step-title">Fingerprinted</span></div>
-          <div class="readiness-step-detail" id="rs-detail-fingerprint">Engine / runtime not identified yet</div>
-          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-fingerprint" onclick="runReadinessFix('fingerprint')">Run Fingerprint</button>
-        </div>
-        <div class="readiness-step pending" id="rs-step-snapshot">
-          <div class="readiness-step-head"><span class="readiness-step-num">2</span><span class="readiness-step-title">Clean Snapshot</span></div>
-          <div class="readiness-step-detail" id="rs-detail-snapshot">No game snapshot saved yet</div>
-          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-snapshot" onclick="runReadinessFix('snapshot')">Create Snapshot</button>
-        </div>
-        <div class="readiness-step pending" id="rs-step-stack">
-          <div class="readiness-step-head">
-            <span class="readiness-step-num">3</span><span class="readiness-step-title">Modding Stack Ready</span>
-            <span class="pill warn readiness-conflict-badge" id="rs-conflict-badge" hidden>Conflict</span>
-          </div>
-          <div class="readiness-step-detail" id="rs-detail-stack">Loader / config access not verified</div>
-          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-stack" onclick="runReadinessFix('stack')">Install Stack</button>
-        </div>
-        <div class="readiness-step pending" id="rs-step-bridge">
-          <div class="readiness-step-head"><span class="readiness-step-num">4</span><span class="readiness-step-title">Workspace / Bridge Ready</span></div>
-          <div class="readiness-step-detail" id="rs-detail-bridge">MCP bridge / config workspace not verified</div>
-          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-bridge" onclick="runReadinessFix('bridge')">Fix</button>
-        </div>
-      </div>
-
-      <details class="snapshot-drawer" id="snapshot-drawer">
-        <summary id="snapshot-drawer-summary">Snapshots &amp; Rollback (0)</summary>
-        <div class="snapshot-drawer-body">
-          <div class="snapshot-drawer-controls">
-            <input id="snapshot-label-input" type="text" placeholder="Optional snapshot label (e.g. Before ReShade tweak)" />
-            <button type="button" class="success btn-sm" id="btn-create-snapshot" onclick="createGameSnapshot()">Create Snapshot</button>
-            <button type="button" class="secondary btn-sm" id="btn-refresh-snapshots" onclick="loadGameSnapshots()">Refresh</button>
-          </div>
-          <div id="snapshot-conflict-notice" class="snapshot-conflict-notice" hidden></div>
-          <ul class="snapshot-list" id="snapshot-list">
-            <li class="snapshot-empty">No snapshots captured yet for this game.</li>
-          </ul>
-        </div>
-      </details>
-    </section>
     <section class="info-panel" id="top-game-info-panel">
       <div id="game-steam-banner" style="display:none; position:relative; border-radius:8px; overflow:hidden; margin-bottom:14px; border:1px solid var(--border); min-height:170px; background:#0b0f17;">
         <img id="game-steam-hero-img" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center;" />
@@ -73,15 +30,18 @@
           </div>
         </div>
       </div>
+
       <div class="info-panel-header">
         <h2>
-          <span>Game Info &amp; Modding Requirements:</span>
+          <span>Active Game Workspace:</span>
           <span id="info-title" style="color:#fff;">Demeo x Dungeons &amp; Dragons: Battlemarked</span>
           <span class="badge" id="info-slug-badge">battleground</span>
           <span class="badge" id="info-engine-badge">Unity</span>
         </h2>
         <div class="btn-group">
           <span class="pill no" id="info-missing-badge" style="display:none;">Missing on Disk (Showing Cached Info)</span>
+          <button type="button" class="danger btn-sm" id="btn-full-restore-game" onclick="fullRestoreActiveGame()" title="Restore game to its earliest clean baseline snapshot">Full Restore (Rollback All)</button>
+          <button type="button" class="btn-sm" id="btn-create-ai-pack" onclick="downloadAiInfoPack()" title="Download a .zip AI Info Pack with game summary, app info, mods, snapshots, and logs">Create AI Info Pack</button>
           <button type="button" class="success btn-sm" id="btn-unity-bdl-loop" onclick="runBuildDeployLaunchTail()" title="Build compatible Unity plugin, deploy to game, launch game, and tail BepInEx log">Build &rarr; Deploy &rarr; Launch &rarr; Tail Log</button>
           <button type="button" class="secondary btn-sm" id="btn-toggle-log-tail" onclick="toggleGameLogTail()">Game Log Tail</button>
           <button type="button" class="secondary btn-sm" id="btn-copy-ai-context" onclick="copyAiModdingContext()">Copy AI Context</button>
@@ -90,7 +50,7 @@
       </div>
 
       <!-- AGGREGATED TARGET PATH BAR -->
-      <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
+      <div style="display:flex; gap:8px; align-items:end; margin-bottom:10px; flex-wrap:wrap;">
         <div style="flex:1; min-width:280px;">
           <label for="fp-game-dir">Target Game Directory (Used by Fingerprint &amp; Rescan, Conflict Check &amp; Mod Deployment)</label>
           <input id="fp-game-dir" type="text" value="C:\Program Files (x86)\Steam\steamapps\common\Battlemarked" />
@@ -99,7 +59,8 @@
           <button class="secondary" onclick="browseIntoInput('fp-game-dir')">Browse</button>
         </div>
       </div>
-      <pre id="fp-output" style="display:none; margin-bottom:12px; max-height:150px;"></pre>
+      <pre id="fp-output" style="display:none; margin-bottom:10px; max-height:150px;"></pre>
+
       <div id="game-log-tail-drawer" class="log-tail-drawer" style="display:none;">
         <div class="log-tail-drawer-head">
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -119,20 +80,9 @@
         </div>
         <pre id="game-log-tail-pre" class="log-tail-pre">Click Refresh Tail to read the latest game log output...</pre>
       </div>
-      <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:200px;">
-          <label for="game-user-tags">Game Tags (comma-separated)</label>
-          <input id="game-user-tags" type="text" placeholder="e.g. Modded, Favorite, Testing" />
-        </div>
-        <div style="flex:2; min-width:260px;">
-          <label for="game-user-notes">Custom Notes for Active Game</label>
-          <input id="game-user-notes" type="text" placeholder="Personal modding notes, tested versions, or load order notes..." />
-        </div>
-        <button class="secondary btn-sm" onclick="saveActiveGameNotes()">Save Notes</button>
-      </div>
 
-      <!-- PIPELINE STATUS BAR (5 CONSOLIDATED SECTIONS) -->
-      <div class="quick-indicators-bar" id="info-quick-indicators">
+      <!-- PIPELINE STATUS BAR -->
+      <div class="quick-indicators-bar" id="info-quick-indicators" style="margin-bottom:12px;">
         <span class="quick-indicators-label">Pipeline Status:</span>
         <span class="pill warn" id="ind-game-installed">Game Installed: Checking...</span>
         <span class="pill warn" id="ind-modding-tools">Modding Tools: Checking...</span>
@@ -141,8 +91,253 @@
         <span class="pill na" id="ind-settings-optimised">PC Spec Settings: Checking...</span>
       </div>
 
-      <!-- INSTALLED MODS DETECTED IN GAME FOLDERS -->
-      <details id="installed-mods-details" style="margin-top:10px; background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;">
+      <!-- 5-TAB SUB-NAVIGATION BAR -->
+      <nav class="ag-subnav" id="active-game-subnav" role="tablist" aria-label="Active Game Sections">
+        <button type="button" class="ag-subnav-btn active" id="ag-tab-btn-general" onclick="switchActiveGameSection('general')">1. General Game Info</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-setup" onclick="switchActiveGameSection('setup')">2. Setup</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-mods" onclick="switchActiveGameSection('mods')">3. Current Mods</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-modding" onclick="switchActiveGameSection('modding')">4. Modding</button>
+        <button type="button" class="ag-subnav-btn" id="ag-tab-btn-pcopt" onclick="switchActiveGameSection('pcopt')">5. PC Optimisation</button>
+      </nav>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- SECTION 1: GENERAL GAME INFO                                        -->
+    <!-- =================================================================== -->
+    <div class="ag-tab-pane active" id="ag-pane-general">
+      <div class="card full" style="margin-bottom:14px;">
+        <h2>Tags &amp; Modding Notes</h2>
+        <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <label for="game-user-tags">Game Tags (comma-separated)</label>
+            <input id="game-user-tags" type="text" placeholder="e.g. Modded, Favorite, Testing" />
+          </div>
+          <div style="flex:2; min-width:260px;">
+            <label for="game-user-notes">Custom Notes for Active Game</label>
+            <input id="game-user-notes" type="text" placeholder="Personal modding notes, tested versions, or load order notes..." />
+          </div>
+          <button class="secondary btn-sm" onclick="saveActiveGameNotes()">Save Notes</button>
+        </div>
+      </div>
+
+      <div class="card full" id="card-game-technical-details">
+        <details id="game-technical-details-collapse" open>
+          <summary style="cursor:pointer; color:#93c5fd; font-weight:700; font-size:0.95rem; list-style-position:inside;">
+            Game Technical Details, Checklist &amp; Advised MCP Tooling
+          </summary>
+          <div class="info-grid" style="margin-top:12px;">
+            <div class="info-item">
+              <div class="k">Developer / Product &amp; Exe</div>
+              <div class="v" id="info-product">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Platform &amp; Architecture</div>
+              <div class="v" id="info-platform">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k" id="lbl-info-engine-ver">Engine &amp; Build Version</div>
+              <div class="v" id="info-unity-ver">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k" id="lbl-info-backend">Scripting Backend &amp; Engine</div>
+              <div class="v" id="info-backend">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Required Mod Loader Tool</div>
+              <div class="v" id="info-req-loader" style="color:#60a5fa;">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Required MCP Bridge Plugin</div>
+              <div class="v" id="info-req-plugin" style="color:#60a5fa;">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k" id="lbl-info-installed-loader">Installed Mod Loader</div>
+              <div class="v" id="info-installed-loader">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k" id="lbl-info-interop">Modding Workspace / Interop</div>
+              <div class="v" id="info-interop">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Graphics API &amp; XR Subsystem</div>
+              <div class="v" id="info-gfx-xr">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k" id="lbl-info-build-guid">Engine Project / Build ID</div>
+              <div class="v" id="info-build-guid">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Reference Sheet Match &amp; Category</div>
+              <div class="v" id="info-sheet-cat" style="color:#f59e0b;">—</div>
+            </div>
+            <div class="info-item">
+              <div class="k">Recommended MCP Stack (Reference Sheet)</div>
+              <div class="v" id="info-mcp-stack" style="color:#34d399;">—</div>
+            </div>
+            <div class="info-item" style="grid-column: span 2;">
+              <div class="k">Advised MCP Tools for Discovery (Scene, Types &amp; Static Analysis)</div>
+              <div class="v" id="info-mcp-discovery" style="color:#93c5fd;">—</div>
+            </div>
+            <div class="info-item" style="grid-column: span 2;">
+              <div class="k">Advised MCP Tools for Modding (Live Mutation, Patching &amp; Profiles)</div>
+              <div class="v" id="info-mcp-modding" style="color:#a7f3d0;">—</div>
+            </div>
+          </div>
+          <div class="crucial-steps-header" style="margin-top:14px;">
+            <span>Modding Steps &amp; File / Bridge Presence Checklist</span>
+            <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Live verification of game files, mod loader, interop bootstrap, MCP bridge &amp; clean-restore manifest</span>
+          </div>
+          <div class="crucial-steps-grid" id="info-crucial-steps"></div>
+        </details>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- SECTION 2: SETUP (TOOLS, VERIFY INTEGRITY, READINESS, SNAPSHOTS)    -->
+    <!-- =================================================================== -->
+    <div class="ag-tab-pane" id="ag-pane-setup" style="display:none;">
+      <!-- 4-STEP MODDING READINESS STRIP + SNAPSHOTS & ROLLBACK -->
+      <section class="readiness-strip-wrap" id="readiness-strip-wrap" aria-label="Modding Readiness Pipeline">
+        <div class="readiness-strip" id="readiness-strip">
+          <div class="readiness-step pending" id="rs-step-fingerprint">
+            <div class="readiness-step-head"><span class="readiness-step-num">1</span><span class="readiness-step-title">Fingerprinted</span></div>
+            <div class="readiness-step-detail" id="rs-detail-fingerprint">Engine / runtime not identified yet</div>
+            <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-fingerprint" onclick="runReadinessFix('fingerprint')">Run Fingerprint</button>
+          </div>
+          <div class="readiness-step pending" id="rs-step-snapshot">
+            <div class="readiness-step-head"><span class="readiness-step-num">2</span><span class="readiness-step-title">Clean Snapshot</span></div>
+            <div class="readiness-step-detail" id="rs-detail-snapshot">No game snapshot saved yet</div>
+            <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-snapshot" onclick="runReadinessFix('snapshot')">Create Snapshot</button>
+          </div>
+          <div class="readiness-step pending" id="rs-step-stack">
+            <div class="readiness-step-head">
+              <span class="readiness-step-num">3</span><span class="readiness-step-title">Modding Stack Ready</span>
+              <span class="pill warn readiness-conflict-badge" id="rs-conflict-badge" hidden>Conflict</span>
+            </div>
+            <div class="readiness-step-detail" id="rs-detail-stack">Loader / config access not verified</div>
+            <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-stack" onclick="runReadinessFix('stack')">Install Stack</button>
+          </div>
+          <div class="readiness-step pending" id="rs-step-bridge">
+            <div class="readiness-step-head"><span class="readiness-step-num">4</span><span class="readiness-step-title">Workspace / Bridge Ready</span></div>
+            <div class="readiness-step-detail" id="rs-detail-bridge">MCP bridge / config workspace not verified</div>
+            <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-bridge" onclick="runReadinessFix('bridge')">Fix</button>
+          </div>
+        </div>
+
+        <details class="snapshot-drawer" id="snapshot-drawer">
+          <summary id="snapshot-drawer-summary">Snapshots &amp; Rollback (0)</summary>
+          <div class="snapshot-drawer-body">
+            <div class="snapshot-drawer-controls">
+              <input id="snapshot-label-input" type="text" placeholder="Optional snapshot label (e.g. Before ReShade tweak)" />
+              <button type="button" class="success btn-sm" id="btn-create-snapshot" onclick="createGameSnapshot()">Create Snapshot</button>
+              <button type="button" class="secondary btn-sm" id="btn-refresh-snapshots" onclick="loadGameSnapshots()">Refresh</button>
+            </div>
+            <div id="snapshot-conflict-notice" class="snapshot-conflict-notice" hidden></div>
+            <ul class="snapshot-list" id="snapshot-list">
+              <li class="snapshot-empty">No snapshots captured yet for this game.</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- PLATFORM INTEGRITY CHECK & GUIDED SETUP VERIFICATION -->
+      <div class="card full" id="card-verify-integrity" style="margin-bottom:14px;">
+        <h2>
+          <span>Platform File Integrity &amp; Guided Setup Verification</span>
+          <div class="btn-group">
+            <span class="pill warn" id="setup-checklist-badge">Checking...</span>
+            <button type="button" class="secondary btn-sm" id="btn-refresh-setup-checks" onclick="loadSetupChecklist()">Refresh Checks</button>
+            <button type="button" class="btn-sm" id="btn-verify-integrity" onclick="verifyActiveGameIntegrity()">Verify Game File Integrity</button>
+          </div>
+        </h2>
+        <div class="hint" style="margin-bottom:10px;">
+          Triggers storefront file validation (<code>steam://validate/{app_id}</code> for Steam or guided steps for Epic/GOG/Custom) and runs step-by-step readiness checks. Tool installations automatically create a baseline snapshot before altering game files.
+        </div>
+        <div id="setup-verification-checklist">
+          <div class="crucial-steps-grid" id="setup-checklist-grid"></div>
+        </div>
+        <pre id="verify-integrity-output" style="display:none; margin-top:10px; max-height:140px;"></pre>
+      </div>
+
+      <!-- RELEVANT MODDING APPS & ONE-CLICK INSTALLERS -->
+      <div class="card full" style="margin-bottom:14px;">
+        <div class="crucial-steps-header" style="margin-top: 0;">
+          <span>Relevant Modding Apps &amp; Installers (<code id="tools-root-label">%LOCALAPPDATA%\TheModdingTool\tools</code> &amp; Game Folder)</span>
+          <div class="btn-group" style="text-transform:none; font-weight:400;">
+            <select id="tools-filter-mode" style="padding:4px 10px; font-size:0.76rem; width:auto;" onchange="renderCurrentGameModdingApps()">
+              <option value="recommended" selected>Recommended Apps for This Game</option>
+              <option value="all">All Modding Apps (All 14 Engine Tools)</option>
+            </select>
+            <button class="success btn-sm" id="btn-install-all-rec" onclick="installAllRecommendedTools()">Install Recommended Apps</button>
+          </div>
+        </div>
+        <div class="crucial-steps-grid" id="info-modding-apps"></div>
+        <pre id="tools-install-output" style="display:none; margin-top:8px; max-height:140px;"></pre>
+      </div>
+
+      <!-- PROVISION & CLEAN RESTORE (UNITY) -->
+      <div class="card full" id="card-provision-restore">
+        <h2>Provision &amp; Clean Restore <span class="badge">POST /api/provision &amp; /api/restore</span></h2>
+        <div class="row">
+          <div>
+            <label>Local BepInEx 6 IL2CPP Zip Path</label>
+            <input id="prov-zip-path" type="text" value="D:\Downloads\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip" />
+          </div>
+          <div>
+            <label>Expected Zip SHA-256 Hash</label>
+            <input id="prov-sha256" type="text" value="5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" />
+          </div>
+        </div>
+        <div>
+          <label>Compiled BepInExMCP.IL2CPP Build Output Directory</label>
+          <input id="prov-plugin-dir" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
+        </div>
+        <div class="btn-row">
+          <button class="success" onclick="runProvision()">Provision &amp; Backup</button>
+          <button class="danger" onclick="runRestore()">Clean Restore</button>
+        </div>
+        <pre id="prov-output">Ready to validate SHA-256, back up collisions, extract BepInEx + BepInExMCP.IL2CPP.dll, or restore cleanly.</pre>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- SECTION 3: CURRENT MODS (SCANNER, ENABLE/DISABLE, SAFE REMOVAL)     -->
+    <!-- =================================================================== -->
+    <div class="ag-tab-pane" id="ag-pane-mods" style="display:none;">
+      <div class="card full" id="card-current-mods" style="margin-bottom:14px;">
+        <h2>
+          <span>Current Mods &amp; Load-Order Manager</span>
+          <div class="btn-group">
+            <span class="pill na" id="cm-summary-pill">0 Mods</span>
+            <span class="badge" id="cm-managers-badge">Filesystem</span>
+            <button type="button" class="secondary btn-sm" id="btn-rescan-mods" onclick="loadCurrentModsSection()">Rescan Installed Mods</button>
+          </div>
+        </h2>
+        <div class="hint" style="margin-bottom:10px;">
+          Detects installed Unity plugins/patchers (<code>BepInEx/plugins</code>, <code>BepInEx/patchers</code>), Unreal paks &amp; UE4SS mods (<code>~mods</code>, <code>Mods/</code>), and Vortex/MO2 manifests. Toggling renames <code>.disabled</code> safely or flips <code>enabled.txt</code>; removing creates an automatic snapshot first.
+        </div>
+        <div class="log-wrap" style="max-height:340px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Mod Name</th>
+                <th>Surface / Type</th>
+                <th>Status</th>
+                <th>Source</th>
+                <th>Size</th>
+                <th>Path</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="cm-mods-tbody">
+              <tr><td colspan="7">Click Rescan Installed Mods or select a game to scan installed mods.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- INSTALLED MODS DETECTED IN GAME FOLDERS (OVERLAY / PACK BREAKDOWN) -->
+      <details id="installed-mods-details" style="background:rgba(13,17,23,0.75); border:1px solid #2b3c56; border-radius:6px; padding:8px 12px;" open>
         <summary id="installed-mods-summary" style="cursor:pointer; color:#93c5fd; font-weight:600; font-size:0.82rem;">
           Installed Mods Detected (0)
         </summary>
@@ -192,23 +387,65 @@
           </table>
         </div>
       </details>
+    </div>
 
-      <!-- RELEVANT MODDING APPS & ONE-CLICK INSTALLERS -->
-      <div class="crucial-steps-header" style="margin-top: 16px;">
-        <span>Relevant Modding Apps &amp; Installers (<code id="tools-root-label">%LOCALAPPDATA%\TheModdingTool\tools</code> &amp; Game Folder)</span>
-        <div class="btn-group" style="text-transform:none; font-weight:400;">
-          <select id="tools-filter-mode" style="padding:4px 10px; font-size:0.76rem; width:auto;" onchange="renderCurrentGameModdingApps()">
-            <option value="recommended" selected>Recommended Apps for This Game</option>
-            <option value="all">All Modding Apps (All 14 Engine Tools)</option>
-          </select>
-          <button class="success btn-sm" id="btn-install-all-rec" onclick="installAllRecommendedTools()">Install Recommended Apps</button>
+    <!-- =================================================================== -->
+    <!-- SECTION 4: MODDING (CATEGORIZED ENDPOINTS, MCP BRIDGE & AUDIT)      -->
+    <!-- =================================================================== -->
+    <div class="ag-tab-pane" id="ag-pane-modding" style="display:none;">
+      <div class="grid">
+        <div class="card full" id="adapter-status-notice" style="display:none; border-color:#3b82f6; background:rgba(30,58,138,0.2);">
+          <h2 style="margin-bottom:6px;"><span id="adapter-notice-title">Engine Adapter Status</span> <span class="badge" id="adapter-notice-badge">—</span></h2>
+          <div id="adapter-notice-body" style="font-size:0.84rem; color:#cbd5e1;"></div>
         </div>
+
+{% include "partials/mcp_bridge.html" %}
+{% include "partials/asset_audit.html" %}
       </div>
-      <div class="crucial-steps-grid" id="info-modding-apps"></div>
-      <pre id="tools-install-output" style="display:none; margin-top:8px; max-height:140px;"></pre>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- SECTION 5: PC OPTIMISATION (TRAFFIC-LIGHT HARDWARE SPEC ADVISOR)    -->
+    <!-- =================================================================== -->
+    <div class="ag-tab-pane" id="ag-pane-pcopt" style="display:none;">
+      <div class="card full" id="card-pc-optimisation" style="margin-bottom:14px;">
+        <h2>
+          <span>PC Optimisation &amp; Hardware Spec Traffic Lights</span>
+          <div class="btn-group">
+            <span class="pill na" id="pcopt-overall-pill">Not Evaluated</span>
+            <span class="pill yes" id="pcopt-green-pill">0 Green</span>
+            <span class="pill warn" id="pcopt-amber-pill">0 Amber</span>
+            <span class="pill no" id="pcopt-red-pill">0 Red</span>
+            <button type="button" class="secondary btn-sm" id="btn-pcopt-refresh" onclick="loadPcOptimisation(true)">Re-Evaluate PC Specs</button>
+            <button type="button" class="success btn-sm" id="btn-pcopt-apply-optimal" onclick="applyPcOptimisation('optimal')">Apply Recommended Optimal</button>
+            <button type="button" class="secondary btn-sm" id="btn-pcopt-apply-default" onclick="applyPcOptimisation('default')">Restore Defaults</button>
+          </div>
+        </h2>
+        <div class="hint" id="pcopt-specs-summary" style="margin-bottom:10px;">
+          Comparing detected game settings against your PC CPU, GPU, VRAM, RAM, and display specs...
+        </div>
+        <div class="log-wrap" style="max-height:360px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Traffic Light</th>
+                <th>Category &amp; Setting</th>
+                <th>Current Value</th>
+                <th>Recommended Value</th>
+                <th>Analysis / Bottleneck Note</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="pcopt-rows-tbody">
+              <tr><td colspan="6">Loading PC optimisation evaluation...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre id="pcopt-action-output" style="display:none; margin-top:8px; max-height:130px;"></pre>
+      </div>
 
       <!-- UNREAL ENGINE SETTINGS (PERFORMANCE & FIDELITY) + PC SPECS COMPARISON -->
-      <div id="unreal-settings-section" style="display:none; margin-top:18px; padding-top:14px; border-top:1px solid #2b3c56;">
+      <div id="unreal-settings-section" class="card full" style="display:none;">
         <div class="crucial-steps-header" style="margin-top:0;">
           <span>Unreal Engine Game Settings &amp; Traffic-Light Hardware Optimality Advisor</span>
           <div class="btn-group" style="text-transform:none; font-weight:400;">
@@ -268,21 +505,18 @@
             View Detailed Traffic-Light Breakdown (Hardware Match, Performance &amp; Visual Fidelity)
           </summary>
 
-          <!-- 1. PC SPECS VS CURRENT UNREAL SETTINGS COMPARISON -->
           <div class="crucial-steps-header" style="margin-top:10px;">
             <span>Traffic-Light Hardware vs. Current Unreal Settings Breakdown</span>
             <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Green = Optimal for Tier | Amber = Sub-Optimal / Headroom Unused | Red = Over-Budget / Bottleneck</span>
           </div>
           <div class="crucial-steps-grid" id="ue-comparison-grid" style="grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); margin-bottom:12px;"></div>
 
-          <!-- 2. KEY PERFORMANCE SETTINGS -->
           <div class="crucial-steps-header" style="margin-top:12px;">
             <span>Key Performance Settings (Traffic-Light Evaluated Against Reference Array)</span>
             <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Directly impacts FPS, frame pacing, GPU fillrate, and CPU main-thread latency</span>
           </div>
           <div class="crucial-steps-grid" id="ue-performance-grid"></div>
 
-          <!-- 3. KEY VISUAL FIDELITY SETTINGS -->
           <div class="crucial-steps-header" style="margin-top:12px;">
             <span>Key Visual Fidelity Settings (Traffic-Light Evaluated Against Reference Array)</span>
             <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Controls ray-traced/Lumen lighting, shader complexity, anisotropic filtering, and HDR</span>
@@ -315,113 +549,5 @@
           </div>
         </details>
       </div>
-    </section>
-
-    <div class="grid">
-
-    <!-- ADAPTER STATUS NOTICE (FOR ENGINE-AGNOSTIC LIBRARY SELECTION) -->
-    <div class="card full" id="adapter-status-notice" style="display:none; border-color:#3b82f6; background:rgba(30,58,138,0.2);">
-      <h2 style="margin-bottom:6px;"><span id="adapter-notice-title">Engine Adapter Status</span> <span class="badge" id="adapter-notice-badge">—</span></h2>
-      <div id="adapter-notice-body" style="font-size:0.84rem; color:#cbd5e1;"></div>
-    </div>
-
-    <!-- 1 & 2. PROVISION & CLEAN RESTORE -->
-    <div class="card full" id="card-provision-restore">
-      <h2>Provision &amp; Clean Restore <span class="badge">POST /api/provision &amp; /api/restore</span></h2>
-      <div class="row">
-        <div>
-          <label>Local BepInEx 6 IL2CPP Zip Path</label>
-          <input id="prov-zip-path" type="text" value="D:\Downloads\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip" />
-        </div>
-        <div>
-          <label>Expected Zip SHA-256 Hash</label>
-          <input id="prov-sha256" type="text" value="5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4" />
-        </div>
-      </div>
-      <div>
-        <label>Compiled BepInExMCP.IL2CPP Build Output Directory</label>
-        <input id="prov-plugin-dir" type="text" value="d:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0" />
-      </div>
-      <div class="btn-row">
-        <button class="success" onclick="runProvision()">Provision &amp; Backup</button>
-        <button class="danger" onclick="runRestore()">Clean Restore</button>
-      </div>
-      <pre id="prov-output">Ready to validate SHA-256, back up collisions, extract BepInEx + BepInExMCP.IL2CPP.dll, or restore cleanly.</pre>
-    </div>
-
-{% include "partials/mcp_bridge.html" %}
-{% include "partials/asset_audit.html" %}
-
-    <!-- TECHNICAL GAME METADATA & ADVISED MCP TOOLS (COLLAPSIBLE AT BOTTOM OF PAGE) -->
-    <div class="card full" id="card-game-technical-details">
-      <details id="game-technical-details-collapse">
-        <summary style="cursor:pointer; color:#93c5fd; font-weight:700; font-size:0.95rem; list-style-position:inside;">
-          Game Technical Details, Checklist &amp; Advised MCP Tooling
-        </summary>
-        <div class="info-grid" style="margin-top:12px;">
-        <div class="info-item">
-          <div class="k">Developer / Product &amp; Exe</div>
-          <div class="v" id="info-product">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k">Platform &amp; Architecture</div>
-          <div class="v" id="info-platform">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k" id="lbl-info-engine-ver">Engine &amp; Build Version</div>
-          <div class="v" id="info-unity-ver">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k" id="lbl-info-backend">Scripting Backend &amp; Engine</div>
-          <div class="v" id="info-backend">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k">Required Mod Loader Tool</div>
-          <div class="v" id="info-req-loader" style="color:#60a5fa;">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k">Required MCP Bridge Plugin</div>
-          <div class="v" id="info-req-plugin" style="color:#60a5fa;">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k" id="lbl-info-installed-loader">Installed Mod Loader</div>
-          <div class="v" id="info-installed-loader">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k" id="lbl-info-interop">Modding Workspace / Interop</div>
-          <div class="v" id="info-interop">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k">Graphics API &amp; XR Subsystem</div>
-          <div class="v" id="info-gfx-xr">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k" id="lbl-info-build-guid">Engine Project / Build ID</div>
-          <div class="v" id="info-build-guid">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k">Reference Sheet Match &amp; Category</div>
-          <div class="v" id="info-sheet-cat" style="color:#f59e0b;">—</div>
-        </div>
-        <div class="info-item">
-          <div class="k">Recommended MCP Stack (Reference Sheet)</div>
-          <div class="v" id="info-mcp-stack" style="color:#34d399;">—</div>
-        </div>
-        <div class="info-item" style="grid-column: span 2;">
-          <div class="k">Advised MCP Tools for Discovery (Scene, Types &amp; Static Analysis)</div>
-          <div class="v" id="info-mcp-discovery" style="color:#93c5fd;">—</div>
-        </div>
-        <div class="info-item" style="grid-column: span 2;">
-          <div class="k">Advised MCP Tools for Modding (Live Mutation, Patching &amp; Profiles)</div>
-          <div class="v" id="info-mcp-modding" style="color:#a7f3d0;">—</div>
-        </div>
-      </div>
-      <div class="crucial-steps-header" style="margin-top:14px;">
-        <span>Modding Steps &amp; File / Bridge Presence Checklist</span>
-        <span style="font-size:0.72rem; color:var(--muted); text-transform:none; font-weight:400;">Live verification of game files, mod loader, interop bootstrap, MCP bridge &amp; clean-restore manifest</span>
-      </div>
-      <div class="crucial-steps-grid" id="info-crucial-steps"></div>
-      </details>
-    </div>
     </div>
   </div>

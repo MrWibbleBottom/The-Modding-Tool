@@ -274,14 +274,13 @@ def resolve_unreal_ini_targets(
 
     if gus_path is None:
         try:
-            ue_info = inspect_unreal_game_settings(game_dir, game_name or game_dir.name)
+            ue_info = inspect_unreal_game_settings(game_dir, {"product_name": game_name or game_dir.name})
             found_gus = str(ue_info.get("ini_path") or "").strip()
+            found_eng = str(ue_info.get("engine_ini_path") or "").strip()
             if found_gus:
                 gus_path = Path(found_gus)
-            elif ue_info.get("detected_project_name"):
-                profiles = discover_local_unreal_ini_profiles(game_dir, ue_info["detected_project_name"])
-                if profiles:
-                    gus_path = Path(profiles[0]["path"])
+            if eng_path is None and found_eng:
+                eng_path = Path(found_eng)
         except Exception:
             pass
 
