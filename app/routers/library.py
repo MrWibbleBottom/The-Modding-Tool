@@ -82,6 +82,13 @@ from app.services.game_snapshots import (
     list_game_snapshots,
     restore_game_snapshot,
 )
+from app.services.jobs import start_background_job
+from app.services.log_tail import build_ai_modding_context
+from app.services.unreal_ini import (
+    apply_unreal_ini_tweaks,
+    list_unreal_ini_tweaks,
+    preview_unreal_ini_tweaks,
+)
 from app.services.game_store import (
     enrich_game_status,
     evaluate_modding_apps_for_game,
@@ -160,10 +167,19 @@ class CreateSnapshotRequest(BaseModel):
     label: str = Field(default="")
 
 
+class UnrealIniTweaksRequest(BaseModel):
+    tweak_states: dict[str, bool] = Field(default_factory=dict)
+    updates: dict[str, str] = Field(default_factory=dict)
+    engine_ini_path: str = Field(default="")
+    gus_ini_path: str = Field(default="")
+    label: str = Field(default="Pre-INI tweak edit")
+
+
 class LibraryScanRequest(BaseModel):
     custom_roots: list[str] = Field(default_factory=list)
     single_folder: str = ""
     save_custom_roots: bool = True
+    async_job: bool = False
 
 
 class LibraryImportOwnedRequest(BaseModel):
@@ -828,6 +844,66 @@ async def post_create_game_snapshot(slug: str, req: CreateSnapshotRequest | None
     return res
 
 
+@router.get("/api/games/{slug}/unreal-ini/tweaks")
+async def get_game_unreal_ini_tweaks(slug: str, gus_ini_path: str = "", engine_ini_path: str = "") -> dict[str, Any]:
+    """List structured Unreal Engine INI tweak presets and current status for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    return list_unreal_ini_tweaks(
+        gdir,
+        engine_ini_path=Path(engine_ini_path) if engine_ini_path.strip() else None,
+        gus_ini_path=Path(gus_ini_path) if gus_ini_path.strip() else None,
+        game_name=str(target.get("name") or ""),
+    )
+
+
+@router.post("/api/games/{slug}/unreal-ini/preview")
+async def post_preview_unreal_ini_tweaks(slug: str, req: UnrealIniTweaksRequest) -> dict[str, Any]:
+    """Return unified diff preview for requested Unreal Engine INI tweaks."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    return preview_unreal_ini_tweaks(
+        gdir,
+        tweak_states=req.tweak_states,
+        updates=req.updates,
+        engine_ini_path=Path(req.engine_ini_path) if req.engine_ini_path.strip() else None,
+        gus_ini_path=Path(req.gus_ini_path) if req.gus_ini_path.strip() else None,
+        game_name=str(target.get("name") or ""),
+    )
+
+
+@router.post("/api/games/{slug}/unreal-ini/apply")
+async def post_apply_unreal_ini_tweaks(slug: str, req: UnrealIniTweaksRequest) -> dict[str, Any]:
+    """Snapshot existing Unreal INI configs and apply fenced tweaks / scalability updates."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    return apply_unreal_ini_tweaks(
+        slug,
+        gdir,
+        tweak_states=req.tweak_states,
+        updates=req.updates,
+        engine_ini_path=Path(req.engine_ini_path) if req.engine_ini_path.strip() else None,
+        gus_ini_path=Path(req.gus_ini_path) if req.gus_ini_path.strip() else None,
+        game_name=str(target.get("name") or ""),
+        label=req.label or "Pre-INI tweak edit",
+    )
+
+
+@router.get("/api/games/{slug}/ai-context")
+async def get_game_ai_context(slug: str) -> dict[str, Any]:
+    """Build a structured Markdown AI modding context pack for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    return build_ai_modding_context(target)
+
+
 @router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")
 async def post_restore_game_snapshot(slug: str, snapshot_id: str) -> dict[str, Any]:
     """Restore modded game surfaces to a specific saved snapshot."""
@@ -919,8 +995,19 @@ async def save_game_notes(game_id: str, req: GameNotesRequest) -> dict[str, Any]
 
 
 @router.post("/api/games/prewarm-icons")
-async def prewarm_game_icons() -> dict[str, Any]:
-    return await prewarm_game_icons_batch()
+async def prewarm_game_icons(async_job: bool = False) -> dict[str, Any]:
+    if not async_job:
+        return await prewarm_game_icons_batch()
+
+    def _worker(report: Any) -> dict[str, Any]:
+        report(percent=15, stage="Checking cached game icons...")
+        res = asyncio.run(prewarm_game_icons_batch())
+        extracted = int(res.get("extracted", 0))
+        report(percent=95, stage=f"Pre-warmed {extracted} icon(s)...", log_line=res.get("summary", ""))
+        return res
+
+    job = start_background_job("prewarm_icons", _worker, initial_stage="Queueing icon pre-warm...")
+    return {"status": "accepted", "job_id": job["job_id"], "job": job}
 
 
 @router.post("/api/games/prune-non-games")
@@ -941,8 +1028,11 @@ async def get_library_entries() -> dict[str, Any]:
     }
 
 
-@router.post("/api/library/scan-installed")
-async def scan_library_installed(req: LibraryScanRequest) -> dict[str, Any]:
+def _execute_library_scan(req: LibraryScanRequest, report: Any = None) -> dict[str, Any]:
+    def _emit(pct: int, stage: str, log_line: str | None = None) -> None:
+        if report is not None:
+            report(percent=pct, stage=stage, log_line=log_line)
+
     cache = load_library_cache()
     custom_roots = list(cache.get("custom_roots", []))
     for r in req.custom_roots:
@@ -955,15 +1045,24 @@ async def scan_library_installed(req: LibraryScanRequest) -> dict[str, Any]:
             custom_roots.append(sf)
 
     raw_installed: list[dict[str, Any]] = []
-    raw_installed.extend(scan_steam_installed())
-    raw_installed.extend(scan_epic_installed())
-    raw_installed.extend(scan_gog_installed())
-    raw_installed.extend(scan_manual_folders(custom_roots, single_folder=req.single_folder))
+    _emit(10, "Scanning Steam libraries...")
+    steam_items = scan_steam_installed()
+    raw_installed.extend(steam_items)
+    _emit(30, f"Scanning Epic Games ({len(steam_items)} Steam found)...", f"Steam: {len(steam_items)}")
+    epic_items = scan_epic_installed()
+    raw_installed.extend(epic_items)
+    _emit(45, f"Scanning GOG Galaxy ({len(epic_items)} Epic found)...", f"Epic: {len(epic_items)}")
+    gog_items = scan_gog_installed()
+    raw_installed.extend(gog_items)
+    _emit(60, f"Scanning custom folders ({len(gog_items)} GOG found)...", f"GOG: {len(gog_items)}")
+    manual_items = scan_manual_folders(custom_roots, single_folder=req.single_folder)
+    raw_installed.extend(manual_items)
 
     deduped_installed: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     installed_titles: set[str] = set()
-    for item in raw_installed:
+    total_raw = max(len(raw_installed), 1)
+    for idx, item in enumerate(raw_installed, start=1):
         rp = str(item.get("root_path") or "").strip()
         if not rp:
             continue
@@ -975,6 +1074,9 @@ async def scan_library_installed(req: LibraryScanRequest) -> dict[str, Any]:
         item.update(fp)
         deduped_installed.append(item)
         installed_titles.add(_normalize_library_title(item.get("title", "")))
+        if idx == 1 or idx % 5 == 0 or idx == total_raw:
+            pct = 60 + int((idx / total_raw) * 32)
+            _emit(pct, f"Fingerprinting games ({idx}/{total_raw})...")
 
     kept_uninstalled = [
         e for e in cache.get("entries", [])
@@ -982,6 +1084,7 @@ async def scan_library_installed(req: LibraryScanRequest) -> dict[str, Any]:
         and _normalize_library_title(e.get("title", "")) not in installed_titles
     ]
 
+    _emit(95, "Saving unified library cache...")
     all_entries = deduped_installed + kept_uninstalled
     cache["entries"] = all_entries
     if req.save_custom_roots:
@@ -1002,6 +1105,19 @@ async def scan_library_installed(req: LibraryScanRequest) -> dict[str, Any]:
         "entries": all_entries,
         "custom_roots": custom_roots,
     }
+
+
+@router.post("/api/library/scan-installed")
+async def scan_library_installed(req: LibraryScanRequest) -> dict[str, Any]:
+    if not req.async_job:
+        return _execute_library_scan(req)
+
+    job = start_background_job(
+        "library_scan",
+        lambda report: _execute_library_scan(req, report=report),
+        initial_stage="Starting multi-drive library scan...",
+    )
+    return {"status": "accepted", "job_id": job["job_id"], "job": job}
 
 
 @router.post("/api/library/import-owned")

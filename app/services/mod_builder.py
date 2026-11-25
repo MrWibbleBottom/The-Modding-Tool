@@ -614,8 +614,14 @@ async def build_compatible_mod_impl(
     *,
     built_mods_dir: Path | None = None,
     inspect_fn: Callable[[Path, str], dict[str, Any]] | None = None,
+    progress_cb: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Build a game-compatible mod package (.dll/.lua/.ini + manifest + instructions + .zip)."""
+    def _emit(pct: int, stage: str, log_line: str | None = None) -> None:
+        if progress_cb is not None:
+            progress_cb(percent=pct, stage=stage, log_line=log_line)
+
+    _emit(10, "Inspecting game runtime and build target...")
     store = load_managed_games()
     target_game = next((g for g in store.get("games", []) if g.get("id") == req.game_id), None)
     game_dir = Path((req.game_dir or (target_game.get("game_dir") if target_game else DEFAULT_GAME_DIR)).strip())
@@ -669,6 +675,7 @@ async def build_compatible_mod_impl(
         csproj_xml = _generate_il2cpp_csproj(assembly_name, bep_core_dir, interop_dir)
         (src_dir / "Plugin.cs").write_text(plugin_cs, encoding="utf-8")
         (src_dir / f"{assembly_name}.csproj").write_text(csproj_xml, encoding="utf-8")
+        _emit(35, f"Compiling IL2CPP plugin {assembly_name} with dotnet build...")
 
         proc = await asyncio.to_thread(
             subprocess.run,
@@ -794,6 +801,7 @@ namespace {assembly_name}
 '''
         (src_dir / "Plugin.cs").write_text(mono_cs, encoding="utf-8")
         (src_dir / f"{assembly_name}.csproj").write_text(mono_csproj, encoding="utf-8")
+        _emit(35, f"Compiling Mono plugin {assembly_name} with dotnet build...")
         proc = await asyncio.to_thread(
             subprocess.run,
             ["dotnet", "build", str(src_dir / f"{assembly_name}.csproj"), "-c", "Release", "--nologo"],
@@ -898,6 +906,7 @@ namespace {assembly_name}
     )
     (pkg_root / "INSTALL_INSTRUCTIONS.txt").write_text(instructions_text, encoding="utf-8")
 
+    _emit(85, "Packaging mod archive and manifest...")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file_path in pkg_root.rglob("*"):
             if file_path.is_file():

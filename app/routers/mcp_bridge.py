@@ -25,11 +25,14 @@ from app.core.config import (
     DEFAULT_VENV_PYTHON,
     GAMES_STORE_PATH,
     get_bepinex_bridge_roots,
+    load_managed_games,
     sha256_file,
 )
 from app.engines.unity import fingerprint_unity_directory
 from app.services.discovery import make_slug
 from app.services.game_store import inspect_game_modding_info
+from app.services.jobs import start_background_job
+from app.services.log_tail import read_game_log_tail
 from app.services.mod_builder import (
     _cs_escape,
     _generate_il2cpp_csproj,
@@ -223,6 +226,7 @@ class BuildModRequest(BaseModel):
     author: str = Field(default="The Modding Tool")
     apply_interval_sec: float = Field(default=2.0)
     edits: list[ModEditRule] = Field(default_factory=list)
+    async_job: bool = Field(default=False)
 
 
 class InstallBuiltModRequest(BaseModel):
@@ -499,12 +503,27 @@ async def mcp_call(req: McpCallRequest) -> dict[str, Any]:
 
 @router.post("/api/mods/build")
 async def build_compatible_mod(req: BuildModRequest) -> dict[str, Any]:
-    return await build_compatible_mod_impl(
-        req,
-        ModEditRule,
-        built_mods_dir=BUILT_MODS_DIR,
-        inspect_fn=inspect_game_modding_info,
-    )
+    if not req.async_job:
+        return await build_compatible_mod_impl(
+            req,
+            ModEditRule,
+            built_mods_dir=BUILT_MODS_DIR,
+            inspect_fn=inspect_game_modding_info,
+        )
+
+    def _worker(report: Any) -> dict[str, Any]:
+        return asyncio.run(
+            build_compatible_mod_impl(
+                req,
+                ModEditRule,
+                built_mods_dir=BUILT_MODS_DIR,
+                inspect_fn=inspect_game_modding_info,
+                progress_cb=report,
+            )
+        )
+
+    job = start_background_job("mod_build", _worker, initial_stage=f"Building mod {req.mod_name}...")
+    return {"status": "accepted", "job_id": job["job_id"], "job": job}
 
 
 @router.post("/api/mods/install")
@@ -516,3 +535,30 @@ async def install_built_mod_to_game(req: InstallBuiltModRequest) -> dict[str, An
         force=req.force,
         built_mods_dir=BUILT_MODS_DIR,
     )
+
+
+@router.get("/api/games/{slug}/log-tail")
+async def get_game_log_tail(slug: str, lines: int = 100, errors_only: bool = False) -> dict[str, Any]:
+    """Tail Unity BepInEx/MelonLoader or Unreal Saved/Logs/UE4SS log output for *slug*."""
+    store = load_managed_games()
+    target_slug = make_slug(slug)
+    target = next(
+        (
+            g for g in store.get("games", [])
+            if g.get("id") == slug or make_slug(str(g.get("id", ""))) == target_slug
+        ),
+        None,
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    game_dir = Path(str(target.get("game_dir") or "").strip())
+    info = target.get("cached_modding_info") if isinstance(target.get("cached_modding_info"), dict) else {}
+    proj_name = str(info.get("detected_project_name") or "")
+    result = read_game_log_tail(
+        game_dir,
+        lines=lines,
+        errors_only=errors_only,
+        detected_project_name=proj_name,
+    )
+    result["slug"] = target_slug
+    return result

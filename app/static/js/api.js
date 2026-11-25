@@ -389,3 +389,37 @@ export async function runTrackedAction(
   }
 }
 
+/**
+ * Poll GET /api/jobs/{job_id} until completion when an endpoint returns { status: "accepted", job_id }.
+ * Falls back transparently if the server returned a direct synchronous payload.
+ */
+export async function pollBackgroundJob(initialResponse, controls = null, intervalMs = 250) {
+  if (!initialResponse || initialResponse.status !== "accepted" || !initialResponse.job_id) {
+    return initialResponse?.data ?? initialResponse;
+  }
+  const jobId = initialResponse.job_id;
+  if (controls?.setProgress && initialResponse.job) {
+    controls.setProgress(initialResponse.job.percent ?? 0, initialResponse.job.stage || "Queued...");
+  }
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const jobRes = await apiGet(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!jobRes.ok) {
+      throw new Error(jobRes.data?.detail || `Failed to read job ${jobId} (HTTP ${jobRes.status})`);
+    }
+    const job = jobRes.data || {};
+    if (controls?.setProgress) {
+      controls.setProgress(job.percent ?? 0, job.stage || "");
+    }
+    if (job.status === "done") {
+      if (controls?.setProgress) {
+        controls.setProgress(100, job.stage || "Complete");
+      }
+      return job.result ?? job;
+    }
+    if (job.status === "error") {
+      throw new Error(job.error || job.stage || "Background job failed");
+    }
+  }
+}
+

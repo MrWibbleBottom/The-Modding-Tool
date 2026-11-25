@@ -1022,3 +1022,92 @@ body.compact td, body.compact th { padding: 5px 8px; }
   color: var(--muted);
   padding: 4px 2px;
 }
+
+/* Phase 3B: Log Tail Drawer & Unreal INI Diff Panel */
+.log-tail-drawer {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #2b3c56;
+  border-radius: 8px;
+  background: rgba(11, 15, 23, 0.92);
+}
+.log-tail-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+}
+.log-tail-pre {
+  margin: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 0.74rem;
+  line-height: 1.42;
+}
+.ini-tweaks-bar {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid #2b3c56;
+  border-radius: 6px;
+  background: rgba(13, 17, 23, 0.78);
+}
+.ini-tweaks-bar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #93c5fd;
+}
+.ini-tweaks-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ini-tweak-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(22, 30, 46, 0.72);
+  font-size: 0.75rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.ini-tweak-chip input {
+  width: auto;
+  margin: 0;
+}
+.ini-diff-panel {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(59, 130, 246, 0.55);
+  border-radius: 6px;
+  background: rgba(11, 15, 23, 0.92);
+}
+.ini-diff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #93c5fd;
+}
+.ini-diff-pre {
+  margin: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}

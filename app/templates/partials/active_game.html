@@ -82,6 +82,9 @@
         </h2>
         <div class="btn-group">
           <span class="pill no" id="info-missing-badge" style="display:none;">Missing on Disk (Showing Cached Info)</span>
+          <button type="button" class="success btn-sm" id="btn-unity-bdl-loop" onclick="runBuildDeployLaunchTail()" title="Build compatible Unity plugin, deploy to game, launch game, and tail BepInEx log">Build &rarr; Deploy &rarr; Launch &rarr; Tail Log</button>
+          <button type="button" class="secondary btn-sm" id="btn-toggle-log-tail" onclick="toggleGameLogTail()">Game Log Tail</button>
+          <button type="button" class="secondary btn-sm" id="btn-copy-ai-context" onclick="copyAiModdingContext()">Copy AI Context</button>
           <button class="btn-sm" id="btn-fp-rescan" onclick="runFingerprintAndRescan()">Fingerprint &amp; Rescan</button>
         </div>
       </div>
@@ -97,6 +100,25 @@
         </div>
       </div>
       <pre id="fp-output" style="display:none; margin-bottom:12px; max-height:150px;"></pre>
+      <div id="game-log-tail-drawer" class="log-tail-drawer" style="display:none;">
+        <div class="log-tail-drawer-head">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong>Game Log Tail</strong>
+            <span class="badge" id="log-tail-path-badge">No log selected</span>
+            <span class="pill na" id="log-tail-error-pill">0 Errors</span>
+          </div>
+          <div class="btn-group">
+            <label style="display:inline-flex; align-items:center; gap:5px; margin:0; font-size:0.75rem; color:var(--text); cursor:pointer;">
+              <input type="checkbox" id="log-tail-errors-only" onchange="refreshGameLogTail()" style="width:auto;" />
+              <span>Errors Only</span>
+            </label>
+            <button type="button" class="secondary btn-sm" onclick="refreshGameLogTail()">Refresh Tail</button>
+            <button type="button" class="btn-sm" id="btn-copy-crash-context" onclick="copyCrashContext()">Copy Crash Context</button>
+            <button type="button" class="secondary btn-sm" onclick="closeGameLogTail()">Close</button>
+          </div>
+        </div>
+        <pre id="game-log-tail-pre" class="log-tail-pre">Click Refresh Tail to read the latest game log output...</pre>
+      </div>
       <div style="display:flex; gap:8px; align-items:end; margin-bottom:12px; flex-wrap:wrap;">
         <div style="flex:1; min-width:200px;">
           <label for="game-user-tags">Game Tags (comma-separated)</label>
@@ -208,6 +230,23 @@
         </div>
         <div class="hint" id="ue-ini-source-banner" style="margin-bottom:10px;">
           Checking Unreal Engine configuration files (<code>GameUserSettings.ini</code> / <code>Engine.ini</code>)...
+        </div>
+        <div id="ue-ini-tweaks-bar" class="ini-tweaks-bar" style="display:none;">
+          <div class="ini-tweaks-bar-head">
+            <span>Structured Unreal INI Tweaks (Comment-Fenced Blocks)</span>
+            <button type="button" class="secondary btn-sm" id="btn-ue-preview-diff" onclick="previewUnrealIniTweaks()">Preview INI Diff</button>
+          </div>
+          <div id="ue-ini-tweaks-list" class="ini-tweaks-list"></div>
+        </div>
+        <div id="ue-ini-diff-panel" class="ini-diff-panel" style="display:none;">
+          <div class="ini-diff-head">
+            <span id="ue-ini-diff-summary">Unified Diff Preview</span>
+            <div class="btn-group">
+              <button type="button" class="success btn-sm" id="btn-ue-apply-diff" onclick="applyPreviewedUnrealIniTweaks()">Apply Changes (Auto-Snapshot)</button>
+              <button type="button" class="secondary btn-sm" onclick="dismissUnrealIniDiff()">Dismiss</button>
+            </div>
+          </div>
+          <pre id="ue-ini-diff-pre" class="ini-diff-pre"></pre>
         </div>
 
         <!-- CONSOLIDATED TRAFFIC LIGHT SUMMARY BAR -->

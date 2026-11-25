@@ -19,6 +19,7 @@ from app.core.security import SESSION_HEADER, get_session_token  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routers import library as library_router  # noqa: E402
 from app.routers import system as system_router  # noqa: E402
+from app.services import game_snapshots  # noqa: E402
 
 
 class UnrealTests(unittest.TestCase):
@@ -157,6 +158,103 @@ class UnrealTests(unittest.TestCase):
                     ue_settings.get("summary_metrics", {}).get("average_scalability_label"),
                     "High (2)",
                 )
+
+    def test_unreal_ini_fenced_tweaks_preview_and_snapshot_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            ue_game = tmp_dir / "UnrealFencedSample"
+            cfg_dir = ue_game / "Saved" / "Config" / "WindowsNoEditor"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            eng_ini = cfg_dir / "Engine.ini"
+            gus_ini = cfg_dir / "GameUserSettings.ini"
+            user_eng_line = "; CustomUserEngineKeep=1\n[/Script/Engine.Engine]\nbSmoothFrameRate=False\n"
+            user_gus_line = "; CustomUserGusKeep=1\n[/Script/Engine.GameUserSettings]\nResolutionSizeX=2560\nResolutionSizeY=1440\n"
+            eng_ini.write_text(user_eng_line, encoding="utf-8")
+            gus_ini.write_text(user_gus_line, encoding="utf-8")
+
+            snaps_root = tmp_dir / "game_snapshots"
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unreal_fenced_sample",
+                        "name": "Unreal Fenced Sample",
+                        "game_dir": str(ue_game),
+                        "runtime": "Unreal Engine",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                r_list = self.client.get(
+                    f"/api/games/unreal_fenced_sample/unreal-ini/tweaks?gus_ini_path={gus_ini}&engine_ini_path={eng_ini}"
+                )
+                self.assertEqual(r_list.status_code, 200)
+                self.assertGreaterEqual(len(r_list.json().get("presets", [])), 5)
+
+                payload = {
+                    "tweak_states": {"ue_disable_motion_blur": True, "gus_disable_vsync": True},
+                    "engine_ini_path": str(eng_ini),
+                    "gus_ini_path": str(gus_ini),
+                    "label": "Pre-tweak snapshot",
+                }
+                r_prev = self.client.post(
+                    "/api/games/unreal_fenced_sample/unreal-ini/preview",
+                    json=payload,
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_prev.status_code, 200)
+                prev_data = r_prev.json()
+                self.assertTrue(prev_data.get("has_changes"))
+                self.assertIn("; [TheModdingTool:ue_disable_motion_blur:start]", prev_data.get("unified_diff", ""))
+                self.assertIn("+bUseVSync=False", prev_data.get("unified_diff", ""))
+                # Preview must not mutate files on disk
+                self.assertEqual(eng_ini.read_text(encoding="utf-8"), user_eng_line)
+
+                r_apply = self.client.post(
+                    "/api/games/unreal_fenced_sample/unreal-ini/apply",
+                    json=payload,
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_apply.status_code, 200)
+                apply_data = r_apply.json()
+                self.assertTrue(apply_data.get("snapshot_id"))
+                snaps = self.client.get("/api/games/unreal_fenced_sample/snapshots").json().get("snapshots", [])
+                self.assertTrue(any(s.get("snapshot_id") == apply_data["snapshot_id"] for s in snaps))
+
+                eng_after = eng_ini.read_text(encoding="utf-8")
+                gus_after = gus_ini.read_text(encoding="utf-8")
+                self.assertIn("; CustomUserEngineKeep=1", eng_after)
+                self.assertIn("; [TheModdingTool:ue_disable_motion_blur:start]", eng_after)
+                self.assertIn("r.MotionBlurQuality=0", eng_after)
+                self.assertIn("; CustomUserGusKeep=1", gus_after)
+                self.assertIn("; [TheModdingTool:gus_disable_vsync:start]", gus_after)
+
+                # Toggle tweak off without disturbing user lines
+                r_off = self.client.post(
+                    "/api/games/unreal_fenced_sample/unreal-ini/apply",
+                    json={
+                        "tweak_states": {"ue_disable_motion_blur": False},
+                        "engine_ini_path": str(eng_ini),
+                        "gus_ini_path": str(gus_ini),
+                    },
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_off.status_code, 200)
+                eng_cleaned = eng_ini.read_text(encoding="utf-8")
+                self.assertIn("; CustomUserEngineKeep=1", eng_cleaned)
+                self.assertIn("bSmoothFrameRate=False", eng_cleaned)
+                self.assertNotIn("TheModdingTool:ue_disable_motion_blur", eng_cleaned)
 
 
 if __name__ == "__main__":

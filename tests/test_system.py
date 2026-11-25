@@ -7,6 +7,7 @@ import json
 import re
 import sys
 import tempfile
+import time
 import unittest
 import urllib.request
 from pathlib import Path
@@ -33,6 +34,7 @@ from app.main import app  # noqa: E402
 from app.routers import branding as branding_router  # noqa: E402
 from app.routers import git_sync  # noqa: E402
 from app.routers import system as system_router  # noqa: E402
+from app.services import jobs as job_service  # noqa: E402
 from app.services import discovery, game_store, mod_builder, pc_specs, tool_installer  # noqa: E402
 import backup_manager  # noqa: E402
 import package_windows  # noqa: E402
@@ -457,6 +459,51 @@ class SystemTests(unittest.TestCase):
         self.assertTrue(any("app/templates/partials" in arg for arg in cmd))
         self.assertIn("app.engines", cmd)
         self.assertIn("app.services", cmd)
+
+    def test_background_job_runner_expiry_and_api(self) -> None:
+        j = job_service.create_job("unit_test", "Starting")
+        jid = j["job_id"]
+        self.assertEqual(j["status"], "running")
+        job_service.update_job(jid, status="running", percent=55, stage="Working", log_line="tick 1")
+        snap = job_service.get_job(jid)
+        self.assertIsNotNone(snap)
+        self.assertEqual(snap["percent"], 55)
+        self.assertEqual(snap["log_lines"], ["tick 1"])
+
+        job_service.update_job(jid, status="done", percent=100, stage="Done", result={"ok": True})
+        r_get = self.client.get(f"/api/jobs/{jid}")
+        self.assertEqual(r_get.status_code, 200)
+        self.assertEqual(r_get.json().get("status"), "done")
+        self.assertEqual(r_get.json().get("result"), {"ok": True})
+
+        r_missing = self.client.get("/api/jobs/nonexistent_job_id_xyz")
+        self.assertEqual(r_missing.status_code, 404)
+
+        removed = job_service.prune_expired_jobs(
+            max_age_seconds=1800,
+            now_monotonic=time.monotonic() + 1805,
+        )
+        self.assertGreaterEqual(removed, 1)
+        self.assertIsNone(job_service.get_job(jid))
+
+        bg = job_service.start_background_job(
+            "async_test",
+            lambda report: (report(percent=40, stage="Step"), {"value": 99})[1],
+            initial_stage="Queued",
+        )
+        deadline = time.monotonic() + 5.0
+        final_job = None
+        while time.monotonic() < deadline:
+            r_poll = self.client.get(f"/api/jobs/{bg['job_id']}")
+            self.assertEqual(r_poll.status_code, 200)
+            payload = r_poll.json()
+            if payload.get("status") in ("done", "error"):
+                final_job = payload
+                break
+            time.sleep(0.05)
+        self.assertIsNotNone(final_job)
+        self.assertEqual(final_job["status"], "done")
+        self.assertEqual(final_job["result"], {"value": 99})
 
 
 if __name__ == "__main__":

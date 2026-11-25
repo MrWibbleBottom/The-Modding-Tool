@@ -21,6 +21,7 @@ from app.routers import asset_audit  # noqa: E402
 from app.routers import branding as branding_router  # noqa: E402
 from app.routers import library as library_router  # noqa: E402
 from app.routers import mcp_bridge as mcp_router  # noqa: E402
+from app.services import game_snapshots  # noqa: E402
 
 
 class McpTests(unittest.TestCase):
@@ -173,6 +174,90 @@ class McpTests(unittest.TestCase):
                 tools_by_id = {t["id"]: t for t in r_tools.json().get("tools", [])}
                 self.assertIn("bridges\\bepinex-mcp", tools_by_id["bepinex_mcp_plugin"]["path"])
                 self.assertEqual(self.client.get("/api/app/dev-mode").status_code, 200)
+
+    def test_log_tail_and_ai_context_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            unity_game = tmp_dir / "UnityLogSample"
+            (unity_game / "BepInEx" / "plugins" / "DemoMod").mkdir(parents=True, exist_ok=True)
+            (unity_game / "BepInEx" / "interop").mkdir(parents=True, exist_ok=True)
+            (unity_game / "BepInEx" / "config").mkdir(parents=True, exist_ok=True)
+            (unity_game / "BepInEx" / "plugins" / "DemoMod" / "DemoMod.dll").write_bytes(b"MZ")
+            (unity_game / "GameAssembly.dll").write_bytes(b"MZ")
+            (unity_game / "UnityPlayer.dll").write_bytes(b"MZ")
+            (unity_game / "winhttp.dll").write_bytes(b"MZ")
+            (unity_game / "BepInEx" / "LogOutput.log").write_text(
+                "\n".join([
+                    "[Info   :   BepInEx] BepInEx 6.0.0 started",
+                    "[Message:   BepInEx] Loading DemoMod.dll",
+                    "[Error  :   DemoMod] NullReferenceException: Object reference not set",
+                    "  at DemoMod.Plugin.Load () [0x00012] in <abc>:0",
+                    "[Info   :   BepInEx] Startup complete",
+                ]),
+                encoding="utf-8",
+            )
+
+            ue_game = tmp_dir / "UnrealLogSample"
+            (ue_game / "Saved" / "Logs").mkdir(parents=True, exist_ok=True)
+            (ue_game / "Saved" / "Logs" / "UnrealLogSample.log").write_text(
+                "LogInit: Display: Engine ready\nLogScript: Error: Missing actor binding\n",
+                encoding="utf-8",
+            )
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [
+                        {
+                            "id": "unity_log_sample",
+                            "name": "Unity Log Sample",
+                            "game_dir": str(unity_game),
+                            "runtime": "Unity IL2CPP",
+                        },
+                        {
+                            "id": "unreal_log_sample",
+                            "name": "Unreal Log Sample",
+                            "game_dir": str(ue_game),
+                            "runtime": "Unreal Engine",
+                        },
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            snaps_root = tmp_dir / "game_snapshots"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(mcp_router, "GAMES_STORE_PATH", store_path),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+            ):
+                r_err = self.client.get("/api/games/unity_log_sample/log-tail?lines=100&errors_only=true")
+                self.assertEqual(r_err.status_code, 200)
+                err_data = r_err.json()
+                self.assertEqual(err_data.get("error_count"), 1)
+                self.assertIn("NullReferenceException", err_data.get("text", ""))
+                self.assertIn("at DemoMod.Plugin.Load", err_data.get("text", ""))
+                self.assertNotIn("BepInEx 6.0.0 started", err_data.get("text", ""))
+
+                r_ue_tail = self.client.get("/api/games/unreal_log_sample/log-tail?lines=50&errors_only=false")
+                self.assertEqual(r_ue_tail.status_code, 200)
+                self.assertIn("Missing actor binding", r_ue_tail.json().get("text", ""))
+
+                r_ctx = self.client.get("/api/games/unity_log_sample/ai-context")
+                self.assertEqual(r_ctx.status_code, 200)
+                md = r_ctx.json().get("markdown", "")
+                for heading in (
+                    "## Game & Runtime",
+                    "## MCP Bridge & Tooling Paths",
+                    "## Dump & Config Paths",
+                    "## Installed Plugins / Mods",
+                    "## Safety, Conflicts & Snapshots",
+                    "## Last 30 Log Lines",
+                ):
+                    self.assertIn(heading, md)
+                self.assertIn("DemoMod.dll", md)
+                self.assertIn("NullReferenceException", md)
 
 
 if __name__ == "__main__":

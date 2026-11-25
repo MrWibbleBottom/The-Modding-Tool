@@ -1,7 +1,9 @@
-import { apiPost, runTrackedAction, state } from "./api.js";
-import { classifyGameEngine, resolveBtn, upsertManagedGameInState } from "./state.js";
-import { renderActiveGamePanel, rescanActiveGameMetadata } from "./active_game.js";
+import { apiGet, apiPost, runTrackedAction, state } from "./api.js";
+import { classifyGameEngine, escHtml, resolveBtn, upsertManagedGameInState } from "./state.js";
+import { loadGameSnapshots, renderActiveGamePanel, rescanActiveGameMetadata } from "./active_game.js";
 import { refreshGamesList } from "./game_table.js";
+
+let _pendingIniPreviewPayload = null;
 
 export function renderReferenceArrayTableHtml(refArray, activeTierId) {
   if (!Array.isArray(refArray) || refArray.length === 0) {
@@ -192,6 +194,9 @@ export function renderUnrealSettingsSection(game) {
     `;
     }).join("");
   }
+
+  dismissUnrealIniDiff();
+  loadUnrealIniTweaks(game);
 }
 
 export async function onUnrealReferenceTierChanged() {
@@ -243,12 +248,133 @@ export async function importSelectedUnrealProfile() {
   await onConfigProfileSelected();
 }
 
+function _collectIniTweakStates() {
+  const states = {};
+  document.querySelectorAll("#ue-ini-tweaks-list input.ue-tweak-checkbox").forEach((cb) => {
+    const tid = cb.dataset.tweakId;
+    if (tid) states[tid] = Boolean(cb.checked);
+  });
+  return states;
+}
+
+export async function loadUnrealIniTweaks(game = null) {
+  const active = game || state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame;
+  const bar = document.getElementById("ue-ini-tweaks-bar");
+  const list = document.getElementById("ue-ini-tweaks-list");
+  if (!active || !bar || !list) return;
+  const gusPath = active.modding_info?.unreal_settings?.ini_path || "";
+  const url = `/api/games/${encodeURIComponent(active.id)}/unreal-ini/tweaks` +
+    (gusPath ? `?gus_ini_path=${encodeURIComponent(gusPath)}` : "");
+  try {
+    const res = await apiGet(url);
+    if (!res.ok || !Array.isArray(res.data?.presets)) {
+      bar.style.display = "none";
+      return;
+    }
+    const presets = res.data.presets;
+    bar.style.display = presets.length ? "block" : "none";
+    list.innerHTML = presets.map((p) => (
+      `<label class="ini-tweak-chip" title="${escHtml(p.description || "")} (${escHtml(p.target_file || "")})">` +
+      `<input type="checkbox" class="ue-tweak-checkbox" data-tweak-id="${escHtml(p.id)}" ${p.active ? "checked" : ""} />` +
+      `<span>${escHtml(p.label)} <small style="color:var(--muted);">[${escHtml(p.target_file)}]</small></span>` +
+      `</label>`
+    )).join("");
+    list.querySelectorAll("input.ue-tweak-checkbox").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        previewUnrealIniTweaks({}, "Pre-INI fenced tweak edit");
+      });
+    });
+  } catch {
+    bar.style.display = "none";
+  }
+}
+
+export function dismissUnrealIniDiff() {
+  const panel = document.getElementById("ue-ini-diff-panel");
+  if (panel) panel.style.display = "none";
+  _pendingIniPreviewPayload = null;
+}
+
+export async function previewUnrealIniTweaks(extraUpdates = {}, label = "Pre-INI tweak edit") {
+  const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
+  const slug = game.id || state.activeGameId;
+  const gusPath = game.modding_info?.unreal_settings?.ini_path || "";
+  const payload = {
+    tweak_states: _collectIniTweakStates(),
+    updates: extraUpdates && typeof extraUpdates === "object" ? extraUpdates : {},
+    gus_ini_path: gusPath,
+    label,
+  };
+
+  const panel = document.getElementById("ue-ini-diff-panel");
+  const summaryEl = document.getElementById("ue-ini-diff-summary");
+  const diffPre = document.getElementById("ue-ini-diff-pre");
+  const applyBtn = document.getElementById("btn-ue-apply-diff");
+  const btn = resolveBtn("btn-ue-preview-diff");
+
+  try {
+    const res = await runTrackedAction(
+      btn,
+      async () => apiPost(`/api/games/${encodeURIComponent(slug)}/unreal-ini/preview`, payload),
+      {
+        pendingText: "Generating Unreal INI diff preview...",
+        successText: (d) => d?.has_changes ? "Unified diff ready — review before applying" : "No INI changes detected",
+      },
+    );
+    _pendingIniPreviewPayload = res?.has_changes ? payload : null;
+    if (panel) panel.style.display = "block";
+    if (applyBtn) applyBtn.disabled = !res?.has_changes;
+    if (summaryEl) {
+      const changedFiles = (res?.files || []).filter(f => f.changed);
+      summaryEl.textContent = res?.has_changes
+        ? `Unified Diff Preview — ${changedFiles.length} file(s) will change (auto-snapshot created before write)`
+        : "Unified Diff Preview — Selected INI settings already match target values";
+    }
+    if (diffPre) {
+      diffPre.textContent = (res?.unified_diff || "").trim() || "(No line differences — INI files are already in the requested state.)";
+    }
+    return res;
+  } catch {
+    return null;
+  }
+}
+
+export async function applyPreviewedUnrealIniTweaks() {
+  if (!_pendingIniPreviewPayload) {
+    alert("Preview Unreal INI changes first before applying.");
+    return;
+  }
+  const btn = resolveBtn("btn-ue-apply-diff");
+  const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
+  const slug = game.id || state.activeGameId;
+  const payload = _pendingIniPreviewPayload;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/unreal-ini/apply`, payload);
+        dismissUnrealIniDiff();
+        await Promise.all([
+          importUnrealSettings(payload.gus_ini_path || ""),
+          loadGameSnapshots(slug),
+        ]);
+        return res;
+      },
+      {
+        pendingText: "Creating snapshot and applying Unreal INI changes...",
+        successText: (d) => d?.summary || "Applied Unreal INI changes",
+      },
+    );
+  } catch {
+    // Error handled by runTrackedAction
+  }
+}
+
 export async function applyOptimalUnrealIni() {
-  const btn = resolveBtn("");
   const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
   const ue = game.modding_info?.unreal_settings;
   if (!ue || !ue.ini_path) {
-    alert("No Unreal GameUserSettings.ini detected for this game yet. Click Rescan INI first.");
+    alert("No Unreal GameUserSettings.ini detected for this game yet. Click Rescan Config first.");
     return;
   }
   const updates = {};
@@ -257,23 +383,7 @@ export async function applyOptimalUnrealIni() {
       updates[row.key] = String(row.recommended_value);
     }
   }
-  try {
-    await runTrackedAction(
-      btn,
-      async () => {
-        const resp = await apiPost("/api/unreal-settings/apply", { game_id: state.activeGameId, ini_path: ue.ini_path, updates });
-        const data = resp?.data ?? resp;
-        await importUnrealSettings(ue.ini_path);
-        return data;
-      },
-      {
-        pendingText: "Applying optimal Unreal INI settings...",
-        successText: (d) => d?.summary || "Applied optimal Unreal INI settings",
-      },
-    );
-  } catch {
-    // Inline error handled by runTrackedAction
-  }
+  await previewUnrealIniTweaks(updates, "Pre-Optimal INI edit");
 }
 
 export async function restoreUnrealIniBackup() {

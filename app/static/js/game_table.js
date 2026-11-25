@@ -1,4 +1,4 @@
-import { apiFetch, apiGet, apiPost, runTrackedAction, state, switchTab } from "./api.js";
+import { apiFetch, apiGet, apiPost, pollBackgroundJob, runTrackedAction, state, switchTab } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
 import { parseSelector } from "./mcp.js";
 import { escHtml, libState, resolveBtn, upsertManagedGameInState } from "./state.js";
@@ -29,12 +29,13 @@ export async function scanLibraryInstalled(extraRoots = []) {
   try {
     await runTrackedAction(
       btn,
-      async () => {
+      async (controls) => {
         const res = await apiPost("/api/library/scan-installed", {
           custom_roots: extraRoots,
           save_custom_roots: true,
+          async_job: true,
         });
-        const data = res?.data ?? res;
+        const data = await pollBackgroundJob(res, controls);
         libState.libraryEntries = Array.isArray(data?.entries) ? data.entries : [];
         const badge = document.getElementById("library-count-badge");
         if (badge) badge.textContent = String(libState.libraryEntries.length);
@@ -47,6 +48,7 @@ export async function scanLibraryInstalled(extraRoots = []) {
       {
         pendingText: "Scanning Steam, Epic, GOG, and custom libraries...",
         successText: (d) => `Discovered ${d?.installed_count ?? 0} installed game(s) (${d?.total_count ?? 0} total)`,
+        mode: "determinate",
       },
     );
   } catch (err) {
@@ -771,14 +773,14 @@ export async function prewarmAllGameIcons() {
   try {
     await runTrackedAction(
       btn,
-      async ({ setProgress }) => {
-        setProgress(25, "Extracting and caching game executable icons...");
-        const resp = await apiPost("/api/games/prewarm-icons", {});
-        const data = resp?.data ?? resp;
-        setProgress(85, "Updating game table icons...");
+      async (controls) => {
+        controls.setProgress(10, "Queueing icon pre-warm...");
+        const resp = await apiPost("/api/games/prewarm-icons?async_job=true", {});
+        const data = await pollBackgroundJob(resp, controls);
+        controls.setProgress(95, "Updating game table icons...");
         renderGamesTable();
         setScanOutputLog(data?.summary || "Game icons pre-warmed.");
-        setProgress(100, data?.summary || "Icons pre-warmed");
+        controls.setProgress(100, data?.summary || "Icons pre-warmed");
         return data;
       },
       {

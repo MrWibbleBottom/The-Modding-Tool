@@ -2,6 +2,18 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 14:57 — v0.1.40
+
+- **Prompt**: Implement remaining Phase 3B modding workflow features using dedicated service modules (jobs, unreal_ini, log_tail, ai-context, BDL loop)
+- **AG Feedback**: Implemented non-blocking background job runner with GET /api/jobs/{job_id}, structured Unreal INI comment-fenced tweaks with unified diff preview and snapshot-safe apply, unified Unity/Unreal log tailer with error filtering drawer, one-click Unity Build->Deploy->Launch->Tail Log loop, and Markdown AI modding context generator; verified all 34 pytest tests pass.
+- **Version Changes**:
+  - Added app/services/jobs.py (thread-safe job manager with 30-min TTL pruning)
+  - Added app/services/unreal_ini.py (deterministic fenced INI blocks, unified diff preview, snapshot-guarded apply)
+  - Added app/services/log_tail.py (Unity/Unreal log tailer, error/stack filter, Markdown AI context pack builder)
+  - Updated app/routers/system.py, library.py, mcp_bridge.py and app/services/mod_builder.py (GET /api/jobs/{job_id}, async_job support, /unreal-ini/tweaks|preview|apply, /log-tail, /ai-context)
+  - Updated app/templates/partials/active_game.html, app/static/app.css, and app/static/js/{api.js,game_table.js,unreal_panel.js,active_game.js,mcp.js,library.js}
+  - Added coverage in tests/test_system.py, tests/test_unreal.py, and tests/test_mcp.py
+
 ## 2026-11-25 14:41 — v0.1.40
 
 - **Prompt**: Review and update the Help tab, adding a developer section at the bottom detailing how each feature works and how updates work with change management.

@@ -1,6 +1,6 @@
-import { apiFetch, apiPost, runTrackedAction, setOutput, state } from "./api.js";
+import { apiFetch, apiPost, pollBackgroundJob, runTrackedAction, setOutput, state } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
-import { _renderConflictNotice, loadGameSnapshots, refreshGamesList, rescanActiveGameMetadata } from "./library.js";
+import { _renderConflictNotice, loadGameSnapshots, openGameLogTailDrawer, refreshGameLogTail, refreshGamesList, rescanActiveGameMetadata } from "./library.js";
 
 function _resolveMcpBtn(fallbackId = "") {
   const evTarget = typeof window !== "undefined" ? window.event?.target : null;
@@ -891,7 +891,7 @@ export async function buildCompatibleMod() {
   try {
     await runTrackedAction(
       btn,
-      async () => {
+      async (controls) => {
         const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
         const payload = {
           game_id: state.activeGameId,
@@ -902,9 +902,11 @@ export async function buildCompatibleMod() {
           author: document.getElementById("mb-author")?.value || "The Modding Tool",
           apply_interval_sec: parseFloat(document.getElementById("mb-interval")?.value || "2.0") || 2.0,
           edits: MOD_BUILDER_RULES,
+          async_job: true,
         };
 
-        const data = await apiPost("/api/mods/build", payload);
+        const res = await apiPost("/api/mods/build", payload);
+        const data = await pollBackgroundJob(res, controls);
         state.lastBuiltMod = data;
 
         if (resultPanel) resultPanel.style.display = "block";
@@ -921,6 +923,7 @@ export async function buildCompatibleMod() {
       {
         pendingText: "Compiling & packaging compatible mod...",
         successText: (d) => d?.summary || "Mod build succeeded",
+        mode: "determinate",
       },
     );
   } catch (err) {
@@ -1000,4 +1003,80 @@ export function addHarmonyHookRule() {
     value: "Postfix",
   });
   renderModBuilderRules();
+}
+
+export async function runBuildDeployLaunchTail() {
+  const btn = _resolveMcpBtn("btn-unity-bdl-loop");
+  const game = state.lastRenderedGame || state.managedGames.find(g => g.id === state.activeGameId) || {};
+  const slug = game.id || state.activeGameId;
+  const gameDir = game.game_dir || document.getElementById("fp-game-dir")?.value || "";
+  if (!slug || !gameDir) {
+    alert("Load an active Unity game first.");
+    return;
+  }
+  if (!MOD_BUILDER_RULES.length) {
+    addCurrentMcpEditToMod();
+  }
+  try {
+    await runTrackedAction(
+      btn,
+      async (controls) => {
+        controls.setProgress(10, "Step 1/4: Building compatible Unity mod...");
+        const payload = {
+          game_id: slug,
+          game_dir: gameDir,
+          mod_name: document.getElementById("mb-mod-name")?.value || `${game.name || slug} Custom Mod`,
+          mod_id: document.getElementById("mb-mod-id")?.value || `com.modtool.${slug}.custom`,
+          mod_version: document.getElementById("mb-mod-version")?.value || "1.0.0",
+          author: document.getElementById("mb-author")?.value || "The Modding Tool",
+          apply_interval_sec: parseFloat(document.getElementById("mb-interval")?.value || "2.0") || 2.0,
+          edits: MOD_BUILDER_RULES,
+          async_job: true,
+        };
+        const buildResp = await apiPost("/api/mods/build", payload);
+        const buildData = await pollBackgroundJob(buildResp, {
+          setProgress: (pct, stage) => controls.setProgress(Math.min(50, Math.round(pct * 0.5)), `Step 1/4: ${stage}`),
+        });
+        state.lastBuiltMod = buildData;
+
+        controls.setProgress(60, "Step 2/4: Deploying mod (with auto-snapshot & conflict guard)...");
+        let installData = await apiPost("/api/mods/install", {
+          mod_slug: buildData.mod_slug,
+          game_id: slug,
+          game_dir: gameDir,
+          force: false,
+        });
+        if (installData?.status === "conflict_warning") {
+          _renderConflictNotice(installData.conflicts);
+          if (!confirm(`${installData.summary}\n\nProceed and overwrite conflicting proxy/mod files anyway?`)) {
+            throw new Error("Deployment cancelled after mod manager / proxy DLL conflict warning.");
+          }
+          installData = await apiPost("/api/mods/install", {
+            mod_slug: buildData.mod_slug,
+            game_id: slug,
+            game_dir: gameDir,
+            force: true,
+          });
+        }
+        await loadGameSnapshots(slug);
+
+        controls.setProgress(80, "Step 3/4: Launching game...");
+        const launchData = await apiPost(`/api/games/${encodeURIComponent(slug)}/launch`, {});
+
+        controls.setProgress(92, "Step 4/4: Opening BepInEx log tail...");
+        await openGameLogTailDrawer();
+        setTimeout(() => { refreshGameLogTail(); }, 2000);
+        loadLogs();
+        controls.setProgress(100, "Build -> Deploy -> Launch -> Tail Log active");
+        return { buildData, installData, launchData };
+      },
+      {
+        pendingText: "Running Build -> Deploy -> Launch -> Log Tail...",
+        successText: (d) => `Deployed ${d?.buildData?.mod_slug || "mod"}, launched game, and tailing logs`,
+        mode: "determinate",
+      },
+    );
+  } catch {
+    // Error handled by runTrackedAction
+  }
 }

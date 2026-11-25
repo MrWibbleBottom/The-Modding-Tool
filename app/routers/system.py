@@ -53,6 +53,7 @@ from app.engines.unreal import (
     match_pc_to_unreal_reference_tier,
 )
 from app.services.conflict_guard import inspect_conflict_guard
+from app.services.jobs import get_job
 from app.services.pc_specs import clear_local_pc_specs_cache, scrape_pc_specs
 from app.services.tool_installer import (
     get_modding_tools_status_impl,
@@ -326,6 +327,15 @@ async def bump_app_version(req: BumpVersionRequest) -> dict[str, Any]:
     summary = f"Advanced app version to v{res['version']} ({res['channel']})"
     append_audit_log(action="app.version.bump", status="ok", summary=summary, details=res)
     return {"status": "ok", "summary": summary, **res}
+
+
+@router.get("/api/jobs/{job_id}")
+async def get_background_job_status(job_id: str) -> dict[str, Any]:
+    """Return status, percentage, stage, and result for a background job."""
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job not found or expired: {job_id}")
+    return job
 
 
 @router.get("/api/app/diagnostics")

@@ -507,10 +507,14 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
     }
     const notice = document.getElementById("adapter-status-notice");
     if (notice) notice.style.display = "none";
+    const logDrawer = document.getElementById("game-log-tail-drawer");
+    if (logDrawer) logDrawer.style.display = "none";
   }
 
   renderTopGameInfoPanel(game);
   const { isUnity, isUnreal } = classifyGameEngine(game);
+  const bdlBtn = document.getElementById("btn-unity-bdl-loop");
+  if (bdlBtn) bdlBtn.style.display = isUnity ? "" : "none";
   const provCard = document.getElementById("card-provision-restore");
   const mcpCard = document.getElementById("card-live-mcp");
   const ueSection = document.getElementById("unreal-settings-section");
@@ -951,5 +955,142 @@ export async function runReadinessFix(stepKey) {
     } else {
       await runFingerprintAndRescan();
     }
+  }
+}
+
+export async function refreshGameLogTail() {
+  const slug = state.activeGameId;
+  if (!slug) return null;
+  const errOnly = Boolean(document.getElementById("log-tail-errors-only")?.checked);
+  const pre = document.getElementById("game-log-tail-pre");
+  const pathBadge = document.getElementById("log-tail-path-badge");
+  const errPill = document.getElementById("log-tail-error-pill");
+
+  const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/log-tail?lines=100&errors_only=${errOnly ? "true" : "false"}`);
+  if (!res.ok) {
+    if (pre) pre.textContent = res.data?.detail || `Failed to read log tail (HTTP ${res.status})`;
+    return null;
+  }
+  const d = res.data || {};
+  if (pathBadge) pathBadge.textContent = d.log_path || "No game log file found yet";
+  if (errPill) {
+    const cnt = Number(d.error_count || 0);
+    errPill.textContent = `${cnt} Error${cnt === 1 ? "" : "s"}`;
+    errPill.className = cnt > 0 ? "pill no" : "pill yes";
+  }
+  if (pre) {
+    const rawText = (d.text || "").trim();
+    pre.textContent = rawText || (errOnly ? "(No matching error lines found in the active game log.)" : "(No game log file or log lines found yet. Launch the game with a mod loader installed.)");
+    pre.scrollTop = pre.scrollHeight;
+  }
+  return d;
+}
+
+export async function openGameLogTailDrawer() {
+  const drawer = document.getElementById("game-log-tail-drawer");
+  if (drawer) drawer.style.display = "block";
+  return refreshGameLogTail();
+}
+
+export async function toggleGameLogTail() {
+  const drawer = document.getElementById("game-log-tail-drawer");
+  if (!drawer) return;
+  const opening = drawer.style.display === "none" || !drawer.style.display;
+  drawer.style.display = opening ? "block" : "none";
+  if (opening) {
+    await refreshGameLogTail();
+  }
+}
+
+export function closeGameLogTail() {
+  const drawer = document.getElementById("game-log-tail-drawer");
+  if (drawer) drawer.style.display = "none";
+}
+
+async function _copyTextWithFallback(text, fallbackLabel = "") {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback below
+  }
+  const fpOut = document.getElementById("fp-output");
+  if (fpOut) {
+    fpOut.style.display = "block";
+    fpOut.textContent = (fallbackLabel ? `${fallbackLabel}\n\n` : "") + text;
+  }
+  return false;
+}
+
+export async function copyCrashContext() {
+  const btn = resolveBtn("btn-copy-crash-context");
+  const slug = state.activeGameId;
+  const game = state.lastRenderedGame || state.managedGames.find(g => g.id === slug) || {};
+  if (!slug) return;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const errRes = await apiGet(`/api/games/${encodeURIComponent(slug)}/log-tail?lines=100&errors_only=true`);
+        const fullRes = await apiGet(`/api/games/${encodeURIComponent(slug)}/log-tail?lines=30&errors_only=false`);
+        const errData = errRes.data || {};
+        const fullData = fullRes.data || {};
+        const ctx = [
+          `# Crash Context — ${game.name || slug}`,
+          `- Game ID: ${slug}`,
+          `- Engine / Runtime: ${game.runtime || game.modding_info?.mcp_category || "Unknown"}`,
+          `- Active Log: ${fullData.log_path || errData.log_path || "None"}`,
+          `- Total Error Matches: ${errData.error_count ?? fullData.error_count ?? 0}`,
+          "",
+          "## Error / Exception Lines",
+          "```text",
+          (errData.text || "").trim() || "(No explicit error lines detected.)",
+          "```",
+          "",
+          "## Last 30 Log Lines",
+          "```text",
+          (fullData.text || "").trim() || "(No log tail available.)",
+          "```",
+        ].join("\n");
+        await _copyTextWithFallback(ctx, "Crash Context:");
+        return { error_count: errData.error_count ?? 0, chars: ctx.length };
+      },
+      {
+        pendingText: "Gathering crash context from game logs...",
+        successText: (d) => `Copied crash context (${d?.error_count ?? 0} error(s), ${d?.chars ?? 0} chars)`,
+      },
+    );
+  } catch {
+    // Error handled by runTrackedAction
+  }
+}
+
+export async function copyAiModdingContext() {
+  const btn = resolveBtn("btn-copy-ai-context");
+  const slug = state.activeGameId;
+  if (!slug) return;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/ai-context`);
+        if (!res.ok) {
+          throw new Error(res.data?.detail || `Failed to build AI context (HTTP ${res.status})`);
+        }
+        const md = res.data?.markdown || "";
+        const copied = await _copyTextWithFallback(md, "AI Modding Context Pack:");
+        return { ...res.data, copied };
+      },
+      {
+        pendingText: "Building AI modding context pack...",
+        successText: (d) => d?.copied
+          ? `Copied AI context pack (${d?.char_count ?? 0} chars) to clipboard`
+          : `Prepared AI context pack (${d?.char_count ?? 0} chars)`,
+      },
+    );
+  } catch {
+    // Error handled by runTrackedAction
   }
 }
