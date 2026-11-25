@@ -76,6 +76,12 @@ from app.services.discovery import (
     scan_gog_installed,
     scan_manual_folders,
 )
+from app.services.conflict_guard import inspect_conflict_guard
+from app.services.game_snapshots import (
+    create_game_snapshot,
+    list_game_snapshots,
+    restore_game_snapshot,
+)
 from app.services.game_store import (
     enrich_game_status,
     evaluate_modding_apps_for_game,
@@ -148,6 +154,10 @@ class GameNotesRequest(BaseModel):
     favorite: bool | None = None
     tags: list[str] | None = None
     user_notes: str | None = None
+
+
+class CreateSnapshotRequest(BaseModel):
+    label: str = Field(default="")
 
 
 class LibraryScanRequest(BaseModel):
@@ -729,10 +739,120 @@ async def apply_unreal_ini_settings(req: ApplyUnrealSettingsRequest) -> dict[str
     if not ini_file.is_file():
         raise HTTPException(status_code=404, detail=f"Unreal INI file not found: {ini_file}")
 
-    bak_path = apply_unreal_ini_updates(ini_file, make_slug(req.game_id), req.updates)
+    slug = make_slug(req.game_id)
+    store = load_managed_games()
+    target = next(
+        (g for g in store.get("games", []) if g.get("id") == req.game_id or make_slug(str(g.get("id", ""))) == slug),
+        None,
+    )
+    snap_gdir = Path(str(target.get("game_dir", "")).strip()) if target else ini_file.parent
+    if not snap_gdir.is_dir():
+        snap_gdir = ini_file.parent
+    pre_snapshot_id = ""
+    try:
+        snap = create_game_snapshot(
+            slug,
+            snap_gdir,
+            label=f"Pre-INI edit ({ini_file.name})",
+            engine="unreal",
+            extra_ini_paths=[ini_file],
+        )
+        pre_snapshot_id = snap.get("snapshot_id", "")
+    except ValueError:
+        pre_snapshot_id = ""
+
+    bak_path = apply_unreal_ini_updates(ini_file, slug, req.updates)
     summary = f"Applied {len(req.updates)} Unreal INI setting(s) to {ini_file.name} (backup: {bak_path.name})"
-    append_audit_log(action="unreal_settings.apply", status="ok", summary=summary, details=req.updates)
-    return {"status": "ok", "summary": summary, "backup_path": str(bak_path), "ini_path": str(ini_file)}
+    append_audit_log(
+        action="unreal_settings.apply",
+        status="ok",
+        summary=summary,
+        details={**req.updates, "snapshot_id": pre_snapshot_id},
+    )
+    return {
+        "status": "ok",
+        "summary": summary,
+        "backup_path": str(bak_path),
+        "ini_path": str(ini_file),
+        "snapshot_id": pre_snapshot_id,
+    }
+
+
+def _find_managed_game_for_slug(slug: str) -> dict[str, Any] | None:
+    store = load_managed_games()
+    target_slug = make_slug(slug)
+    return next(
+        (
+            g for g in store.get("games", [])
+            if g.get("id") == slug or make_slug(str(g.get("id", ""))) == target_slug
+        ),
+        None,
+    )
+
+
+@router.get("/api/games/{slug}/snapshots")
+async def get_game_snapshots(slug: str) -> dict[str, Any]:
+    """List per-game snapshots captured for *slug*."""
+    try:
+        snaps = list_game_snapshots(slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "slug": make_slug(slug), "snapshots": snaps, "count": len(snaps)}
+
+
+@router.post("/api/games/{slug}/snapshots")
+async def post_create_game_snapshot(slug: str, req: CreateSnapshotRequest | None = None) -> dict[str, Any]:
+    """Create a manual lightweight modded-surface snapshot for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    gdir = Path(str(target.get("game_dir", "")).strip())
+    if not gdir.is_dir():
+        raise HTTPException(status_code=400, detail=f"Game directory does not exist: {gdir}")
+
+    info = target.get("cached_modding_info") if isinstance(target.get("cached_modding_info"), dict) else {}
+    ue_ini = (info.get("unreal_settings") or {}).get("ini_path") if isinstance(info, dict) else ""
+    extra_inis = [ue_ini] if ue_ini else None
+    engine_hint = str(info.get("mcp_category") or target.get("runtime") or "")
+    label = req.label if req is not None else ""
+    try:
+        res = create_game_snapshot(
+            slug,
+            gdir,
+            label=label,
+            engine=engine_hint,
+            extra_ini_paths=extra_inis,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return res
+
+
+@router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")
+async def post_restore_game_snapshot(slug: str, snapshot_id: str) -> dict[str, Any]:
+    """Restore modded game surfaces to a specific saved snapshot."""
+    target = _find_managed_game_for_slug(slug)
+    gdir = Path(str(target.get("game_dir", "")).strip()) if target else None
+    try:
+        res = restore_game_snapshot(
+            slug,
+            snapshot_id,
+            target_game_dir=gdir if (gdir and gdir.is_dir()) else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return res
+
+
+@router.get("/api/games/{slug}/conflict-guard")
+async def get_game_conflict_guard(slug: str) -> dict[str, Any]:
+    """Inspect a managed game directory for Vortex/MO2 markers, proxy DLLs, and ~mods .pak overrides."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    return inspect_conflict_guard(str(target.get("game_dir", "")).strip())
 
 
 @router.post("/api/unreal-settings/restore")

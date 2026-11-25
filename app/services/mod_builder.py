@@ -26,7 +26,9 @@ from app.core.config import (
 )
 from app.core.constants import PLUGIN_DEPLOY_FILES
 from app.engines.unity import fingerprint_unity_directory
+from app.services.conflict_guard import inspect_conflict_guard
 from app.services.discovery import make_slug
+from app.services.game_snapshots import create_game_snapshot
 from app.services.game_store import inspect_game_modding_info
 
 
@@ -347,6 +349,9 @@ def provision_game_impl(
     bepinex_zip_str: str,
     expected_sha256: str,
     plugin_build_dir_str: str,
+    *,
+    force: bool = False,
+    game_id: str = "",
 ) -> dict[str, Any]:
     """Verify archive SHA-256, back up colliding files, extract BepInEx, and deploy MCP bridge plugin."""
     game_dir = Path(game_dir_str.strip())
@@ -362,6 +367,33 @@ def provision_game_impl(
 
     if not game_dir.is_dir():
         raise HTTPException(status_code=400, detail=f"Game folder not found: {game_dir}")
+
+    guard = inspect_conflict_guard(game_dir, intended_action="provision")
+    blocking = [
+        w for w in guard.get("warnings", [])
+        if w.get("code") in ("mod_manager_detected", "proxy_dll_winhttp")
+    ]
+    if blocking and not force:
+        return {
+            "status": "conflict_warning",
+            "requires_confirmation": True,
+            "summary": guard["summary"],
+            "warnings": guard["warnings"],
+            "conflict_guard": guard,
+        }
+
+    pre_snapshot_id = ""
+    try:
+        snap = create_game_snapshot(
+            game_id or game_dir.name,
+            game_dir,
+            label="Pre-provision BepInEx 6 IL2CPP",
+            engine="unity",
+        )
+        pre_snapshot_id = snap.get("snapshot_id", "")
+    except ValueError:
+        pre_snapshot_id = ""
+
     if not zip_path.is_file():
         raise HTTPException(status_code=400, detail=f"BepInEx zip not found: {zip_path}")
     if not plugin_build_dir.is_dir():
@@ -485,6 +517,8 @@ def provision_game_impl(
         "added_files_count": len(added_files),
         "backed_up_files_count": len(backed_up_files),
         "deployed_plugin_files": deployed_plugin_files,
+        "snapshot_id": pre_snapshot_id,
+        "conflict_warnings": guard.get("warnings", []),
     }
 
 
@@ -901,6 +935,7 @@ def install_built_mod_impl(
     game_id: str,
     game_dir_str: str,
     *,
+    force: bool = False,
     built_mods_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Copy a built mod package's payload directly into the target game folder."""
@@ -913,13 +948,36 @@ def install_built_mod_impl(
     if not game_dir.is_dir():
         raise HTTPException(status_code=400, detail=f"Target game directory does not exist: {game_dir}")
 
+    payload_files = [
+        src for src in pkg_root.rglob("*")
+        if src.is_file() and src.relative_to(pkg_root).name not in ("mod_manifest.json", "INSTALL_INSTRUCTIONS.txt")
+    ]
+    has_pak_override = any(src.suffix.lower() == ".pak" for src in payload_files)
+    guard = inspect_conflict_guard(game_dir, intended_action="pak_override" if has_pak_override else "mod_install")
+    if guard.get("warnings") and not force and (guard.get("has_mod_manager") or has_pak_override):
+        return {
+            "status": "conflict_warning",
+            "requires_confirmation": True,
+            "summary": guard["summary"],
+            "warnings": guard["warnings"],
+            "conflict_guard": guard,
+        }
+
+    pre_snapshot_id = ""
+    try:
+        snap = create_game_snapshot(
+            game_id or game_dir.name,
+            game_dir,
+            label=f"Pre-deploy mod {mod_slug}",
+            audit=True,
+        )
+        pre_snapshot_id = snap.get("snapshot_id", "")
+    except ValueError:
+        pre_snapshot_id = ""
+
     installed_files: list[str] = []
-    for src in pkg_root.rglob("*"):
-        if not src.is_file():
-            continue
+    for src in payload_files:
         rel = src.relative_to(pkg_root)
-        if rel.name in ("mod_manifest.json", "INSTALL_INSTRUCTIONS.txt"):
-            continue
         dest = game_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
@@ -932,11 +990,18 @@ def install_built_mod_impl(
         status="ok",
         summary=summary,
         sha256=mod_hash,
-        details={"mod_slug": mod_slug, "game_id": game_id, "installed_files": installed_files},
+        details={
+            "mod_slug": mod_slug,
+            "game_id": game_id,
+            "installed_files": installed_files,
+            "snapshot_id": pre_snapshot_id,
+        },
     )
     return {
         "status": "ok",
         "summary": summary,
         "installed_files": installed_files,
         "sha256": mod_hash,
+        "snapshot_id": pre_snapshot_id,
+        "conflict_warnings": guard.get("warnings", []),
     }

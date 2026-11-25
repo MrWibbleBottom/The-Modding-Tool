@@ -31,6 +31,8 @@ from app.core.config import (
     sha256_text,
 )
 from app.core.constants import PLUGIN_DEPLOY_FILES
+from app.services.conflict_guard import inspect_conflict_guard
+from app.services.game_snapshots import create_game_snapshot
 from app.services.game_store import enrich_game_status, inspect_game_modding_info
 
 
@@ -110,12 +112,46 @@ async def install_modding_tool_impl(
     game_id: str,
     game_dir_str: str,
     *,
+    force: bool = False,
     pc_specs_fn: Callable[[bool], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Install or deploy a modding tool/app for the active game or tools directory."""
     tool_id = tool_id_raw.strip().lower()
     game_dir = Path(game_dir_str.strip()) if game_dir_str.strip() else Path(DEFAULT_GAME_DIR)
     dir_exists = game_dir.is_dir()
+
+    guard_result: dict[str, Any] = {"has_conflicts": False, "warnings": []}
+    loader_tools = {"bepinex_il2cpp", "bepinex_mono", "bepinex_mcp_il2cpp", "unity_explorer_il2cpp", "ue4ss", "reframework"}
+    if dir_exists and tool_id in loader_tools:
+        guard_result = inspect_conflict_guard(game_dir, intended_action=tool_id)
+        blocking_warnings = [
+            w for w in guard_result.get("warnings", [])
+            if w.get("severity") == "high"
+            or w.get("code") in ("mod_manager_detected", "proxy_dll_winhttp", "proxy_dll_dwmapi")
+        ]
+        if blocking_warnings and not force:
+            return {
+                "status": "conflict_warning",
+                "requires_confirmation": True,
+                "tool_id": tool_id,
+                "game_id": game_id,
+                "warnings": guard_result["warnings"],
+                "conflict_guard": guard_result,
+                "message": guard_result["summary"],
+            }
+
+    pre_snapshot_id = ""
+    if dir_exists and tool_id in loader_tools:
+        try:
+            snap = create_game_snapshot(
+                game_id or game_dir.name,
+                game_dir,
+                label=f"Pre-install {tool_id}",
+                audit=True,
+            )
+            pre_snapshot_id = snap.get("snapshot_id", "")
+        except ValueError:
+            pre_snapshot_id = ""
 
     try:
         if tool_id == "bepinex_il2cpp":
@@ -256,6 +292,8 @@ async def install_modding_tool_impl(
         "install_dir": str(dest_dir),
         "sha256": h,
         "message": msg,
+        "snapshot_id": pre_snapshot_id,
+        "conflict_warnings": guard_result.get("warnings", []),
         "game": enrich_game_status(target, pc_specs_fn=pc_specs_fn) if target else None,
     }
 

@@ -183,6 +183,8 @@ class ProvisionRequest(BaseModel):
     bepinex_zip_path: str = Field(default=DEFAULT_BEPINEX_ZIP)
     expected_sha256: str = Field(default=DEFAULT_BEPINEX_SHA256)
     plugin_build_dir: str = Field(default=DEFAULT_PLUGIN_BUILD_DIR)
+    force: bool = Field(default=False)
+    game_id: str = Field(default="")
 
 
 class RestoreRequest(BaseModel):
@@ -227,6 +229,7 @@ class InstallBuiltModRequest(BaseModel):
     mod_slug: str
     game_id: str = Field(default="battleground")
     game_dir: str = Field(default=DEFAULT_GAME_DIR)
+    force: bool = Field(default=False)
 
 
 @router.post("/api/fingerprint")
@@ -262,6 +265,8 @@ async def provision_game(req: ProvisionRequest) -> dict[str, Any]:
         req.bepinex_zip_path,
         req.expected_sha256,
         req.plugin_build_dir,
+        force=req.force,
+        game_id=req.game_id,
     )
 
 
@@ -508,5 +513,6 @@ async def install_built_mod_to_game(req: InstallBuiltModRequest) -> dict[str, An
         req.mod_slug,
         req.game_id,
         req.game_dir,
+        force=req.force,
         built_mods_dir=BUILT_MODS_DIR,
     )

@@ -1,6 +1,6 @@
 import { apiFetch, apiPost, runTrackedAction, setOutput, state } from "./api.js";
 import { loadLogs } from "./app_mgmt.js";
-import { refreshGamesList, rescanActiveGameMetadata } from "./library.js";
+import { _renderConflictNotice, loadGameSnapshots, refreshGamesList, rescanActiveGameMetadata } from "./library.js";
 
 function _resolveMcpBtn(fallbackId = "") {
   const evTarget = typeof window !== "undefined" ? window.event?.target : null;
@@ -501,7 +501,7 @@ export async function runFingerprintAndRescan() {
   }
 }
 
-export async function runProvision() {
+export async function runProvision(forceOverwrite = false) {
   const btn = _resolveMcpBtn("");
   const out = document.getElementById("prov-output");
   if (out) out.textContent = "Provisioning BepInEx 6 IL2CPP + BepInExMCP.IL2CPP.dll...";
@@ -509,20 +509,35 @@ export async function runProvision() {
     await runTrackedAction(
       btn,
       async () => {
-        const res = await apiPost("/api/provision", {
+        const payload = {
+          game_id: state.activeGameId,
           game_dir: document.getElementById("fp-game-dir").value,
           bepinex_zip_path: document.getElementById("prov-zip-path").value,
           expected_sha256: document.getElementById("prov-sha256").value,
           plugin_build_dir: document.getElementById("prov-plugin-dir").value,
-        });
-        const data = res?.data ?? res;
+          force: Boolean(forceOverwrite),
+        };
+        let res = await apiPost("/api/provision", payload);
+        let data = res?.data ?? res;
+        if (data?.status === "conflict_warning" && data?.requires_confirmation) {
+          const warnLines = (data.warnings || []).map(w => `• ${w.title}: ${w.message}`).join("\n");
+          _renderConflictNotice(data.conflict_guard);
+          if (out) out.textContent = `CONFLICT GUARD WARNING:\n${warnLines}`;
+          if (!confirm(`Mod Manager / Proxy DLL Conflict Detected:\n\n${warnLines}\n\nProceed with Provision anyway (a safety snapshot will be taken first)?`)) {
+            return data;
+          }
+          res = await apiPost("/api/provision", { ...payload, force: true });
+          data = res?.data ?? res;
+        }
         if (out) out.textContent = JSON.stringify(data, null, 2);
-        await refreshGamesList(false);
+        await Promise.all([refreshGamesList(false), loadGameSnapshots(state.activeGameId)]);
         return data;
       },
       {
         pendingText: "Provisioning BepInEx + bridge plugin (with backup)...",
-        successText: "Provision & backup complete",
+        successText: (d) => d?.status === "conflict_warning"
+          ? "Provision cancelled due to conflict warning"
+          : "Provision & backup complete",
       },
     );
   } catch (err) {
@@ -914,7 +929,7 @@ export async function buildCompatibleMod() {
   }
 }
 
-export async function installBuiltModToGame() {
+export async function installBuiltModToGame(forceOverwrite = false) {
   if (!state.lastBuiltMod || !state.lastBuiltMod.mod_slug) {
     alert("Build a mod first before installing.");
     return;
@@ -926,20 +941,35 @@ export async function installBuiltModToGame() {
       btn,
       async () => {
         const game = state.managedGames.find(g => g.id === state.activeGameId) || state.lastRenderedGame || {};
-        const data = await apiPost("/api/mods/install", {
+        const payload = {
           mod_slug: state.lastBuiltMod.mod_slug,
           game_id: state.activeGameId,
           game_dir: game.game_dir || document.getElementById("gm-game-dir")?.value || "",
-        });
+          force: Boolean(forceOverwrite),
+        };
+        let data = await apiPost("/api/mods/install", payload);
+        if (data?.status === "conflict_warning" && data?.requires_confirmation) {
+          const warnLines = (data.warnings || []).map(w => `• ${w.title}: ${w.message}`).join("\n");
+          _renderConflictNotice(data.conflict_guard);
+          if (logPre) logPre.textContent = `CONFLICT GUARD WARNING:\n${warnLines}`;
+          if (!confirm(`Mod Manager / Conflict Guard Warning:\n\n${warnLines}\n\nProceed with deployment (a safety snapshot will be created first)?`)) {
+            return data;
+          }
+          data = await apiPost("/api/mods/install", { ...payload, force: true });
+        }
         if (logPre) {
-          logPre.textContent = `${data.summary}\nInstalled files:\n- ${(data.installed_files || []).join("\n- ")}`;
+          const snapInfo = data.snapshot_id ? `\nPre-deploy snapshot: ${data.snapshot_id}` : "";
+          logPre.textContent = `${data.summary}${snapInfo}\nInstalled files:\n- ${(data.installed_files || []).join("\n- ")}`;
         }
         loadLogs();
+        loadGameSnapshots(state.activeGameId);
         return data;
       },
       {
         pendingText: "Installing built mod into game directory...",
-        successText: (d) => d?.summary || "Built mod installed",
+        successText: (d) => d?.status === "conflict_warning"
+          ? "Deployment cancelled due to conflict warning"
+          : (d?.summary || "Built mod installed"),
       },
     );
   } catch (err) {

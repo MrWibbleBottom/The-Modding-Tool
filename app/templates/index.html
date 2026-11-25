@@ -297,48 +297,48 @@
       </div>
 
       <div class="card">
-        <h2><span>1. Game Manager</span></h2>
+        <h2><span>1. Game Manager &amp; Library</span></h2>
         <div class="info-grid" style="grid-template-columns: 1fr;">
           <div class="info-item">
-            <div class="k">Game scan</div>
+            <div class="k">Game scan, Filter &amp; Prune Non-Games</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Discovers installed PC games across Steam, Epic Games, GOG Galaxy, Xbox / PC Game Pass, Ubisoft Connect, EA Games, or a custom folder path. Searches up to 3 subdirectory levels for game executables (so games like Days Gone or Elden Ring in nested folders are detected), tracks live progress with the scan progress bar, and automatically runs a <strong>Game info</strong> metadata pass.
+              Discovers installed PC games across Steam, Epic Games, GOG Galaxy, Xbox / PC Game Pass, Ubisoft Connect, EA Games, or a custom folder path (up to 3 subdirectory levels). Excludes engines/redistributables/servers/editors (<code>UnrealEditor.exe</code>, Steamworks, Proton, Dedicated Servers), tracks live progress on the inline progress bar, exposes output in the closeable <strong>Game Scan Log</strong>, and offers <strong>Prune Non-Games</strong> + <strong>Game Library</strong> (owned/CSV/JSON imports).
             </div>
           </div>
           <div class="info-item">
-            <div class="k">Game info</div>
+            <div class="k">Game info, Pinning &amp; Quick Load</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Inspects each managed game folder on disk to populate its engine, scripting backend, Unity/metadata version, anti-cheat status, and recommended MCP modding stack.
+              <strong>Game info</strong> inspects each game folder to populate engine, scripting backend, anti-cheat status, and recommended MCP stack. Click <strong>Load Game</strong>, pick from the top <strong>Quick Load</strong> dropdown, press <strong>Ctrl+K</strong> (Command Palette), or <strong>Pin</strong> favorites to switch active workspace profiles immediately.
             </div>
           </div>
           <div class="info-item">
             <div class="k">Browse, Add/Edit Game &amp; Icons</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Lets you pick any local folder or manually configure a game profile. Game icons are automatically extracted from each game's primary executable and cached locally for fast loading.
+              Lets you pick any local folder, manually configure a game profile, or extract and cache `.exe` icons via <strong>Pre-warm Icons</strong>.
             </div>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <h2><span>2. Active Game &amp; Fingerprint</span></h2>
+        <h2><span>2. Active Game, Readiness &amp; Safety Nets</span></h2>
         <div class="info-grid" style="grid-template-columns: 1fr;">
           <div class="info-item">
-            <div class="k">What does Fingerprint do and how does it work?</div>
+            <div class="k">4-Step Modding Readiness Strip &amp; Fingerprint</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              <strong>Fingerprint</strong> inspects the target game directory (<code>POST /api/fingerprint</code>) and computes SHA-256 hashes of key binaries (such as <code>GameAssembly.dll</code>, <code>UnityPlayer.dll</code>, or main executables). It detects the engine (Unity IL2CPP/Mono, Unreal 4/5, Creation, Godot, RE Engine, FromSoftware, Data-Driven, or Native C++), Unity build &amp; IL2CPP metadata version, anti-cheat binaries, and whether Doorstop/BepInEx/MCP Bridge/Interop DLLs are present. <strong>Fingerprint &amp; Rescan</strong> combines this check with a full Game Info refresh.
+              Tracks <strong>1. Fingerprinted</strong>, <strong>2. Clean Snapshot</strong>, <strong>3. Modding Stack Ready</strong> (with Vortex/MO2 or proxy-DLL conflict badges), and <strong>4. Workspace / Bridge Ready</strong>, with inline <strong>Fix / Run</strong> actions on incomplete steps. <strong>Fingerprint &amp; Rescan</strong> inspects key binaries and refreshes metadata.
             </div>
           </div>
           <div class="info-item">
-            <div class="k">Provision &amp; Clean Restore</div>
+            <div class="k">Snapshots, Conflict Guard, Provision &amp; Restore</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Verifies the BepInEx 6 IL2CPP archive SHA-256, backs up any colliding files into <code>%LOCALAPPDATA%\TheModdingTool</code>, extracts BepInEx and <code>BepInExMCP.IL2CPP.dll</code>, and writes a manifest so <strong>Clean Restore</strong> can revert every deployed file cleanly.
+              <strong>Snapshots &amp; Rollback</strong> captures modded surfaces (<code>BepInEx/plugins</code>, <code>BepInEx/config</code>, <code>doorstop_config.ini</code>, <code>~mods</code>, Unreal <code>.ini</code>s) for one-click rollback and auto-snapshots before loader, mod, or INI edits. <strong>Conflict Guard</strong> flags existing Vortex/MO2 setups or proxy DLLs (<code>winhttp.dll</code>, <code>dwmapi.dll</code>) before overwriting. <strong>Provision &amp; Clean Restore</strong> verifies BepInEx archives by SHA-256 and deploys cleanly.
             </div>
           </div>
           <div class="info-item">
-            <div class="k">Steam Artwork, Unreal Traffic Light &amp; Live MCP</div>
+            <div class="k">Steam Artwork, Unreal Advisor, Asset Audit &amp; Live MCP</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Pulls local Steam <code>librarycache</code> hero banners and thumbnails when available. For Unreal Engine games, imports <code>GameUserSettings.ini</code> / <code>Engine.ini</code> and scores settings against your PC Specs (Green / Amber / Red). For running Unity IL2CPP games, connects over persistent stdio to <code>bepinex-mcp</code> for live object/component inspection and editing.
+              Displays local Steam <code>librarycache</code> artwork, scores Unreal Engine INI settings against your PC Specs (Green / Amber / Red) with Apply/Restore INI controls, audits open vs. restricted mod layers in the <strong>Asset &amp; Moddability Analyzer</strong>, and connects over persistent stdio to <code>bepinex-mcp</code> for live Unity inspection/editing.
             </div>
           </div>
         </div>
@@ -350,10 +350,10 @@
           <div class="info-item">
             <div class="k">How Mod Building Works</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Import live MCP edits or add custom rules, then click <strong>Build Compatible Mod</strong>:
-              <br />• <strong>Unity IL2CPP</strong>: Generates a <code>BepInEx 6</code> C# <code>BasePlugin</code> (<code>Plugin.cs</code>) with <code>Config.Bind</code> entries and scene-load hooks, compiles it as a <code>net6.0</code> <code>.dll</code> directly against the target game's <code>BepInEx\core\*.dll</code> and <code>BepInEx\interop\*.dll</code> via <code>dotnet build</code>, and packages it with <code>INSTALL_INSTRUCTIONS.txt</code> into a <code>.zip</code>.
+              Import live MCP edits, add Harmony hook rules, or define custom edits, then click <strong>Build Compatible Mod</strong>:
+              <br />• <strong>Unity IL2CPP / Mono</strong>: Generates a <code>BepInEx</code> C# plugin with <code>Config.Bind</code> entries and scene-load hooks, compiles it directly against game/interop/Managed assemblies via <code>dotnet build</code>, and packages a distributable <code>.zip</code> with <code>INSTALL_INSTRUCTIONS.txt</code>.
               <br />• <strong>Unreal Engine 4/5</strong>: Generates an RE-UE4SS <code>main.lua</code> script + <code>GameUserSettings_Override.ini</code> + <code>INSTALL_INSTRUCTIONS.txt</code> package.
-              <br />• <strong>Install Built Mod to Game</strong> deploys the compiled package directly into the game folder.
+              <br />• <strong>Install Built Mod to Game</strong> runs Conflict Guard + an automatic safety snapshot before copying files into the game directory.
             </div>
           </div>
         </div>
@@ -365,13 +365,13 @@
           <div class="info-item">
             <div class="k">PC Specs</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Scrapes CPU, GPU (VRAM, driver, temperature), RAM, drives, OS, and display resolution/refresh rate, caches results for instant loading, and maps your PC to an Unreal hardware reference tier.
+              Scrapes CPU, GPU (VRAM, driver), RAM, drives, OS, and display resolution/refresh rate, caches results in <code>pc_specs.json</code>, and maps your hardware to the Unreal Engine Reference Array.
             </div>
           </div>
           <div class="info-item">
             <div class="k">Audit Log</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Records every scan, fingerprint, provision, restore, mod build, backup, and setting change with timestamps, status, SHA-256 digests, and expandable detail summaries in <code>%LOCALAPPDATA%\TheModdingTool\audit.jsonl</code>.
+              Records every game or app action and sanitized failure (<code>ACTION_FAILED</code>, <code>GIT_PUSH_FAILED</code>) with UTC timestamps, categories (Game / App / All), and SHA-256 integrity hashes in <code>%LOCALAPPDATA%\TheModdingTool\audit.jsonl</code>.
             </div>
           </div>
         </div>
@@ -381,27 +381,84 @@
         <h2><span>5. App Management</span></h2>
         <div class="info-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));">
           <div class="info-item">
-            <div class="k">Portable App Export</div>
+            <div class="k">GitHub Distribution, Branches &amp; Push Safety</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Packages the app, MCP bridge, pre-built plugins, branding folders, and <code>Launch_TheModdingTool.bat</code> into a downloadable <code>TheModdingTool.zip</code> for other Windows 10/11 PCs.
+              Configure owner/repo/token, check remote updates, pull available branches into the <strong>Push Branch</strong> selector, review uncommitted files, and push safely with a branch confirmation warning modal or roll back to pre-sync snapshots.
             </div>
           </div>
           <div class="info-item">
-            <div class="k">Tool Upgrades &amp; Checksums</div>
+            <div class="k">Portable Export, Offline Control &amp; Protocol</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Upgrades or rebuilds BepInEx 6, BepInExMCP.IL2CPP, RE-UE4SS, and MelonLoader with HTTPS-only enforcement, SHA-256 checksum verification, and automatic pre-upgrade backups.
+              Packages a standalone <code>TheModdingTool.zip</code>, registers the <code>moddingtool://start</code> Windows protocol handler, and exposes <strong>Stop Server</strong> / <strong>Restart App</strong> with an offline service-worker fallback page (<code>/offline</code>).
             </div>
           </div>
           <div class="info-item">
-            <div class="k">App Editing &amp; WIP Flags</div>
+            <div class="k">Tool Upgrades, Diagnostics &amp; UI Customization</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Rename the app/tabs, upload a responsive banner (<code>branding/banners</code>) and favicon (<code>branding/favicons</code>), show/hide elements, or flag any section as <strong>In Progress (WIP)</strong>.
+              Upgrades BepInEx 6, BepInExMCP.IL2CPP, RE-UE4SS, and MelonLoader with HTTPS &amp; SHA-256 verification; inspects Python/.NET diagnostics; and customizes app title, accent color, custom banner/favicon uploads, tab visibility, and WIP flags.
             </div>
           </div>
           <div class="info-item">
-            <div class="k">Save &amp; Restore Versions</div>
+            <div class="k">SemVer &amp; App Backup Versions</div>
             <div class="v" style="font-family:inherit; font-weight:400;">
-              Creates incremental and baseline project backups with expandable change summaries (<code>SUMMARY.md</code>) so you can restore the project to any previous version.
+              Bumps <code>version.json</code> (Patch/Minor/Major/Launch 1.0.0), manages the background file watcher, and saves/restores baseline or incremental workspace backups with diff summaries (<code>SUMMARY.md</code>).
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card full" id="help-developer-architecture">
+        <h2>
+          <span>6. Developer Architecture, Feature Internals &amp; Change Management</span>
+          <span class="badge">Developer Guide</span>
+        </h2>
+        <div class="hint">
+          Technical reference explaining how each subsystem works internally and how updates flow through versioning, backups, changelog tracking, Git sync, and automated tests.
+        </div>
+        <div class="info-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));">
+          <div class="info-item">
+            <div class="k">A. Server Lifecycle, Security &amp; Cache-Busting</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              • <code>run_server.py</code> runs a supervised Uvicorn process on <code>127.0.0.1:8765</code> (<code>--reload-dir app</code>).
+              <br />• <code>app/main.py</code> composes <code>app/templates/index.html</code> + <code>partials/*.html</code> via <code>jinja2.Environment</code>, injects <code>modtool-session-token</code> and <code>?v=&lt;asset_version&gt;</code> (derived from <code>version.json</code> + newest static mtime), and enforces <code>SessionTokenMiddleware</code> (<code>X-ModTool-Session</code>) on mutating API calls.
+              <br />• <code>SafeMimeStaticFiles</code> enforces JS/CSS MIME types with <code>no-cache</code>; <code>app/static/sw.js</code> uses network-first caching for <code>/</code> and <code>/static/*</code> with <code>/offline</code> fallback.
+            </div>
+          </div>
+
+          <div class="info-item">
+            <div class="k">B. Backend Layers &amp; Atomic Persistence</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              • <strong>Core</strong> (<code>app/core/</code>): Shared constants in <code>constants.py</code> (eliminating cross-router imports), path/cache state and crash-safe <code>atomic_write_json()</code> (<code>fsync</code> + <code>os.replace</code>) in <code>config.py</code>, DPAPI token encryption in <code>security.py</code>, and token-redacting JSONL logging in <code>audit.py</code>.
+              <br />• <strong>Engines &amp; Services</strong> (<code>app/engines/</code>, <code>app/services/</code>): <code>EngineAdapter</code> implementations (Unity, Unreal, Generic) and focused services (<code>discovery.py</code>, <code>game_store.py</code>, <code>mod_builder.py</code>, <code>tool_installer.py</code>, <code>pc_specs.py</code>).
+              <br />• <strong>Routers</strong> (<code>app/routers/*</code>): Thin FastAPI route handlers delegating to engines/services.
+            </div>
+          </div>
+
+          <div class="info-item">
+            <div class="k">C. Frontend ES Modules &amp; Action Telemetry</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              • Native ES modules in <code>app/static/js/</code> (<code>main.js</code>, <code>api.js</code>, <code>state.js</code>, <code>game_table.js</code>, <code>active_game.js</code>, <code>unreal_panel.js</code>, <code>mcp.js</code>, <code>analyzer.js</code>, <code>git_backup.js</code>, <code>app_mgmt.js</code>).
+              <br />• <code>main.js</code> merges module exports onto <code>window</code> for inline HTML attributes and coordinates initialization + 5s health polling.
+              <br />• <code>runTrackedAction()</code> drives inline progress slots, live scan polling (<code>/api/games/scan-progress</code>), copyable error details, and automatic client error auditing (<code>POST /api/audit/client-error</code>).
+            </div>
+          </div>
+
+          <div class="info-item">
+            <div class="k">D. Safety Nets: Per-Game Snapshots &amp; Conflict Guard</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              • <code>app/services/game_snapshots.py</code> writes lightweight SHA-256 manifests + payloads of modded surfaces to <code>%LOCALAPPDATA%\TheModdingTool\game_snapshots\&lt;slug&gt;\&lt;timestamp&gt;\</code>, validating every copy/delete against <code>ensure_within()</code> and strict segment rules.
+              <br />• Auto-snapshots trigger before loader installs, mod deployments, BepInEx provisioning, and Unreal INI writes.
+              <br />• <code>app/services/conflict_guard.py</code> detects Vortex/MO2 deployment markers, proxy DLLs, and <code>~mods</code> overrides before installation, returning structured <code>conflict_warning</code> responses until explicitly confirmed with <code>force: true</code>.
+            </div>
+          </div>
+
+          <div class="info-item" style="grid-column: 1 / -1;">
+            <div class="k">E. Updates &amp; Change Management Workflow (Versioning → Changelog → Backups → GitHub Sync → Tests/CI)</div>
+            <div class="v" style="font-family:inherit; font-weight:400;">
+              <strong>1. Semantic Versioning &amp; Changelog (<code>version_manager.py</code>, <code>version.json</code>, <code>CHANGELOG.md</code>):</strong> Versions follow <code>0.MINOR.PATCH</code> (pre-launch) through <code>1.0.0</code>. Bumps update <code>version.json</code> (and invalidate <code>asset_version</code> for browser cache-busting), while <code>append_changelog_entry()</code> prepends newest-first <code>## YYYY-MM-DD HH:MM — vX.Y.Z</code> sections recording the <em>Prompt</em>, <em>AG Feedback</em>, and file/behavioral <em>Version Changes</em>.
+              <br /><strong>2. Workspace Backups &amp; Pre-Update Snapshots (<code>backup_manager.py</code>, <code>app/routers/git_sync.py</code>):</strong> <code>backup_manager.py</code> captures baseline and incremental workspace versions in <code>./backups/</code> (<code>manifest.json</code> + unified diffs in <code>SUMMARY.md</code> + <code>restore.ps1</code>, using <code>ensure_within()</code>). Before applying a GitHub pull (<code>POST /api/app/sync</code>) or snapshot rollback (<code>POST /api/app/rollback</code>), <code>git_sync.py</code> automatically creates a safety snapshot in <code>%LOCALAPPDATA%\TheModdingTool\app_backups\</code> so broken updates can be reverted immediately.
+              <br /><strong>3. GitHub Branch Pull &amp; Safe Push (<code>git_sync.py</code>, <code>git_backup.js</code>):</strong> Tokens are encrypted via Windows DPAPI. Pulling updates fetches remote commit metadata, downloads and SHA-256-hashes the target archive, snapshots current files, extracts cleanly into <code>app/</code>, and bumps installed commit state. Publishing code pulls remote+local branches via <code>POST /api/app/git-branches</code> into the <strong>Push Branch</strong> dropdown, opens the confirmation warning modal showing the exact target branch, runs non-interactive git CLI steps with credential redaction, and logs failures as sanitized <code>GIT_PUSH_FAILED</code> audit records.
+              <br /><strong>4. Verification, Packaging &amp; CI (<code>tests/</code>, <code>package_windows.py</code>, <code>.github/workflows/ci.yml</code>):</strong> Domain test modules (<code>test_discovery.py</code>, <code>test_unreal.py</code>, <code>test_mcp.py</code>, <code>test_system.py</code>, <code>test_security.py</code>, <code>test_frontend_contracts.py</code>) verify API schemas, security redaction/traversal guards, PyInstaller bundle paths (templates, partials, engines, services), zero duplicate DOM IDs, and ES module export contracts. GitHub Actions runs <code>python -m pytest tests/ -v</code> automatically on every push/PR to <code>main</code>.
             </div>
           </div>
         </div>

@@ -210,6 +210,52 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(json.loads(target.read_text(encoding="utf-8")), payload_v2)
             self.assertEqual(list(tmp_dir.iterdir()), [target])
 
+    def test_game_snapshot_path_traversal_rejection(self) -> None:
+        from app.services import game_snapshots
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            snaps_root = tmp_dir / "game_snapshots"
+            game_dir = tmp_dir / "SampleGame"
+            (game_dir / "BepInEx" / "plugins").mkdir(parents=True)
+            (game_dir / "doorstop_config.ini").write_text("[General]\nenabled=true\n", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                game_snapshots.ensure_within(tmp_dir / "outside.txt", game_dir)
+            with self.assertRaises(ValueError):
+                game_snapshots.ensure_within(game_dir / ".." / "outside.txt", game_dir)
+
+            snap = game_snapshots.create_game_snapshot(
+                "sample_game",
+                game_dir,
+                label="Baseline",
+                engine="unity",
+                snapshots_root=snaps_root,
+                audit=False,
+            )
+            snap_id = snap["snapshot_id"]
+            manifest_path = Path(snap["snapshot_dir"]) / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            # Tamper rel_path to attempt writing outside game_dir
+            manifest["files"]["game/doorstop_config.ini"]["rel_path"] = "../../evil.ini"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                game_snapshots.restore_game_snapshot(
+                    "sample_game",
+                    snap_id,
+                    target_game_dir=game_dir,
+                    snapshots_root=snaps_root,
+                    audit=False,
+                )
+
+            # Invalid slug or snapshot_id segments must be rejected via HTTP 400
+            r_bad_snap = self.client.post(
+                "/api/games/sample_game/snapshots/bad..id/restore",
+                headers={SESSION_HEADER: get_session_token()},
+            )
+            self.assertEqual(r_bad_snap.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,4 @@
-import { apiFetch, apiPost, runTrackedAction, state } from "./api.js";
+import { apiFetch, apiGet, apiPost, runTrackedAction, state } from "./api.js";
 import {
   STEAM_ASSETS_JS_CACHE,
   classifyGameEngine,
@@ -8,8 +8,8 @@ import {
   resolveBtn,
   upsertManagedGameInState,
 } from "./state.js";
-import { ENTITIES, VARIABLES, syncModBuilderWithGame } from "./mcp.js";
-import { renderUnrealSettingsSection } from "./unreal_panel.js";
+import { ENTITIES, VARIABLES, mcpTestBridge, runFingerprintAndRescan, syncModBuilderWithGame } from "./mcp.js";
+import { importUnrealSettings, renderUnrealSettingsSection } from "./unreal_panel.js";
 import { refreshGamesList, renderGamesTable } from "./game_table.js";
 
 export async function rescanActiveGameMetadata() {
@@ -338,7 +338,7 @@ export function renderModdingAppsSection(game) {
   }).join("");
 }
 
-export async function installModdingTool(toolId) {
+export async function installModdingTool(toolId, forceOverwrite = false) {
   const out = document.getElementById("tools-install-output");
   const btn = resolveBtn(`btn-tool-${toolId}`);
   const gameDir = document.getElementById("fp-game-dir")?.value || "";
@@ -350,24 +350,45 @@ export async function installModdingTool(toolId) {
     await runTrackedAction(
       btn,
       async () => {
-        const res = await apiPost("/api/tools/install", {
+        let res = await apiPost("/api/tools/install", {
           tool_id: toolId,
           game_id: state.activeGameId,
           game_dir: gameDir,
+          force: Boolean(forceOverwrite),
         });
-        const data = res?.data ?? res;
+        let data = res?.data ?? res;
+        if (data?.status === "conflict_warning" && data?.requires_confirmation) {
+          const warnLines = (data.warnings || []).map(w => `• ${w.title}: ${w.message}`).join("\n");
+          _renderConflictNotice(data.conflict_guard);
+          if (out) {
+            out.textContent = `CONFLICT GUARD WARNING:\n${warnLines}\n\nConfirm installation to take a safety snapshot and proceed.`;
+          }
+          if (!confirm(`Mod Manager / Proxy DLL Conflict Detected:\n\n${warnLines}\n\nProceed anyway (a safety snapshot will be created first)?`)) {
+            return data;
+          }
+          res = await apiPost("/api/tools/install", {
+            tool_id: toolId,
+            game_id: state.activeGameId,
+            game_dir: gameDir,
+            force: true,
+          });
+          data = res?.data ?? res;
+        }
         if (out) {
-          out.textContent = `${data.message}\nSHA-256: ${data.sha256}\nTarget Folder: ${data.install_dir}`;
+          const snapLine = data.snapshot_id ? `\nPre-change snapshot: ${data.snapshot_id}` : "";
+          out.textContent = `${data.message}\nSHA-256: ${data.sha256}\nTarget Folder: ${data.install_dir}${snapLine}`;
         }
         if (data?.game) {
           applyGameSettingsToUI(data.game);
         }
-        await refreshGamesList(false);
+        await Promise.all([refreshGamesList(false), loadGameSnapshots(state.activeGameId)]);
         return data;
       },
       {
         pendingText: `Installing ${toolId}...`,
-        successText: (d) => d?.message || `Installed ${toolId}`,
+        successText: (d) => d?.status === "conflict_warning"
+          ? "Installation cancelled due to conflict warning"
+          : (d?.message || `Installed ${toolId}`),
       },
     );
   } catch (err) {
@@ -543,6 +564,10 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
   syncModBuilderWithGame(game);
   loadGameSteamAssets(game);
   renderGamesTable();
+  renderReadinessStrip(game);
+  if (gameChanged || state.activeGameSnapshotsSlug !== game.id) {
+    loadGameSnapshots(game.id);
+  }
 
   const hasCachedMeta = Boolean(game.metadata_scraped || game.modding_info?.metadata_scraped);
   const canInspectDisk = Boolean(game.dir_exists !== false && !game.missing_on_disk);
@@ -670,5 +695,261 @@ export async function checkActiveGameConflicts() {
     }
   } catch (err) {
     if (out) { out.style.display = "block"; out.textContent = `Conflict check failed: ${err.message || err}`; }
+  }
+}
+
+export function _renderConflictNotice(guard) {
+  const noticeEl = document.getElementById("snapshot-conflict-notice");
+  if (!noticeEl) return;
+  const warnings = Array.isArray(guard?.warnings) ? guard.warnings : [];
+  if (!warnings.length) {
+    noticeEl.hidden = true;
+    noticeEl.innerHTML = "";
+    return;
+  }
+  noticeEl.hidden = false;
+  noticeEl.innerHTML =
+    `<strong>Conflict Guard Alert:</strong> ` +
+    warnings.map(w => `<span><strong>${escHtml(w.title)}:</strong> ${escHtml(w.message)}</span>`).join("<br />");
+}
+
+function _setReadinessStep(stepKey, statusCls, detailText, fixLabel = "", showFix = false) {
+  const card = document.getElementById(`rs-step-${stepKey}`);
+  const detail = document.getElementById(`rs-detail-${stepKey}`);
+  const btn = document.getElementById(`rs-fix-${stepKey}`);
+  if (card) card.className = `readiness-step ${statusCls}`;
+  if (detail) detail.textContent = detailText;
+  if (btn) {
+    btn.hidden = !showFix;
+    if (fixLabel) btn.textContent = fixLabel;
+  }
+}
+
+export function renderReadinessStrip(game) {
+  if (!game) return;
+  const info = game.modding_info || {};
+  const { isUnity, isUnreal } = classifyGameEngine(game);
+  const dirOk = Boolean(game.dir_exists !== false && !game.missing_on_disk);
+  const scraped = Boolean(game.metadata_scraped || info.metadata_scraped);
+  const acBlocked = info.mcp_category === "Online / Anti-Cheat" || (info.modding_readiness || "").startsWith("Blocked");
+
+  // 1. Fingerprinted
+  if (!dirOk) {
+    _setReadinessStep("fingerprint", "blocked", "Game directory missing on disk", "Rescan", true);
+  } else if (scraped) {
+    _setReadinessStep("fingerprint", "done", `${info.mcp_category || game.detected_engine || "Detected"} (${info.scripting_backend || game.runtime || "PC"})`, "Run Fingerprint", false);
+  } else {
+    _setReadinessStep("fingerprint", "pending", "Engine / runtime not fingerprinted yet", "Run Fingerprint", true);
+  }
+
+  // 2. Clean Snapshot
+  const snapList = state.activeGameSnapshotsSlug === game.id && Array.isArray(state.activeGameSnapshots)
+    ? state.activeGameSnapshots
+    : null;
+  const snapCount = snapList ? snapList.length : Number(game.snapshots_count || 0);
+  if (snapCount > 0) {
+    const latest = snapList?.[0]?.snapshot_id ? ` · latest ${snapList[0].snapshot_id}` : "";
+    _setReadinessStep("snapshot", "done", `${snapCount} snapshot(s) ready${latest}`, "Create Snapshot", false);
+  } else {
+    _setReadinessStep("snapshot", "pending", "No clean snapshot captured yet", "Create Snapshot", true);
+  }
+
+  // 3. Modding Stack Ready (+ Conflict Guard badge)
+  const guard = info.conflict_guard || {};
+  const conflictBadge = document.getElementById("rs-conflict-badge");
+  const hasConflicts = Boolean(guard.has_conflicts && Array.isArray(guard.warnings) && guard.warnings.length > 0);
+  if (conflictBadge) {
+    conflictBadge.hidden = !hasConflicts;
+    if (hasConflicts) {
+      const mgrs = Array.isArray(guard.detected_managers) && guard.detected_managers.length
+        ? guard.detected_managers.join("/")
+        : "Proxy Conflict";
+      conflictBadge.textContent = mgrs;
+      conflictBadge.title = guard.summary || "Conflict Guard warning detected";
+    }
+  }
+  _renderConflictNotice(hasConflicts ? guard : null);
+
+  if (acBlocked) {
+    _setReadinessStep("stack", "blocked", "Blocked by anti-cheat", "Inspect", true);
+  } else if (isUnity) {
+    const loaderOk = Boolean(info.doorstop_installed && info.bepinex_installed);
+    _setReadinessStep(
+      "stack",
+      loaderOk ? (hasConflicts ? "warn" : "done") : "pending",
+      loaderOk ? `BepInEx ${info.bepinex_version || "6.x"} + Doorstop ready` : "BepInEx + Doorstop not installed",
+      "Install Loader",
+      !loaderOk,
+    );
+  } else if (isUnreal) {
+    const ueStackOk = Boolean(info.ue4ss_installed || info.unreal_settings?.ini_found);
+    _setReadinessStep(
+      "stack",
+      ueStackOk ? (hasConflicts ? "warn" : "done") : "pending",
+      ueStackOk
+        ? `${info.ue4ss_installed ? "RE-UE4SS" : "Unreal INI"} verified`
+        : "No RE-UE4SS or writable INI verified yet",
+      "Rescan Config",
+      !ueStackOk,
+    );
+  } else {
+    _setReadinessStep(
+      "stack",
+      scraped && dirOk ? "done" : "pending",
+      scraped ? `${info.mcp_category || "Generic"} workspace ready` : "Pending metadata scan",
+      "Rescan",
+      !(scraped && dirOk),
+    );
+  }
+
+  // 4. Workspace / Bridge Ready
+  if (acBlocked) {
+    _setReadinessStep("bridge", "blocked", "Live modding disabled (Anti-Cheat)", "", false);
+  } else if (isUnity) {
+    const bridgeReady = Boolean(info.mcp_bridge_installed && (info.roslyn_Compiler_installed || !game.has_game_assembly));
+    _setReadinessStep(
+      "bridge",
+      bridgeReady ? "done" : "pending",
+      bridgeReady ? "MCP bridge plugin ready (test live session below)" : "BepInExMCP bridge plugin not deployed",
+      bridgeReady ? "Test Bridge" : "Deploy Bridge",
+      !bridgeReady,
+    );
+  } else if (isUnreal) {
+    const iniFound = Boolean(info.unreal_settings?.ini_found);
+    _setReadinessStep(
+      "bridge",
+      iniFound ? "done" : "pending",
+      iniFound ? "Unreal .ini & ~mods workspace writable" : "GameUserSettings.ini not imported yet",
+      "Rescan INI",
+      !iniFound,
+    );
+  } else {
+    _setReadinessStep(
+      "bridge",
+      scraped && dirOk ? "done" : "pending",
+      scraped ? "Data override workspace ready" : "Run fingerprint to verify paths",
+      "Rescan",
+      !(scraped && dirOk),
+    );
+  }
+}
+
+export async function loadGameSnapshots(slug = state.activeGameId) {
+  if (!slug) return;
+  const listEl = document.getElementById("snapshot-list");
+  const summaryEl = document.getElementById("snapshot-drawer-summary");
+  try {
+    const res = await apiGet(`/api/games/${encodeURIComponent(slug)}/snapshots`);
+    const data = res?.data || {};
+    const snaps = Array.isArray(data.snapshots) ? data.snapshots : [];
+    state.activeGameSnapshots = snaps;
+    state.activeGameSnapshotsSlug = slug;
+    if (summaryEl) {
+      summaryEl.textContent = `Snapshots & Rollback (${snaps.length})`;
+    }
+    if (listEl) {
+      if (!snaps.length) {
+        listEl.innerHTML = '<li class="snapshot-empty">No snapshots captured yet for this game.</li>';
+      } else {
+        listEl.innerHTML = snaps.map(s => `
+          <li class="snapshot-item">
+            <div>
+              <strong>${escHtml(s.label || s.snapshot_id)}</strong>
+              <span class="badge" style="margin-left:6px;">${s.file_count ?? 0} file(s)</span>
+              <div style="font-size:0.7rem; color:var(--muted);">${escHtml(s.snapshot_id)} · ${escHtml(s.created_at || "")}</div>
+            </div>
+            <button type="button" class="secondary btn-sm" onclick="restoreGameSnapshot('${escHtml(s.snapshot_id)}')">Rollback</button>
+          </li>
+        `).join("");
+      }
+    }
+    const activeGame = state.lastRenderedGame || state.managedGames.find(g => g.id === state.activeGameId);
+    if (activeGame && activeGame.id === slug) {
+      renderReadinessStrip(activeGame);
+    }
+  } catch (err) {
+    console.warn("Failed to load game snapshots:", err);
+  }
+}
+
+export async function createGameSnapshot(explicitLabel = "") {
+  const btn = resolveBtn("btn-create-snapshot");
+  const labelInput = document.getElementById("snapshot-label-input");
+  const label = explicitLabel || (labelInput?.value || "").trim();
+  const slug = state.activeGameId;
+  if (!slug) return;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/snapshots`, { label });
+        if (labelInput && !explicitLabel) labelInput.value = "";
+        await loadGameSnapshots(slug);
+        return res;
+      },
+      {
+        pendingText: "Creating lightweight game snapshot...",
+        successText: (d) => `Snapshot '${d?.snapshot_id || ""}' saved (${d?.file_count ?? 0} file(s))`,
+      },
+    );
+  } catch {
+    // Error handled by runTrackedAction
+  }
+}
+
+export async function restoreGameSnapshot(snapshotId) {
+  const btn = resolveBtn("");
+  const slug = state.activeGameId;
+  if (!slug || !snapshotId) return;
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(
+          `/api/games/${encodeURIComponent(slug)}/snapshots/${encodeURIComponent(snapshotId)}/restore`,
+          {},
+        );
+        await Promise.all([rescanActiveGameMetadata(), loadGameSnapshots(slug)]);
+        return res;
+      },
+      {
+        pendingText: `Rolling back to snapshot '${snapshotId}'...`,
+        successText: (d) => d?.summary || `Restored snapshot '${snapshotId}'`,
+      },
+    );
+  } catch {
+    // Error handled by runTrackedAction
+  }
+}
+
+export async function runReadinessFix(stepKey) {
+  const game = state.lastRenderedGame || state.managedGames.find(g => g.id === state.activeGameId) || {};
+  const { isUnity, isUnreal } = classifyGameEngine(game);
+  if (stepKey === "fingerprint") {
+    await runFingerprintAndRescan();
+  } else if (stepKey === "snapshot") {
+    await createGameSnapshot("Readiness Baseline Snapshot");
+  } else if (stepKey === "stack") {
+    if (isUnity) {
+      const toolId = game.has_game_assembly ? "bepinex_il2cpp" : "bepinex_mono";
+      await installModdingTool(toolId);
+    } else if (isUnreal) {
+      await importUnrealSettings("");
+    } else {
+      await runFingerprintAndRescan();
+    }
+  } else if (stepKey === "bridge") {
+    if (isUnity) {
+      const info = game.modding_info || {};
+      if (!info.mcp_bridge_installed) {
+        await installModdingTool("bepinex_mcp_il2cpp");
+      } else {
+        await mcpTestBridge();
+      }
+    } else if (isUnreal) {
+      await importUnrealSettings("");
+    } else {
+      await runFingerprintAndRescan();
+    }
   }
 }

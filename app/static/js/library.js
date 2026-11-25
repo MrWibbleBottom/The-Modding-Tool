@@ -41,18 +41,24 @@ export {
 } from "./game_table.js";
 
 export {
+  _renderConflictNotice,
   applyGameSettingsToUI,
   checkActiveGameConflicts,
+  createGameSnapshot,
   installAllRecommendedTools,
   installModdingTool,
   launchActiveGame,
+  loadGameSnapshots,
   loadGameSteamAssets,
   openToolFolder,
   renderActiveGamePanel,
   renderCurrentGameModdingApps,
   renderModdingAppsSection,
+  renderReadinessStrip,
   renderTopGameInfoPanel,
   rescanActiveGameMetadata,
+  restoreGameSnapshot,
+  runReadinessFix,
   saveActiveGameNotes,
 } from "./active_game.js";
 

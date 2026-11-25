@@ -4,7 +4,50 @@
   <div class="tab-pane" id="tab-pane-game">
     <div class="wip-section-banner" id="wip-banner-game">WIP - In Progress</div>
     <div class="app-tab-banner"><img class="app-tab-banner-img" alt="App Banner" /></div>
-    <!-- TOP GAME MODDING INFO PANEL (DETERMINED DIRECTLY FROM GAME FILES) -->
+
+    <!-- 4-STEP MODDING READINESS STRIP + SNAPSHOTS & ROLLBACK -->
+    <section class="readiness-strip-wrap" id="readiness-strip-wrap" aria-label="Modding Readiness Pipeline">
+      <div class="readiness-strip" id="readiness-strip">
+        <div class="readiness-step pending" id="rs-step-fingerprint">
+          <div class="readiness-step-head"><span class="readiness-step-num">1</span><span class="readiness-step-title">Fingerprinted</span></div>
+          <div class="readiness-step-detail" id="rs-detail-fingerprint">Engine / runtime not identified yet</div>
+          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-fingerprint" onclick="runReadinessFix('fingerprint')">Run Fingerprint</button>
+        </div>
+        <div class="readiness-step pending" id="rs-step-snapshot">
+          <div class="readiness-step-head"><span class="readiness-step-num">2</span><span class="readiness-step-title">Clean Snapshot</span></div>
+          <div class="readiness-step-detail" id="rs-detail-snapshot">No game snapshot saved yet</div>
+          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-snapshot" onclick="runReadinessFix('snapshot')">Create Snapshot</button>
+        </div>
+        <div class="readiness-step pending" id="rs-step-stack">
+          <div class="readiness-step-head">
+            <span class="readiness-step-num">3</span><span class="readiness-step-title">Modding Stack Ready</span>
+            <span class="pill warn readiness-conflict-badge" id="rs-conflict-badge" hidden>Conflict</span>
+          </div>
+          <div class="readiness-step-detail" id="rs-detail-stack">Loader / config access not verified</div>
+          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-stack" onclick="runReadinessFix('stack')">Install Stack</button>
+        </div>
+        <div class="readiness-step pending" id="rs-step-bridge">
+          <div class="readiness-step-head"><span class="readiness-step-num">4</span><span class="readiness-step-title">Workspace / Bridge Ready</span></div>
+          <div class="readiness-step-detail" id="rs-detail-bridge">MCP bridge / config workspace not verified</div>
+          <button type="button" class="btn-sm readiness-fix-btn" id="rs-fix-bridge" onclick="runReadinessFix('bridge')">Fix</button>
+        </div>
+      </div>
+
+      <details class="snapshot-drawer" id="snapshot-drawer">
+        <summary id="snapshot-drawer-summary">Snapshots &amp; Rollback (0)</summary>
+        <div class="snapshot-drawer-body">
+          <div class="snapshot-drawer-controls">
+            <input id="snapshot-label-input" type="text" placeholder="Optional snapshot label (e.g. Before ReShade tweak)" />
+            <button type="button" class="success btn-sm" id="btn-create-snapshot" onclick="createGameSnapshot()">Create Snapshot</button>
+            <button type="button" class="secondary btn-sm" id="btn-refresh-snapshots" onclick="loadGameSnapshots()">Refresh</button>
+          </div>
+          <div id="snapshot-conflict-notice" class="snapshot-conflict-notice" hidden></div>
+          <ul class="snapshot-list" id="snapshot-list">
+            <li class="snapshot-empty">No snapshots captured yet for this game.</li>
+          </ul>
+        </div>
+      </details>
+    </section>
     <section class="info-panel" id="top-game-info-panel">
       <div id="game-steam-banner" style="display:none; position:relative; border-radius:8px; overflow:hidden; margin-bottom:14px; border:1px solid var(--border); min-height:170px; background:#0b0f17;">
         <img id="game-steam-hero-img" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center;" />

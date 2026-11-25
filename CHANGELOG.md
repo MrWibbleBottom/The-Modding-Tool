@@ -2,6 +2,25 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 14:41 — v0.1.40
+
+- **Prompt**: Review and update the Help tab, adding a developer section at the bottom detailing how each feature works and how updates work with change management.
+- **AG Feedback**: Updated all user-facing Help cards in app/templates/index.html (#tab-pane-help) to match current features (Game Manager/Library, 4-Step Readiness Strip, Snapshots & Rollback, Conflict Guard, Build a Mod, App Management GitHub/branch workflows) and added Section 6 (Developer Architecture, Feature Internals & Change Management) documenting server/security lifecycle, modular backend layers, ES modules, safety nets, and end-to-end versioning/changelog/backup/GitHub/CI workflows. Verified 31/31 pytest tests pass.
+- **Version Changes**:
+  - Updated #tab-pane-help in app/templates/index.html (cards 1-5 refreshed, new Developer Architecture & Change Management card added at the bottom)
+
+## 2026-11-25 14:37 — v0.1.40
+
+- **Prompt**: Add game-level safety nets (per-game snapshots + one-click rollback, Vortex/MO2/proxy-DLL conflict guard) and a 4-step modding readiness pipeline on the Active Game view.
+- **AG Feedback**: Implemented app/services/game_snapshots.py and app/services/conflict_guard.py with ensure_within() traversal protection, API endpoints for snapshot create/list/restore and conflict-guard checks, automatic pre-change snapshots before tool/loader/mod/Unreal INI mutations, structured conflict warnings blocking silent overwrites until confirmed, a 4-step Modding Readiness Strip and Snapshots & Rollback drawer in Active Game, and unit tests in test_security.py and test_discovery.py (31/31 pytest tests passing).
+- **Version Changes**:
+  - Created app/services/game_snapshots.py (ensure_within traversal guard, Unity/Unreal surface capture, SHA-256 manifest, rollback)
+  - Created app/services/conflict_guard.py (Vortex/MO2 marker + proxy DLL + ~mods override inspection)
+  - Updated app/services/tool_installer.py, app/services/mod_builder.py, and app/services/game_store.py for pre-change snapshots and conflict warnings
+  - Updated app/routers/library.py, app/routers/system.py, and app/routers/mcp_bridge.py with /snapshots, /conflict-guard, /check-conflicts, and force flags
+  - Updated app/templates/partials/active_game.html, app/static/app.css, app/static/js/active_game.js, app/static/js/library.js, and app/static/js/mcp.js for the 4-Step Modding Readiness Strip and Snapshots & Rollback drawer
+  - Added path-traversal, snapshot rollback, and Vortex/MO2/proxy-DLL tests in tests/test_security.py and tests/test_discovery.py
+
 ## 2026-11-25 12:16 — v0.1.40
 
 - **Prompt**: Split oversized frontend files (index.html, library.js, app_mgmt.js) and test_app_smoke.py into modular partials, ES modules, and domain test suites, and update CI.

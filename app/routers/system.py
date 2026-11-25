@@ -52,6 +52,7 @@ from app.engines.unreal import (
     evaluate_scalability_traffic_light,
     match_pc_to_unreal_reference_tier,
 )
+from app.services.conflict_guard import inspect_conflict_guard
 from app.services.pc_specs import clear_local_pc_specs_cache, scrape_pc_specs
 from app.services.tool_installer import (
     get_modding_tools_status_impl,
@@ -65,9 +66,10 @@ WATCHER_PROC_HANDLE: dict[str, Any] = {"proc": None}
 
 
 class InstallToolRequest(BaseModel):
-    tool_id: str
+    tool_id: str = Field(default="")
     game_id: str = Field(default="battleground")
     game_dir: str = Field(default=DEFAULT_GAME_DIR)
+    force: bool = Field(default=False)
 
 
 class OpenToolFolderRequest(BaseModel):
@@ -202,12 +204,19 @@ async def log_client_error(req: ClientErrorRequest) -> dict[str, Any]:
     return {"ok": True, "status": "ok", "entry": entry}
 
 
+@router.post("/api/tools/check-conflicts")
+async def check_tool_conflicts(req: InstallToolRequest) -> dict[str, Any]:
+    """Pre-flight scan of game directory for Vortex/MO2 markers, proxy DLLs, and ~mods overrides."""
+    return inspect_conflict_guard(req.game_dir, intended_action=req.tool_id)
+
+
 @router.post("/api/tools/install")
 async def install_modding_tool(req: InstallToolRequest) -> dict[str, Any]:
     return await install_modding_tool_impl(
         req.tool_id,
         req.game_id,
         req.game_dir,
+        force=req.force,
         pc_specs_fn=scrape_pc_specs,
     )
 

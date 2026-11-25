@@ -194,7 +194,7 @@ class DiscoveryTests(unittest.TestCase):
         table_js = self.client.get("/static/js/game_table.js").text
         lib_js = self.client.get("/static/js/library.js").text
         self.assertIn("export function renderActiveGamePanel", active_js)
-        self.assertIn("import { ENTITIES, VARIABLES, syncModBuilderWithGame }", active_js)
+        self.assertIn("syncModBuilderWithGame", active_js)
         self.assertIn("renderActiveGamePanel", lib_js)
         self.assertIn("renderActiveGamePanel(localGame", table_js)
         self.assertIn("renderActiveGamePanel(data.game)", table_js)
@@ -279,6 +279,181 @@ class DiscoveryTests(unittest.TestCase):
                 r_list = self.client.get("/api/games")
                 self.assertEqual(r_list.status_code, 200)
                 self.assertEqual(r_list.json().get("active_game_id"), "game_b")
+                core_config.invalidate_games_cache()
+
+    def test_game_snapshots_create_list_restore_and_prechange(self) -> None:
+        from app.services import game_snapshots
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            snaps_root = tmp_dir / "game_snapshots"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+            temp_games_store = tmp_dir / "managed_games.json"
+
+            # 1. Unity modded surfaces snapshot + rollback
+            unity_dir = tmp_dir / "SnapUnityGame"
+            (unity_dir / "BepInEx" / "plugins" / "CoreMod").mkdir(parents=True)
+            (unity_dir / "BepInEx" / "config").mkdir(parents=True)
+            (unity_dir / "GameAssembly.dll").write_bytes(b"MZ-IL2CPP")
+            plugin_dll = unity_dir / "BepInEx" / "plugins" / "CoreMod" / "Core.dll"
+            cfg_file = unity_dir / "BepInEx" / "config" / "Core.cfg"
+            doorstop_ini = unity_dir / "doorstop_config.ini"
+            plugin_dll.write_bytes(b"ORIGINAL_PLUGIN_BYTES")
+            cfg_file.write_text("enabled=true\n", encoding="utf-8")
+            doorstop_ini.write_text("[General]\nenabled=true\n", encoding="utf-8")
+
+            # 2. Unreal modded surfaces snapshot + pre-INI edit snapshot
+            ue_dir = tmp_dir / "SnapUnrealGame"
+            mods_pak_dir = ue_dir / "Proj" / "Content" / "Paks" / "~mods"
+            ue_cfg_dir = ue_dir / "Proj" / "Saved" / "Config" / "WindowsNoEditor"
+            mods_pak_dir.mkdir(parents=True)
+            ue_cfg_dir.mkdir(parents=True)
+            orig_pak = mods_pak_dir / "BaseMod_P.pak"
+            gus_ini = ue_cfg_dir / "GameUserSettings.ini"
+            orig_pak.write_bytes(b"PAK_ORIG")
+            gus_ini.write_text("[/Script/Engine.GameUserSettings]\nResolutionSizeX=1920\n", encoding="utf-8")
+
+            temp_games_store.write_text(
+                json.dumps(
+                    {
+                        "active_game_id": "snap_unity",
+                        "games": [
+                            {"id": "snap_unity", "name": "Snap Unity", "game_dir": str(unity_dir), "runtime": "Unity_IL2CPP"},
+                            {"id": "snap_unreal", "name": "Snap Unreal", "game_dir": str(ue_dir), "runtime": "Unreal Engine 4/5"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                r_create = self.client.post(
+                    "/api/games/snap_unity/snapshots",
+                    json={"label": "Clean Baseline"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_create.status_code, 200)
+                snap_id = r_create.json()["snapshot_id"]
+                self.assertEqual(r_create.json()["file_count"], 3)
+
+                r_list = self.client.get("/api/games/snap_unity/snapshots")
+                self.assertEqual(r_list.status_code, 200)
+                self.assertEqual(len(r_list.json()["snapshots"]), 1)
+
+                # Mutate existing file & drop an extra post-snapshot DLL
+                cfg_file.write_text("enabled=false\nbroken=1\n", encoding="utf-8")
+                extra_dll = unity_dir / "BepInEx" / "plugins" / "BrokenExtra.dll"
+                extra_dll.write_bytes(b"BAD")
+
+                r_restore = self.client.post(
+                    f"/api/games/snap_unity/snapshots/{snap_id}/restore",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_restore.status_code, 200)
+                self.assertEqual(cfg_file.read_text(encoding="utf-8"), "enabled=true\n")
+                self.assertFalse(extra_dll.exists())
+
+                # Unreal INI apply must auto-create a pre-change snapshot before editing INI
+                r_apply = self.client.post(
+                    "/api/unreal-settings/apply",
+                    json={
+                        "game_id": "snap_unreal",
+                        "ini_path": str(gus_ini),
+                        "updates": {"ResolutionSizeX": "2560"},
+                    },
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_apply.status_code, 200)
+                pre_snap_id = r_apply.json().get("snapshot_id", "")
+                self.assertTrue(pre_snap_id)
+                self.assertIn("ResolutionSizeX=2560", gus_ini.read_text(encoding="utf-8"))
+
+                # Rollback to auto-captured pre-INI snapshot
+                r_ue_restore = self.client.post(
+                    f"/api/games/snap_unreal/snapshots/{pre_snap_id}/restore",
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_ue_restore.status_code, 200)
+                self.assertIn("ResolutionSizeX=1920", gus_ini.read_text(encoding="utf-8"))
+                core_config.invalidate_games_cache()
+
+    def test_vortex_mo2_and_proxy_dll_conflict_guard(self) -> None:
+        from app.services import conflict_guard, game_snapshots
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            game_dir = tmp_dir / "VortexManagedGame"
+            win64 = game_dir / "GameProj" / "Binaries" / "Win64"
+            win64.mkdir(parents=True)
+            (game_dir / "GameAssembly.dll").write_bytes(b"MZ-IL2CPP")
+            (game_dir / "vortex.deployment.json").write_text('{"deploymentMethod": "hardlink"}', encoding="utf-8")
+            (game_dir / "__folder_managed_by_vortex").write_text("vortex", encoding="utf-8")
+            (game_dir / "modlist.txt").write_text("+ExistingMod\n", encoding="utf-8")
+            (game_dir / "winhttp.dll").write_bytes(b"EXISTING_WINHTTP")
+            (win64 / "dwmapi.dll").write_bytes(b"EXISTING_DWMAPI")
+
+            guard = conflict_guard.inspect_conflict_guard(game_dir, intended_action="bepinex_il2cpp")
+            self.assertTrue(guard["has_conflicts"])
+            self.assertTrue(guard["has_mod_manager"])
+            self.assertIn("Vortex", guard["detected_managers"])
+            self.assertIn("MO2", guard["detected_managers"])
+            codes = {w["code"] for w in guard["warnings"]}
+            self.assertIn("mod_manager_detected", codes)
+            self.assertIn("proxy_dll_winhttp", codes)
+
+            temp_games_store = tmp_dir / "managed_games.json"
+            temp_games_store.write_text(
+                json.dumps(
+                    {
+                        "active_game_id": "vortex_game",
+                        "games": [
+                            {"id": "vortex_game", "name": "Vortex Game", "game_dir": str(game_dir), "runtime": "Unity_IL2CPP"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snaps_root = tmp_dir / "game_snapshots"
+            with (
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_config, "GAMES_STORE_PATH", temp_games_store),
+                patch.object(library_router, "GAMES_STORE_PATH", temp_games_store),
+            ):
+                core_config.invalidate_games_cache()
+                r_guard = self.client.get("/api/games/vortex_game/conflict-guard")
+                self.assertEqual(r_guard.status_code, 200)
+                self.assertTrue(r_guard.json()["has_conflicts"])
+
+                r_check = self.client.post(
+                    "/api/tools/check-conflicts",
+                    json={"tool_id": "ue4ss", "game_id": "vortex_game", "game_dir": str(game_dir)},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_check.status_code, 200)
+                check_codes = {w["code"] for w in r_check.json()["warnings"]}
+                self.assertIn("proxy_dll_dwmapi", check_codes)
+
+                # Unforced tool install must return structured conflict warning without overwriting winhttp.dll
+                r_inst = self.client.post(
+                    "/api/tools/install",
+                    json={"tool_id": "bepinex_il2cpp", "game_id": "vortex_game", "game_dir": str(game_dir)},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_inst.status_code, 200)
+                inst_data = r_inst.json()
+                self.assertEqual(inst_data.get("status"), "conflict_warning")
+                self.assertTrue(inst_data.get("requires_confirmation"))
+                self.assertEqual((game_dir / "winhttp.dll").read_bytes(), b"EXISTING_WINHTTP")
                 core_config.invalidate_games_cache()
 
 

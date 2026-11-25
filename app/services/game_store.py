@@ -32,12 +32,14 @@ from app.engines.generic import (
 )
 from app.engines.unity import build_unity_crucial_steps, inspect_unity_metadata
 from app.engines.unreal import build_unreal_crucial_steps, inspect_unreal_game_settings
+from app.services.conflict_guard import inspect_conflict_guard
 from app.services.discovery import (
     _find_primary_game_exe,
     is_game_candidate,
     lookup_sheet_reference,
     make_slug,
 )
+from app.services.game_snapshots import list_game_snapshots
 
 
 def evaluate_modding_apps_for_game(game_dir: Path, info: dict[str, Any]) -> list[dict[str, Any]]:
@@ -545,6 +547,7 @@ def inspect_game_modding_info(
         info["modding_readiness"] = "External Tooling"
 
     info["modding_apps"] = evaluate_modding_apps_for_game(game_dir, info)
+    info["conflict_guard"] = inspect_conflict_guard(game_dir)
     info["unreal_settings"] = (
         inspect_unreal_game_settings(game_dir, info, pc_specs=pc_specs, pc_specs_fn=pc_specs_fn)
         if is_unreal
@@ -578,6 +581,11 @@ def enrich_game_status(
         else False
     )
     enriched["manifest_exists"] = manifest_path_for_game(gdir).is_file() if dir_exists else False
+    try:
+        slug_val = make_slug(str(enriched.get("id") or enriched["name"]))
+        enriched["snapshots_count"] = len(list_game_snapshots(slug_val))
+    except ValueError:
+        enriched["snapshots_count"] = 0
 
     cached_info = game.get("cached_modding_info")
     if isinstance(cached_info, dict) and cached_info:
@@ -610,6 +618,7 @@ def enrich_game_status(
                 "reshade",
                 "installed_mods",
                 "installed_mods_summary",
+                "conflict_guard",
             ):
                 mod_info[k] = live_info.get(k)
             if mod_info.get("is_unreal_engine") and (prev_tier_id != "auto" or prev_ini_path):
