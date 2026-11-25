@@ -93,6 +93,35 @@ internal sealed record TypeDescription(
     IReadOnlyList<MemberDescription> Members,
     IReadOnlyList<MethodDescription> Methods);
 
+internal sealed record ScriptableObjectSummary(
+    [property: JsonPropertyName("object_id")] string ObjectId,
+    string Name,
+    [property: JsonPropertyName("type_name")] string TypeName);
+
+internal sealed record StaticMemberInfo(
+    string Name,
+    [property: JsonPropertyName("member_type")] string MemberType,
+    string Value,
+    [property: JsonPropertyName("object_id")] string? ObjectId = null);
+
+internal sealed record StaticTypeInspection(
+    [property: JsonPropertyName("type_name")] string TypeName,
+    [property: JsonPropertyName("static_members")] IReadOnlyList<StaticMemberInfo> StaticMembers);
+
+internal sealed record CollectionEntry(
+    string Key,
+    string Value,
+    [property: JsonPropertyName("element_type")] string ElementType,
+    [property: JsonPropertyName("object_id")] string? ObjectId = null);
+
+internal sealed record CollectionExpansionResponse(
+    [property: JsonPropertyName("object_id")] string ObjectId,
+    [property: JsonPropertyName("field_path")] string FieldPath,
+    [property: JsonPropertyName("collection_type")] string CollectionType,
+    int Count,
+    bool Truncated,
+    IReadOnlyList<CollectionEntry> Entries);
+
 internal sealed record BatchRequest(
     IReadOnlyList<BatchOperation> Operations,
     bool StopOnError = false);

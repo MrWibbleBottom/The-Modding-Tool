@@ -52,14 +52,67 @@ def _generate_il2cpp_plugin_cs(
 ) -> str:
     rules_lines: list[str] = []
     hook_lines: list[str] = []
+    custom_hook_decls: list[str] = []
     for idx, r in enumerate(edits):
         if getattr(r, "rule_type", "member_set") == "harmony_patch":
             target_type = _cs_escape(r.component_name or "TargetNamespace.TargetClass")
             target_method = _cs_escape(r.target_method or r.member_path or "TargetMethod")
             hook_kind = "Postfix" if str(getattr(r, "hook_kind", "Prefix")).lower() == "postfix" else "Prefix"
             skip_orig = "true" if getattr(r, "skip_original", False) else "false"
+            ret_tail = str(getattr(r, "return_type", "") or "").strip().rsplit(".", 1)[-1].lower()
+            raw_val = str(getattr(r, "value", "") or "").strip()
+            custom_fn_name = ""
+
+            if ret_tail in ("float", "single", "double", "int", "int32", "int64", "decimal"):
+                try:
+                    num_val = float(raw_val)
+                except ValueError:
+                    num_val = 1.0
+                cfg_var = f"_hookScale_{idx}"
+                fn_name = f"DynamicMultiplierPostfix_{idx}"
+                custom_hook_decls.append(f"        private static ConfigEntry<double> {cfg_var} = null!;")
+                if ret_tail in ("float", "single"):
+                    assign_stmt = f"if (_enabled.Value && {cfg_var} != null) __result = (float)(__result * {cfg_var}.Value);"
+                    sig_arg = "ref float __result"
+                elif ret_tail == "double":
+                    assign_stmt = f"if (_enabled.Value && {cfg_var} != null) __result = __result * {cfg_var}.Value;"
+                    sig_arg = "ref double __result"
+                elif ret_tail == "int64":
+                    assign_stmt = f"if (_enabled.Value && {cfg_var} != null) __result = (long)Math.Round(__result * {cfg_var}.Value);"
+                    sig_arg = "ref long __result"
+                elif ret_tail == "decimal":
+                    assign_stmt = f"if (_enabled.Value && {cfg_var} != null) __result = __result * (decimal){cfg_var}.Value;"
+                    sig_arg = "ref decimal __result"
+                else:
+                    assign_stmt = f"if (_enabled.Value && {cfg_var} != null) __result = (int)Math.Round(__result * {cfg_var}.Value);"
+                    sig_arg = "ref int __result"
+                custom_hook_decls.append(
+                    f"        private static void {fn_name}({sig_arg}) {{ {assign_stmt} }}"
+                )
+                hook_lines.append(
+                    f'            {cfg_var} = Config.Bind("Hooks", "Hook_{idx}_Multiplier", {num_val}d, "{_cs_escape(r.label)} multiplier");'
+                )
+                custom_fn_name = fn_name
+                hook_kind = "Postfix"
+            elif ret_tail in ("bool", "boolean") and raw_val.lower() in ("always_true", "always_false", "true", "false", "1", "0"):
+                cfg_var = f"_hookMode_{idx}"
+                fn_name = f"DynamicBoolPostfix_{idx}"
+                custom_hook_decls.append(f"        private static ConfigEntry<string> {cfg_var} = null!;")
+                custom_hook_decls.append(
+                    f'        private static void {fn_name}(ref bool __result) {{ '
+                    f'if (!_enabled.Value || {cfg_var} == null) return; '
+                    f'var m = ({cfg_var}.Value ?? "").Trim().ToLowerInvariant(); '
+                    f'if (m == "always_true" || m == "true" || m == "1") __result = true; '
+                    f'else if (m == "always_false" || m == "false" || m == "0") __result = false; }}'
+                )
+                hook_lines.append(
+                    f'            {cfg_var} = Config.Bind("Hooks", "Hook_{idx}_Mode", "{_cs_escape(raw_val)}", "{_cs_escape(r.label)} bool override");'
+                )
+                custom_fn_name = fn_name
+                hook_kind = "Postfix"
+
             hook_lines.append(
-                f'            ApplyDynamicHarmonyHook(harmony, "{_cs_escape(r.label)}", "{target_type}", "{target_method}", "{hook_kind}", {skip_orig});'
+                f'            ApplyDynamicHarmonyHook(harmony, "{_cs_escape(r.label)}", "{target_type}", "{target_method}", "{hook_kind}", {skip_orig}, "{custom_fn_name}");'
             )
         else:
             cfg_key = f"Rule_{idx + 1}_{make_slug(r.label or r.member_path)[:24]}"
@@ -71,6 +124,7 @@ def _generate_il2cpp_plugin_cs(
             )
     rules_block = "\n".join(rules_lines)
     hooks_block = "\n".join(hook_lines)
+    custom_hooks_block = "\n".join(custom_hook_decls)
 
     return f'''using System;
 using System.Collections.Generic;
@@ -94,6 +148,7 @@ namespace {assembly_name}
         private static ConfigEntry<bool> _enabled = null!;
         private static ConfigEntry<float> _intervalSec = null!;
         private static readonly List<EditRule> _rules = new();
+{custom_hooks_block}
 
         internal sealed class EditRule
         {{
@@ -141,7 +196,7 @@ namespace {assembly_name}
         private static void DynamicLogPrefix() {{ ModLog?.LogInfo("Harmony Prefix triggered."); }}
         private static void DynamicLogPostfix() {{ ModLog?.LogInfo("Harmony Postfix triggered."); }}
 
-        private static void ApplyDynamicHarmonyHook(Harmony harmony, string label, string typeName, string methodName, string hookKind, bool skipOriginal)
+        private static void ApplyDynamicHarmonyHook(Harmony harmony, string label, string typeName, string methodName, string hookKind, bool skipOriginal, string customMethodName = "")
         {{
             try
             {{
@@ -152,7 +207,13 @@ namespace {assembly_name}
                     ModLog.LogWarning($"Harmony hook '{{label}}' target not found: {{typeName}}.{{methodName}}");
                     return;
                 }}
-                if (hookKind == "Postfix")
+                if (!string.IsNullOrEmpty(customMethodName))
+                {{
+                    var hm = new HarmonyMethod(typeof(Plugin), customMethodName);
+                    if (hookKind == "Postfix") harmony.Patch(m, postfix: hm);
+                    else harmony.Patch(m, prefix: hm);
+                }}
+                else if (hookKind == "Postfix")
                 {{
                     harmony.Patch(m, postfix: new HarmonyMethod(typeof(Plugin), nameof(DynamicLogPostfix)));
                 }}

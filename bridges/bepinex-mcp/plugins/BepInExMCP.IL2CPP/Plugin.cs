@@ -77,14 +77,15 @@ public sealed class Plugin : BasePlugin
             }
 
             typeResolver = new Il2CppTypeResolver(Log);
+            registrationIds = new RegistrationIdStore();
             var backend = new Il2CppGameBackend(
                 typeResolver,
-                () => selfTestObject is null ? null : selfTestObject.GetInstanceID());
+                () => selfTestObject is null ? null : selfTestObject.GetInstanceID(),
+                registrationIds);
             webhookClient = new WebhookClient(
                 Log,
                 webhookAddress.Value,
                 webhookPort.Value);
-            registrationIds = new RegistrationIdStore();
             watcherService = new WatcherService(backend, webhookClient, registrationIds);
             MainThreadQueue.SetFrameTick(watcherService.Tick);
             patchService = new PatchService(

@@ -566,6 +566,182 @@
       "safe_min": null,
       "safe_max": null,
       "delivery_type": "Config"
+    },
+    {
+      "pattern": "*.Armor",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Character Armor",
+      "simple_description": "Physical armor or damage-reduction rating on the character or unit.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Shield",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Character Shield / Barrier",
+      "simple_description": "Active shield or ward points absorbing incoming damage.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 9999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Block",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Block / Guard Value",
+      "simple_description": "Turn-based defensive block or parry absorption value.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.ActionPoints",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Action Points (AP)",
+      "simple_description": "Available action points remaining or granted per combat turn.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 20,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Mana",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Character Mana",
+      "simple_description": "Spellcasting mana pool or current mana points.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 9999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Energy",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Character Energy",
+      "simple_description": "Combat energy resource pool spent to play abilities or cards.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 99,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Stamina",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Character Stamina",
+      "simple_description": "Stamina reserve used for sprinting, dodging, or heavy attacks.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 9999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Movement",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Movement Range / Points",
+      "simple_description": "Tactical tile movement allowance or character speed multiplier.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 100,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Initiative",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Turn Initiative",
+      "simple_description": "Determines unit turn order priority in tactical encounters.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Cooldown*",
+      "engine": "unity",
+      "category": "game_systems",
+      "simple_label": "Ability Cooldown",
+      "simple_description": "Turns or seconds remaining before an ability or skill can be reused.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 99,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Crit*",
+      "engine": "unity",
+      "category": "game_systems",
+      "simple_label": "Critical Hit Chance / Multiplier",
+      "simple_description": "Critical strike probability or bonus damage multiplier in combat.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 100,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Gold",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Party Gold / Coins",
+      "simple_description": "Spendable gold currency carried by the player or party.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 9999999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Currency",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Player Currency",
+      "simple_description": "In-game currency reserve.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 9999999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.XP",
+      "engine": "unity",
+      "category": "player_character",
+      "simple_label": "Experience Points (XP)",
+      "simple_description": "Accumulated experience points toward the next level.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 9999999,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.HandSize*",
+      "engine": "unity",
+      "category": "game_systems",
+      "simple_label": "Hand Card Limit",
+      "simple_description": "Maximum cards or abilities held in hand at one time.",
+      "value_type": "number",
+      "safe_min": 1,
+      "safe_max": 20,
+      "delivery_type": "Bridge"
+    },
+    {
+      "pattern": "*.Deck*",
+      "engine": "unity",
+      "category": "game_systems",
+      "simple_label": "Deck / Card Pool",
+      "simple_description": "Deck capacity, draw count, or card pool configuration.",
+      "value_type": "number",
+      "safe_min": 0,
+      "safe_max": 999,
+      "delivery_type": "Bridge"
     }
   ]
 }

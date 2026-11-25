@@ -93,7 +93,9 @@ from app.services.endpoint_catalog import (
     export_portable_endpoint_profile,
     import_community_artifact,
 )
+from app.services import bridge_diff as _bridge_diff_svc
 from app.services.endpoints import apply_or_reset_endpoint, scan_game_endpoints
+from app.services import il2cpp_indexer as _il2cpp_svc
 from app.services.game_snapshots import (
     create_game_snapshot,
     list_game_snapshots,
@@ -206,6 +208,28 @@ class VerifyIntegrityRequest(BaseModel):
 class ModToggleRequest(BaseModel):
     rel_path: str
     enabled: bool | None = None
+
+
+class BridgeDiffPromoteItem(BaseModel):
+    diff_id: str = Field(default="")
+    category: str = Field(default="")
+    label: str = Field(default="")
+    object_id: str = Field(default="")
+    type_name: str = Field(default="")
+    field_path: str = Field(default="")
+    display_name: str = Field(default="")
+    before_value: str | None = None
+    after_value: str | None = None
+    value_type: str = Field(default="")
+    collection_key: str | None = None
+    collection_key_label: str = Field(default="")
+
+
+class BridgeDiffPromoteRequest(BaseModel):
+    items: list[BridgeDiffPromoteItem] = Field(default_factory=list)
+    diff_id: str = Field(default="")
+    category: str = Field(default="")
+    label: str = Field(default="")
 
 
 class ModRemoveRequest(BaseModel):
@@ -1283,7 +1307,12 @@ async def post_scan_game_endpoints(slug: str, req: EndpointScanRequest | None = 
     if not target:
         raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
     reset_flag = bool(req.reset_defaults) if req is not None else False
-    return scan_game_endpoints(target, reset_defaults=reset_flag)
+    res = scan_game_endpoints(target, reset_defaults=reset_flag)
+    res["bridge_connected"] = bool(
+        any(e.get("delivery_type") == "Bridge" and e.get("category") != "error_logs" for e in res.get("endpoints", []))
+        or _bridge_diff_svc.is_live_bridge_connected(target)
+    )
+    return res
 
 
 @router.get("/api/games/{slug}/endpoints")
@@ -1293,6 +1322,10 @@ async def get_game_endpoints(slug: str, category: str = "all") -> dict[str, Any]
     if not target:
         raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
     res = scan_game_endpoints(target, reset_defaults=False)
+    res["bridge_connected"] = bool(
+        any(e.get("delivery_type") == "Bridge" and e.get("category") != "error_logs" for e in res.get("endpoints", []))
+        or _bridge_diff_svc.is_live_bridge_connected(target)
+    )
     clean_cat = (category or "all").strip().lower()
     if clean_cat and clean_cat != "all":
         res["endpoints"] = [e for e in res.get("endpoints", []) if e.get("category") == clean_cat]
@@ -1472,6 +1505,104 @@ async def get_export_endpoint_profile(slug: str) -> JSONResponse:
         content=profile,
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
+
+
+@router.post("/api/games/{slug}/il2cpp/dump")
+async def post_run_il2cpp_dump(slug: str) -> dict[str, Any]:
+    """Run headless Il2CppDumper for a Unity IL2CPP game and build `il2cpp_index.json`."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        res = _il2cpp_svc.run_il2cpp_dumper(
+            target,
+            tools_root=_il2cpp_svc.TOOLS_ROOT,
+            app_data_root=_endpoints_svc.APP_DATA_ROOT,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "status": "ok",
+        "indexed": True,
+        "slug": res["slug"],
+        "dump_dir": res["dump_dir"],
+        "dump_cs_path": res["dump_cs_path"],
+        "script_json_path": res["script_json_path"],
+        "index_path": res["index_path"],
+        "counts": res["counts"],
+    }
+
+
+@router.get("/api/games/{slug}/il2cpp/index")
+async def get_game_il2cpp_index(slug: str) -> dict[str, Any]:
+    """Return the structured IL2CPP symbol/enum/static-root/method index for *slug*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    safe_slug = make_slug(str(target.get("id") or slug)) or "game"
+    idx = _il2cpp_svc.load_il2cpp_index(safe_slug, app_data_root=_endpoints_svc.APP_DATA_ROOT)
+    if not idx:
+        return {
+            "status": "not_indexed",
+            "indexed": False,
+            "slug": safe_slug,
+            "counts": {"enums": 0, "static_roots": 0, "classes": 0, "patchable_methods": 0},
+        }
+    return {
+        "status": "ok",
+        "indexed": True,
+        **idx,
+    }
+
+
+@router.post("/api/games/{slug}/bridge-diff/baseline")
+async def post_bridge_diff_baseline(slug: str) -> dict[str, Any]:
+    """Capture a baseline live-bridge memory snapshot before performing an in-game action."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        return _bridge_diff_svc.capture_bridge_baseline(target, slug, app_data_root=_endpoints_svc.APP_DATA_ROOT)
+    except _bridge_diff_svc.BridgeOfflineError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/games/{slug}/bridge-diff/compare")
+async def post_bridge_diff_compare(slug: str) -> dict[str, Any]:
+    """Capture a second live-bridge pass and return filtered, ranked changed fields."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        return _bridge_diff_svc.compare_bridge_snapshot(target, slug, app_data_root=_endpoints_svc.APP_DATA_ROOT)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _bridge_diff_svc.BridgeOfflineError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/games/{slug}/bridge-diff/promote")
+async def post_bridge_diff_promote(slug: str, req: BridgeDiffPromoteRequest) -> dict[str, Any]:
+    """Promote selected Action Diff candidates into the categorized endpoints catalog & knowledge cache."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    items = [item.model_dump() for item in req.items]
+    if req.diff_id.strip():
+        items.append({"diff_id": req.diff_id, "category": req.category, "label": req.label})
+    try:
+        return _bridge_diff_svc.promote_bridge_diffs(target, slug, items, app_data_root=_endpoints_svc.APP_DATA_ROOT)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")

@@ -246,6 +246,8 @@
           <span>Platform File Integrity &amp; Guided Setup Verification</span>
           <div class="btn-group">
             <span class="pill warn" id="setup-checklist-badge">Checking...</span>
+            <span class="badge" id="il2cpp-index-count-badge" style="display:none;">IL2CPP Index: Not Generated</span>
+            <button type="button" class="secondary btn-sm" id="btn-generate-il2cpp-dump" style="display:none;" onclick="generateIl2CppDumpIndex()">Generate &amp; Index IL2CPP Dump</button>
             <button type="button" class="secondary btn-sm" id="btn-refresh-setup-checks" onclick="loadSetupChecklist()">Refresh Checks</button>
             <button type="button" class="btn-sm" id="btn-verify-integrity" onclick="verifyActiveGameIntegrity()">Verify Game File Integrity</button>
           </div>
@@ -394,6 +396,36 @@
     <!-- =================================================================== -->
     <div class="ag-tab-pane" id="ag-pane-modding" style="display:none;">
       <div class="grid">
+        <!-- LIVE ACTION DIFF FINDER (SHOWN WHEN LIVE BRIDGE IS CONNECTED) -->
+        <div class="card full action-diff-bar" id="card-action-diff" style="display:none;">
+          <div class="action-diff-head">
+            <div class="action-diff-title-wrap">
+              <strong>Live Action Diff Finder</strong>
+              <span class="pill yes" id="action-diff-bridge-pill">Bridge Connected</span>
+              <span class="badge" id="action-diff-status-badge">Ready</span>
+            </div>
+            <div class="action-diff-steps">
+              <button type="button" class="btn-sm" id="btn-action-diff-baseline" onclick="captureBridgeDiffBaseline()">1. Capture Before</button>
+              <span class="action-diff-step-prompt" id="action-diff-prompt">2. Spend AP, take damage, or loot gold in-game, then click Compare</span>
+              <button type="button" class="success btn-sm" id="btn-action-diff-compare" onclick="compareBridgeDiffSnapshot()">3. Find Changed Values</button>
+            </div>
+          </div>
+          <div id="action-diff-results-wrap" class="log-wrap" style="display:none; margin-top:10px; max-height:240px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Entity / Type</th>
+                  <th>Field</th>
+                  <th>Before &rarr; After (Delta)</th>
+                  <th>Category</th>
+                  <th>Pin</th>
+                </tr>
+              </thead>
+              <tbody id="action-diff-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- CATEGORIZED ENDPOINT DISCOVERY ENGINE (SIMPLE / ADVANCED) -->
         <div class="card full" id="card-categorized-endpoints">
           <h2>

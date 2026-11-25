@@ -92,3 +92,55 @@ class BridgeClient:
             ) from exception
         except httpx.HTTPError as exception:
             raise BridgeError(f"Bridge batch request failed: {exception}") from exception
+
+    async def list_scriptable_objects(
+        self,
+        filter: str = "",
+        limit: int = 100,
+    ) -> str:
+        """Lists loaded ScriptableObject assets matching an optional filter."""
+        return await self.get(
+            "scene/list_scriptable_objects",
+            params={"filter": filter, "limit": limit},
+        )
+
+    async def inspect_static_type(self, type_name: str) -> str:
+        """Enumerates static fields and properties on an IL2CPP runtime type."""
+        return await self.get(
+            "type/inspect_static",
+            params={"typeName": type_name},
+        )
+
+    async def expand_collection(
+        self,
+        object_id: str,
+        field_path: str = "",
+        limit: int = 50,
+    ) -> str:
+        """Expands entries from a list, array, or dictionary field on a registered object."""
+        return await self.get(
+            "object/expand_collection",
+            params={
+                "objectId": object_id,
+                "fieldPath": field_path,
+                "limit": limit,
+            },
+        )
+
+    async def set_collection_entry(
+        self,
+        object_id: str,
+        field_path: str,
+        key: str,
+        value: str,
+    ) -> str:
+        """Sets a primitive/enum/string element in a registered collection field."""
+        return await self.get(
+            "object/set_collection_entry",
+            params={
+                "objectId": object_id,
+                "fieldPath": field_path,
+                "key": key,
+                "value": value,
+            },
+        )

@@ -527,10 +527,21 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
     if (notice) notice.style.display = "none";
     const logDrawer = document.getElementById("game-log-tail-drawer");
     if (logDrawer) logDrawer.style.display = "none";
+    const diffWrap = document.getElementById("action-diff-results-wrap");
+    if (diffWrap) diffWrap.style.display = "none";
+    const diffBadge = document.getElementById("action-diff-status-badge");
+    if (diffBadge) diffBadge.textContent = "Ready";
+    state.actionDiffItems = [];
   }
 
   renderTopGameInfoPanel(game);
   const { isUnity, isUnreal } = classifyGameEngine(game);
+  const backendLow = String(game.modding_info?.scripting_backend || game.runtime || "").toLowerCase();
+  const isUnityIl2Cpp = isUnity && (backendLow.includes("il2cpp") || Boolean(game.modding_info?.game_assembly_present));
+  const il2cppBtn = document.getElementById("btn-generate-il2cpp-dump");
+  const il2cppBadge = document.getElementById("il2cpp-index-count-badge");
+  if (il2cppBtn) il2cppBtn.style.display = isUnityIl2Cpp ? "" : "none";
+  if (il2cppBadge) il2cppBadge.style.display = isUnityIl2Cpp ? "" : "none";
   const bdlBtn = document.getElementById("btn-unity-bdl-loop");
   if (bdlBtn) bdlBtn.style.display = isUnity ? "" : "none";
   const provCard = document.getElementById("card-provision-restore");
@@ -1278,7 +1289,63 @@ export async function loadSetupChecklist(targetSlug = null) {
       </div>
     `;
   }).join("");
+
+  const il2cppBadge = document.getElementById("il2cpp-index-count-badge");
+  if (il2cppBadge && il2cppBadge.style.display !== "none") {
+    try {
+      const idxRes = await apiGet(`/api/games/${encodeURIComponent(slug)}/il2cpp/index`);
+      if (idxRes.ok && idxRes.data?.indexed && idxRes.data?.counts) {
+        const c = idxRes.data.counts;
+        il2cppBadge.textContent = `IL2CPP: ${c.classes ?? 0} Classes / ${c.enums ?? 0} Enums / ${c.patchable_methods ?? 0} Methods`;
+        il2cppBadge.className = "pill yes";
+      } else {
+        il2cppBadge.textContent = "IL2CPP Index: Not Generated";
+        il2cppBadge.className = "badge";
+      }
+    } catch {
+      il2cppBadge.textContent = "IL2CPP Index: Not Generated";
+      il2cppBadge.className = "badge";
+    }
+  }
   return d;
+}
+
+export async function generateIl2CppDumpIndex() {
+  const slug = state.activeGameId;
+  if (!slug) return null;
+  const btn = resolveBtn("btn-generate-il2cpp-dump");
+  const out = document.getElementById("verify-integrity-output");
+  const il2cppBadge = document.getElementById("il2cpp-index-count-badge");
+  try {
+    return await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/il2cpp/dump`, {});
+        const c = res?.counts || {};
+        if (il2cppBadge) {
+          il2cppBadge.style.display = "";
+          il2cppBadge.className = "pill yes";
+          il2cppBadge.textContent = `IL2CPP: ${c.classes ?? 0} Classes / ${c.enums ?? 0} Enums / ${c.patchable_methods ?? 0} Methods`;
+        }
+        if (out) {
+          out.style.display = "block";
+          out.textContent = `IL2CPP Dump & Index generated at ${res?.index_path || ""}\nClasses: ${c.classes ?? 0} | Enums: ${c.enums ?? 0} | Static Roots: ${c.static_roots ?? 0} | Patchable Methods: ${c.patchable_methods ?? 0}`;
+        }
+        await Promise.all([loadSetupChecklist(slug), loadModdingEndpoints(slug)]);
+        return res;
+      },
+      {
+        pendingText: "Running Il2CppDumper & indexing compiled symbols...",
+        successText: (r) => `Indexed ${r?.counts?.classes ?? 0} class(es), ${r?.counts?.enums ?? 0} enum(s)`,
+      },
+    );
+  } catch (err) {
+    if (out) {
+      out.style.display = "block";
+      out.textContent = `IL2CPP dump failed: ${err?.message || err}`;
+    }
+    return null;
+  }
 }
 
 export async function loadCurrentModsSection(targetSlug = null) {
@@ -1558,6 +1625,14 @@ export function renderEndpointsList() {
   const listEl = document.getElementById("ep-endpoints-list");
   const sumPill = document.getElementById("ep-summary-pill");
   const defBadge = document.getElementById("ep-defaults-badge");
+  const diffCard = document.getElementById("card-action-diff");
+  if (diffCard) {
+    const hasLiveBridge = Boolean(
+      report?.bridge_connected ||
+      (report?.endpoints || []).some((e) => String(e.delivery_type || "").toLowerCase() === "bridge" && e.category !== "error_logs"),
+    );
+    diffCard.style.display = hasLiveBridge ? "" : "none";
+  }
   if (!listEl) return;
   if (!report || !Array.isArray(report.endpoints)) {
     listEl.innerHTML = '<div class="hint">Click <strong>Scan Endpoints</strong> to discover endpoints for this game.</div>';
@@ -1934,4 +2009,133 @@ export async function exportEndpointProfile() {
   } catch {
     return null;
   }
+}
+
+export async function captureBridgeDiffBaseline() {
+  const slug = state.activeGameId;
+  if (!slug) return null;
+  const btn = resolveBtn("btn-action-diff-baseline");
+  const badge = document.getElementById("action-diff-status-badge");
+  const promptEl = document.getElementById("action-diff-prompt");
+  try {
+    return await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/bridge-diff/baseline`, {});
+        if (badge) badge.textContent = `Before: ${res?.captured_count ?? 0} tracked`;
+        if (promptEl) promptEl.textContent = "2. Perform your action in-game now (spend AP, take damage, loot gold), then click Compare";
+        const wrap = document.getElementById("action-diff-results-wrap");
+        if (wrap) wrap.style.display = "none";
+        state.actionDiffItems = [];
+        return res;
+      },
+      {
+        pendingText: "Capturing live memory baseline snapshot...",
+        successText: (r) => `Captured ${r?.captured_count ?? 0} live value(s) before action`,
+      },
+    );
+  } catch (err) {
+    if (badge) badge.textContent = err?.message || "Bridge offline";
+    return null;
+  }
+}
+
+export async function compareBridgeDiffSnapshot() {
+  const slug = state.activeGameId;
+  if (!slug) return null;
+  const btn = resolveBtn("btn-action-diff-compare");
+  const badge = document.getElementById("action-diff-status-badge");
+  try {
+    return await runTrackedAction(
+      btn,
+      async () => {
+        const res = await apiPost(`/api/games/${encodeURIComponent(slug)}/bridge-diff/compare`, {});
+        const diffs = Array.isArray(res?.diffs) ? res.diffs : [];
+        state.actionDiffItems = diffs;
+        if (badge) badge.textContent = `${diffs.length} changed value(s)`;
+        renderActionDiffResults();
+        return res;
+      },
+      {
+        pendingText: "Comparing second live snapshot against baseline...",
+        successText: (r) => `Found ${r?.diff_count ?? 0} changed field(s)`,
+      },
+    );
+  } catch (err) {
+    if (badge) badge.textContent = err?.message || "Compare failed";
+    return null;
+  }
+}
+
+export function renderActionDiffResults() {
+  const wrap = document.getElementById("action-diff-results-wrap");
+  const tbody = document.getElementById("action-diff-tbody");
+  if (!wrap || !tbody) return;
+  const diffs = Array.isArray(state.actionDiffItems) ? state.actionDiffItems : [];
+  wrap.style.display = "block";
+  if (!diffs.length) {
+    tbody.innerHTML = '<tr><td colspan="5">No changed gameplay values detected. Perform an in-game action and click <strong>Find Changed Values</strong> again.</td></tr>';
+    return;
+  }
+
+  const catOptions = [
+    ["player_character", "Player Character"],
+    ["game_systems", "Game Systems"],
+    ["engine_settings", "Engine Settings"],
+    ["cheats", "Cheats"],
+    ["qol", "QoL"],
+  ];
+
+  tbody.innerHTML = diffs.map((d, idx) => {
+    const optsHtml = catOptions.map(([cid, clabel]) => {
+      const sel = cid === (d.suggested_category || "game_systems") ? " selected" : "";
+      return `<option value="${escHtml(cid)}"${sel}>${escHtml(clabel)}</option>`;
+    }).join("");
+    const deltaCls = typeof d.delta === "number" && d.delta < 0 ? "warn" : "yes";
+    return `
+      <tr>
+        <td><strong>${escHtml(d.entity_name || d.class_name || "Runtime")}</strong> <span class="badge">${escHtml(d.class_name || d.type_name || "")}</span></td>
+        <td><code>${escHtml(d.field_path || d.display_name || "")}</code></td>
+        <td><code>${escHtml(d.before_value)}</code> &rarr; <code>${escHtml(d.after_value)}</code> <span class="pill ${deltaCls}">${escHtml(d.delta_display ?? d.delta)}</span></td>
+        <td><select class="action-diff-cat-select" data-idx="${idx}" style="font-size:0.75rem; padding:3px 6px;">${optsHtml}</select></td>
+        <td><button type="button" class="success btn-sm action-diff-promote-btn" data-idx="${idx}">Pin to Modding</button></td>
+      </tr>
+    `;
+  }).join("");
+
+  const slug = state.activeGameId;
+  tbody.querySelectorAll(".action-diff-promote-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const item = diffs[idx];
+      const catSel = tbody.querySelector(`.action-diff-cat-select[data-idx="${idx}"]`);
+      const chosenCat = String(catSel?.value || item?.suggested_category || "game_systems");
+      if (!item || !slug) return;
+      try {
+        await runTrackedAction(
+          btn,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/bridge-diff/promote`, {
+              items: [{ diff_id: item.diff_id, category: chosenCat }],
+            });
+            if (resp?.report) {
+              state.endpointsReport = resp.report;
+            } else {
+              await loadModdingEndpoints(slug);
+            }
+            renderEndpointsList();
+            btn.textContent = "Pinned";
+            btn.disabled = true;
+            return resp;
+          },
+          {
+            pendingText: `Pinning '${item.field_path}' to Modding...`,
+            successText: () => `Pinned '${item.display_name}' (default: ${item.before_value})`,
+          },
+        );
+      } catch {
+        // Error handled by runTrackedAction
+      }
+    });
+  });
 }

@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using BepInEx.Unity.IL2CPP;
@@ -11,18 +13,23 @@ internal sealed class Il2CppGameBackend
 {
     private const BindingFlags InstanceMembers =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+    private const BindingFlags StaticMembers =
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
     private const BindingFlags AllMethods =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
 
     private readonly Il2CppTypeResolver typeResolver;
     private readonly Func<int?> getSelfTestObjectId;
+    private readonly RegistrationIdStore registrationIds;
 
     internal Il2CppGameBackend(
         Il2CppTypeResolver typeResolver,
-        Func<int?> getSelfTestObjectId)
+        Func<int?> getSelfTestObjectId,
+        RegistrationIdStore? registrationIds = null)
     {
         this.typeResolver = typeResolver;
         this.getSelfTestObjectId = getSelfTestObjectId;
+        this.registrationIds = registrationIds ?? new RegistrationIdStore();
     }
 
     internal CapabilitiesResponse GetCapabilities()
@@ -58,7 +65,11 @@ internal sealed class Il2CppGameBackend
                 "component/list_methods",
                 "type/search",
                 "type/describe",
+                "type/inspect_static",
                 "scene:find_objects_with_component",
+                "scene/list_scriptable_objects",
+                "object/expand_collection",
+                "object/set_collection_entry",
                 "network/diagnostics",
                 "watch/member",
                 "watch/scene",
@@ -555,6 +566,318 @@ internal sealed class Il2CppGameBackend
         return new TypeDescription(ToTypeSummary(type), members, methods);
     }
 
+    internal IReadOnlyList<ScriptableObjectSummary> ListScriptableObjects(
+        string filter = "",
+        int limit = 100)
+    {
+        limit = Math.Clamp(limit, 1, 500);
+        var normalizedFilter = filter?.Trim() ?? string.Empty;
+        var result = new List<ScriptableObjectSummary>(Math.Min(limit, 100));
+
+        foreach (var scriptableObject in Resources.FindObjectsOfTypeAll<ScriptableObject>())
+        {
+            if (scriptableObject is null)
+            {
+                continue;
+            }
+
+            var actualType = typeResolver.GetActualType(scriptableObject);
+            var fullTypeName = FormatType(actualType);
+            var objectName = scriptableObject.name ?? string.Empty;
+
+            if (IsInternalAsset(objectName, fullTypeName))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(normalizedFilter) &&
+                !objectName.Contains(normalizedFilter, StringComparison.OrdinalIgnoreCase) &&
+                !fullTypeName.Contains(normalizedFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var typedInstance = CastIfIl2Cpp(scriptableObject, actualType);
+            var objectId = registrationIds.RegisterObject(typedInstance, "so");
+            result.Add(new ScriptableObjectSummary(objectId, objectName, fullTypeName));
+
+            if (result.Count >= limit)
+            {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    internal StaticTypeInspection InspectStaticType(string typeName)
+    {
+        var type = typeResolver.ResolveRequired(typeName);
+        var staticMembers = new List<StaticMemberInfo>();
+
+        foreach (var field in type.GetFields(StaticMembers))
+        {
+            if (IsIl2CppInteropMetadataField(field))
+            {
+                continue;
+            }
+
+            try
+            {
+                var rawValue = field.GetValue(null);
+                var objectId = MaybeRegisterReferenceObject(rawValue, "ref");
+                staticMembers.Add(new StaticMemberInfo(
+                    field.Name,
+                    FormatType(field.FieldType),
+                    ValueConverter.SafeToString(rawValue),
+                    objectId));
+            }
+            catch (Exception exception)
+            {
+                staticMembers.Add(new StaticMemberInfo(
+                    field.Name,
+                    FormatType(field.FieldType),
+                    $"<error: {exception.Message}>"));
+            }
+        }
+
+        foreach (var property in type.GetProperties(StaticMembers))
+        {
+            if (!property.CanRead || property.GetIndexParameters().Length != 0)
+            {
+                continue;
+            }
+
+            try
+            {
+                var rawValue = property.GetValue(null);
+                var objectId = MaybeRegisterReferenceObject(rawValue, "ref");
+                staticMembers.Add(new StaticMemberInfo(
+                    property.Name,
+                    FormatType(property.PropertyType),
+                    ValueConverter.SafeToString(rawValue),
+                    objectId));
+            }
+            catch (Exception exception)
+            {
+                staticMembers.Add(new StaticMemberInfo(
+                    property.Name,
+                    FormatType(property.PropertyType),
+                    $"<error: {exception.Message}>"));
+            }
+        }
+
+        staticMembers.Sort((a, b) => StringComparer.Ordinal.Compare(a.Name, b.Name));
+        return new StaticTypeInspection(FormatType(type), staticMembers);
+    }
+
+    internal CollectionExpansionResponse ExpandCollection(
+        string objectId,
+        string fieldPath = "",
+        int limit = 50)
+    {
+        limit = Math.Clamp(limit, 1, 500);
+        var (collection, collectionType, normalizedPath) = ResolveCollectionTarget(objectId, fieldPath);
+
+        if (collection is Il2CppObjectBase il2CppCollection)
+        {
+            var actualType = typeResolver.GetActualType(il2CppCollection);
+            collection = CastIfIl2Cpp(il2CppCollection, actualType);
+            collectionType = GetActualRuntimeType(collection);
+        }
+
+        var entries = new List<CollectionEntry>(Math.Min(limit, 64));
+        int totalCount;
+        bool truncated;
+
+        if (collection is Array managedArray)
+        {
+            totalCount = managedArray.Length;
+            var elemHint = collectionType.GetElementType() ?? typeof(object);
+            var take = Math.Min(totalCount, limit);
+            for (var i = 0; i < take; i++)
+            {
+                entries.Add(CreateCollectionEntry(
+                    i.ToString(CultureInfo.InvariantCulture),
+                    managedArray.GetValue(i),
+                    elemHint));
+            }
+            truncated = totalCount > limit;
+        }
+        else if (collection is IDictionary managedDict)
+        {
+            totalCount = managedDict.Count;
+            var genericArgs = collectionType.GetGenericArguments();
+            var valueHint = genericArgs.Length >= 2 ? genericArgs[1] : typeof(object);
+            var enumerator = managedDict.GetEnumerator();
+            try
+            {
+                while (enumerator.MoveNext() && entries.Count < limit)
+                {
+                    entries.Add(CreateCollectionEntry(
+                        ValueConverter.SafeToString(enumerator.Key),
+                        enumerator.Value,
+                        valueHint));
+                }
+            }
+            finally
+            {
+                if (enumerator is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+            truncated = totalCount > entries.Count;
+        }
+        else if (collection is IList managedList)
+        {
+            totalCount = managedList.Count;
+            var genericArgs = collectionType.GetGenericArguments();
+            var elemHint = genericArgs.Length >= 1 ? genericArgs[0] : typeof(object);
+            var take = Math.Min(totalCount, limit);
+            for (var i = 0; i < take; i++)
+            {
+                entries.Add(CreateCollectionEntry(
+                    i.ToString(CultureInfo.InvariantCulture),
+                    managedList[i],
+                    elemHint));
+            }
+            truncated = totalCount > limit;
+        }
+        else if (TryExpandIl2CppDictionary(collection, collectionType, limit, entries, out totalCount, out truncated))
+        {
+            // Populated via IL2CPP dictionary reflection.
+        }
+        else if (TryExpandIl2CppIndexedCollection(collection, collectionType, limit, entries, out totalCount, out truncated))
+        {
+            // Populated via IL2CPP List<T> / Il2CppArrayBase<T> reflection.
+        }
+        else if (collection is IEnumerable enumerable)
+        {
+            totalCount = ReadOptionalCount(collection, collectionType) ?? 0;
+            var genericArgs = collectionType.GetGenericArguments();
+            var elemHint = genericArgs.Length >= 1 ? genericArgs[0] : typeof(object);
+            var index = 0;
+            var enumerator = enumerable.GetEnumerator();
+            try
+            {
+                while (enumerator.MoveNext())
+                {
+                    if (entries.Count < limit)
+                    {
+                        entries.Add(CreateCollectionEntry(
+                            index.ToString(CultureInfo.InvariantCulture),
+                            enumerator.Current,
+                            elemHint));
+                    }
+                    else
+                    {
+                        truncated = true;
+                        break;
+                    }
+                    index++;
+                }
+                truncated = entries.Count >= limit && enumerator.MoveNext();
+            }
+            finally
+            {
+                if (enumerator is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+
+            if (totalCount == 0 && entries.Count > 0)
+            {
+                totalCount = entries.Count + (truncated ? 1 : 0);
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Target member '{normalizedPath}' of type '{FormatType(collectionType)}' is not a supported collection.");
+        }
+
+        return new CollectionExpansionResponse(
+            objectId,
+            normalizedPath,
+            FormatType(collectionType),
+            totalCount,
+            truncated,
+            entries);
+    }
+
+    internal StatusResponse SetCollectionEntry(
+        string objectId,
+        string fieldPath,
+        string key,
+        string value)
+    {
+        var (collection, collectionType, normalizedPath) = ResolveCollectionTarget(objectId, fieldPath);
+
+        if (collection is Il2CppObjectBase il2CppCollection)
+        {
+            var actualType = typeResolver.GetActualType(il2CppCollection);
+            collection = CastIfIl2Cpp(il2CppCollection, actualType);
+            collectionType = GetActualRuntimeType(collection);
+        }
+
+        if (collection is Array managedArray)
+        {
+            var index = ParseCollectionIndex(key, managedArray.Length);
+            var elementType = collectionType.GetElementType() ?? typeof(object);
+            EnsureEditableCollectionElementType(elementType);
+            var converted = ValueConverter.ConvertString(value, elementType);
+            managedArray.SetValue(converted, index);
+            return new StatusResponse(
+                "ok",
+                $"Set array index [{index}] on '{normalizedPath}' ({FormatType(elementType)}).");
+        }
+
+        if (collection is IDictionary managedDict)
+        {
+            var genericArgs = collectionType.GetGenericArguments();
+            var keyType = genericArgs.Length >= 1 ? genericArgs[0] : typeof(string);
+            var valueType = genericArgs.Length >= 2 ? genericArgs[1] : typeof(object);
+            EnsureEditableCollectionElementType(valueType);
+            var convertedKey = ConvertDictionaryKey(managedDict, keyType, key);
+            var convertedValue = ValueConverter.ConvertString(value, valueType);
+            managedDict[convertedKey] = convertedValue;
+            return new StatusResponse(
+                "ok",
+                $"Set dictionary entry '{key}' on '{normalizedPath}'.");
+        }
+
+        if (collection is IList managedList)
+        {
+            var index = ParseCollectionIndex(key, managedList.Count);
+            var genericArgs = collectionType.GetGenericArguments();
+            var existing = managedList[index];
+            var elementType = genericArgs.Length >= 1
+                ? genericArgs[0]
+                : (existing is not null ? GetActualRuntimeType(existing) : typeof(object));
+            EnsureEditableCollectionElementType(elementType);
+            var converted = ValueConverter.ConvertString(value, elementType);
+            managedList[index] = converted;
+            return new StatusResponse(
+                "ok",
+                $"Set list index [{index}] on '{normalizedPath}' ({FormatType(elementType)}).");
+        }
+
+        if (TrySetIl2CppDictionaryEntry(collection, collectionType, key, value, normalizedPath, out var dictStatus))
+        {
+            return dictStatus;
+        }
+
+        if (TrySetIl2CppIndexedEntry(collection, collectionType, key, value, normalizedPath, out var listStatus))
+        {
+            return listStatus;
+        }
+
+        throw new InvalidOperationException(
+            $"Target member '{normalizedPath}' of type '{FormatType(collectionType)}' does not support writing collection entries.");
+    }
+
     internal NetworkDiagnosticsResponse GetNetworkDiagnostics(int gameObjectId)
     {
         var gameObject = FindObjectById(gameObjectId);
@@ -1001,6 +1324,530 @@ internal sealed class Il2CppGameBackend
         }
 
         return null;
+    }
+
+    private static bool IsInternalAsset(string name, string fullTypeName) =>
+        fullTypeName.StartsWith("UnityEngine.", StringComparison.Ordinal) ||
+        fullTypeName.StartsWith("UnityEditor.", StringComparison.Ordinal) ||
+        fullTypeName.StartsWith("Unity.", StringComparison.Ordinal) ||
+        fullTypeName.StartsWith("TMPro.", StringComparison.Ordinal) ||
+        fullTypeName.StartsWith("Il2CppTMPro.", StringComparison.Ordinal) ||
+        name.StartsWith("TMP ", StringComparison.OrdinalIgnoreCase) ||
+        name.StartsWith("LiberationSans", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsIl2CppInteropMetadataField(FieldInfo field) =>
+        field.FieldType == typeof(IntPtr) &&
+        (field.Name.StartsWith("NativeFieldInfoPtr_", StringComparison.Ordinal) ||
+         field.Name.StartsWith("NativeMethodInfoPtr_", StringComparison.Ordinal));
+
+    private object CastIfIl2Cpp(object instance, Type targetType)
+    {
+        if (instance is Il2CppObjectBase il2Cpp && typeof(Il2CppObjectBase).IsAssignableFrom(targetType))
+        {
+            try
+            {
+                return typeResolver.Cast(il2Cpp, targetType);
+            }
+            catch
+            {
+                return instance;
+            }
+        }
+
+        return instance;
+    }
+
+    private Type GetActualRuntimeType(object instance)
+    {
+        if (instance is Il2CppObjectBase il2Cpp)
+        {
+            return typeResolver.GetActualType(il2Cpp);
+        }
+
+        return instance.GetType();
+    }
+
+    private string? MaybeRegisterReferenceObject(object? rawValue, string prefix)
+    {
+        if (rawValue is null || rawValue is string)
+        {
+            return null;
+        }
+
+        var actualType = GetActualRuntimeType(rawValue);
+        if (actualType.IsValueType || actualType.IsEnum)
+        {
+            return null;
+        }
+
+        var typed = CastIfIl2Cpp(rawValue, actualType);
+        return registrationIds.RegisterObject(typed, prefix);
+    }
+
+    private CollectionEntry CreateCollectionEntry(string key, object? element, Type elementHint)
+    {
+        var elementType = element is not null ? GetActualRuntimeType(element) : elementHint;
+        var objectId = MaybeRegisterReferenceObject(element, "elem");
+        return new CollectionEntry(
+            key,
+            ValueConverter.SafeToString(element),
+            FormatType(elementType),
+            objectId);
+    }
+
+    private (object Collection, Type CollectionType, string NormalizedPath) ResolveCollectionTarget(
+        string objectId,
+        string fieldPath)
+    {
+        var rootObject = ResolveRegisteredOrUnityObject(objectId);
+        var trimmedPath = fieldPath?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(trimmedPath))
+        {
+            var rootType = GetActualRuntimeType(rootObject);
+            return (CastIfIl2Cpp(rootObject, rootType), rootType, string.Empty);
+        }
+
+        var resolvedRoot = CastIfIl2Cpp(rootObject, GetActualRuntimeType(rootObject));
+        var resolvedRootType = GetActualRuntimeType(resolvedRoot);
+
+        // If objectId refers to a GameObject and fieldPath starts with a Component name (e.g., "Inventory.items")
+        if (resolvedRoot is GameObject gameObject)
+        {
+            var dotIdx = trimmedPath.IndexOf('.');
+            if (dotIdx > 0)
+            {
+                var compName = trimmedPath[..dotIdx];
+                var memberSubPath = trimmedPath[(dotIdx + 1)..];
+                try
+                {
+                    var component = ResolveComponent(gameObject.GetInstanceID(), compName);
+                    var (compTarget, compTargetType, compLeaf) = TraverseMemberPath(
+                        component.Instance,
+                        component.Type,
+                        memberSubPath);
+                    var compVal = ReadDirectMemberValue(compTarget, compTargetType, compLeaf);
+                    var compValType = GetActualRuntimeType(compVal);
+                    return (CastIfIl2Cpp(compVal, compValType), compValType, trimmedPath);
+                }
+                catch (KeyNotFoundException)
+                {
+                    // Fall through to direct GameObject member traversal.
+                }
+            }
+        }
+
+        var (targetInstance, targetType, leafMemberName) = TraverseMemberPath(
+            resolvedRoot,
+            resolvedRootType,
+            trimmedPath);
+        var collection = ReadDirectMemberValue(targetInstance, targetType, leafMemberName);
+        var collectionType = GetActualRuntimeType(collection);
+        return (CastIfIl2Cpp(collection, collectionType), collectionType, trimmedPath);
+    }
+
+    private object ResolveRegisteredOrUnityObject(string objectId)
+    {
+        if (string.IsNullOrWhiteSpace(objectId))
+        {
+            throw new ArgumentException("Query parameter 'objectId' is required.");
+        }
+
+        if (registrationIds.TryGetObject(objectId, out var registered) && registered is not null)
+        {
+            return registered;
+        }
+
+        if (int.TryParse(objectId.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var instanceId))
+        {
+            foreach (var unityObj in Resources.FindObjectsOfTypeAll<UnityEngine.Object>())
+            {
+                if (unityObj is not null && unityObj.GetInstanceID() == instanceId)
+                {
+                    var actualType = typeResolver.GetActualType(unityObj);
+                    return CastIfIl2Cpp(unityObj, actualType);
+                }
+            }
+        }
+
+        throw new KeyNotFoundException($"Registered object '{objectId}' was not found.");
+    }
+
+    private static object ReadDirectMemberValue(object instance, Type instanceType, string memberName)
+    {
+        var field = instanceType.GetField(memberName, InstanceMembers | BindingFlags.IgnoreCase);
+        if (field is not null)
+        {
+            return field.GetValue(instance)
+                   ?? throw new InvalidOperationException(
+                       $"Field '{field.Name}' on '{FormatType(instanceType)}' is null.");
+        }
+
+        var property = instanceType.GetProperty(memberName, InstanceMembers | BindingFlags.IgnoreCase);
+        if (property is not null && property.CanRead && property.GetIndexParameters().Length == 0)
+        {
+            return property.GetValue(instance)
+                   ?? throw new InvalidOperationException(
+                       $"Property '{property.Name}' on '{FormatType(instanceType)}' returned null.");
+        }
+
+        throw new MissingMemberException(instanceType.FullName, memberName);
+    }
+
+    private static int? ReadOptionalCount(object collection, Type collectionType)
+    {
+        var countProp = collectionType.GetProperty("Count", InstanceMembers)
+                        ?? collectionType.GetProperty("Length", InstanceMembers);
+        if (countProp is not null && countProp.CanRead && countProp.GetIndexParameters().Length == 0)
+        {
+            var raw = countProp.GetValue(collection);
+            if (raw is int intCount)
+            {
+                return intCount;
+            }
+        }
+
+        var sizeField = collectionType.GetField("_size", InstanceMembers);
+        if (sizeField is not null && sizeField.GetValue(collection) is int fieldCount)
+        {
+            return fieldCount;
+        }
+
+        return null;
+    }
+
+    private static bool HasDictionaryShape(Type collectionType)
+    {
+        var genericArgs = collectionType.GetGenericArguments();
+        if (genericArgs.Length == 2 &&
+            (collectionType.GetMethod("ContainsKey", InstanceMembers) is not null ||
+             collectionType.GetMethod("TryGetValue", InstanceMembers) is not null))
+        {
+            return true;
+        }
+
+        return collectionType.GetProperty("Keys", InstanceMembers) is not null &&
+               collectionType.GetProperty("Values", InstanceMembers) is not null;
+    }
+
+    private bool TryExpandIl2CppDictionary(
+        object collection,
+        Type collectionType,
+        int limit,
+        List<CollectionEntry> entries,
+        out int totalCount,
+        out bool truncated)
+    {
+        totalCount = 0;
+        truncated = false;
+
+        if (!HasDictionaryShape(collectionType))
+        {
+            return false;
+        }
+
+        totalCount = ReadOptionalCount(collection, collectionType) ?? 0;
+        var genericArgs = collectionType.GetGenericArguments();
+        var valueHint = genericArgs.Length >= 2 ? genericArgs[1] : typeof(object);
+
+        var getEnumerator = collectionType.GetMethod(
+            "GetEnumerator",
+            InstanceMembers,
+            null,
+            Type.EmptyTypes,
+            null);
+        if (getEnumerator is not null)
+        {
+            var enumerator = getEnumerator.Invoke(collection, null);
+            if (enumerator is not null)
+            {
+                try
+                {
+                    var enumType = enumerator.GetType();
+                    var moveNext = enumType.GetMethod("MoveNext", InstanceMembers, null, Type.EmptyTypes, null);
+                    var currentProp = enumType.GetProperty("Current", InstanceMembers);
+                    if (moveNext is not null && currentProp is not null)
+                    {
+                        while (entries.Count < limit &&
+                               moveNext.Invoke(enumerator, null) is bool moved &&
+                               moved)
+                        {
+                            var current = currentProp.GetValue(enumerator);
+                            if (current is null)
+                            {
+                                continue;
+                            }
+
+                            var curType = GetActualRuntimeType(current);
+                            var entryKey = ReadKeyValueMember(current, curType, "Key", "key");
+                            var entryValue = ReadKeyValueMember(current, curType, "Value", "value");
+                            entries.Add(CreateCollectionEntry(
+                                ValueConverter.SafeToString(entryKey),
+                                entryValue,
+                                valueHint));
+                        }
+
+                        truncated = totalCount > entries.Count;
+                        return true;
+                    }
+                }
+                finally
+                {
+                    if (enumerator is IDisposable disposable)
+                    {
+                        disposable.Dispose();
+                    }
+                }
+            }
+        }
+
+        // Fallback via Keys + indexer
+        var keysProp = collectionType.GetProperty("Keys", InstanceMembers);
+        var indexer = FindSingleParameterIndexer(collectionType, keyParamType: genericArgs.Length >= 1 ? genericArgs[0] : null);
+        if (keysProp is not null && indexer is not null)
+        {
+            var keysObj = keysProp.GetValue(collection);
+            if (keysObj is not null)
+            {
+                var keysType = GetActualRuntimeType(keysObj);
+                var keysEnumMethod = keysType.GetMethod("GetEnumerator", InstanceMembers, null, Type.EmptyTypes, null);
+                var keysEnumerator = keysEnumMethod?.Invoke(keysObj, null);
+                if (keysEnumerator is not null)
+                {
+                    try
+                    {
+                        var enumType = keysEnumerator.GetType();
+                        var moveNext = enumType.GetMethod("MoveNext", InstanceMembers, null, Type.EmptyTypes, null);
+                        var currentProp = enumType.GetProperty("Current", InstanceMembers);
+                        if (moveNext is not null && currentProp is not null)
+                        {
+                            while (entries.Count < limit &&
+                                   moveNext.Invoke(keysEnumerator, null) is bool moved &&
+                                   moved)
+                            {
+                                var k = currentProp.GetValue(keysEnumerator);
+                                var v = indexer.GetValue(collection, new[] { k });
+                                entries.Add(CreateCollectionEntry(
+                                    ValueConverter.SafeToString(k),
+                                    v,
+                                    valueHint));
+                            }
+
+                            truncated = totalCount > entries.Count;
+                            return true;
+                        }
+                    }
+                    finally
+                    {
+                        if (keysEnumerator is IDisposable disposable)
+                        {
+                            disposable.Dispose();
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryExpandIl2CppIndexedCollection(
+        object collection,
+        Type collectionType,
+        int limit,
+        List<CollectionEntry> entries,
+        out int totalCount,
+        out bool truncated)
+    {
+        totalCount = 0;
+        truncated = false;
+
+        var indexer = FindSingleParameterIndexer(collectionType, typeof(int));
+        var count = ReadOptionalCount(collection, collectionType);
+        if (indexer is null || !count.HasValue)
+        {
+            return false;
+        }
+
+        totalCount = count.Value;
+        var genericArgs = collectionType.GetGenericArguments();
+        var elemHint = genericArgs.Length >= 1 ? genericArgs[0] : indexer.PropertyType;
+        var take = Math.Min(totalCount, limit);
+        for (var i = 0; i < take; i++)
+        {
+            var element = indexer.GetValue(collection, new object[] { i });
+            entries.Add(CreateCollectionEntry(
+                i.ToString(CultureInfo.InvariantCulture),
+                element,
+                elemHint));
+        }
+
+        truncated = totalCount > limit;
+        return true;
+    }
+
+    private bool TrySetIl2CppDictionaryEntry(
+        object collection,
+        Type collectionType,
+        string key,
+        string value,
+        string normalizedPath,
+        out StatusResponse response)
+    {
+        response = null!;
+        if (!HasDictionaryShape(collectionType))
+        {
+            return false;
+        }
+
+        var genericArgs = collectionType.GetGenericArguments();
+        var keyType = genericArgs.Length >= 1 ? genericArgs[0] : typeof(string);
+        var valueType = genericArgs.Length >= 2 ? genericArgs[1] : typeof(object);
+        var indexer = FindSingleParameterIndexer(collectionType, keyType)
+                      ?? FindSingleParameterIndexer(collectionType, null);
+        if (indexer is null || !indexer.CanWrite)
+        {
+            return false;
+        }
+
+        var effectiveKeyType = indexer.GetIndexParameters()[0].ParameterType;
+        var effectiveValueType = valueType != typeof(object) ? valueType : indexer.PropertyType;
+        EnsureEditableCollectionElementType(effectiveValueType);
+
+        var convertedKey = ValueConverter.ConvertString(key, effectiveKeyType);
+        var convertedValue = ValueConverter.ConvertString(value, effectiveValueType);
+        indexer.SetValue(collection, convertedValue, new[] { convertedKey });
+        response = new StatusResponse(
+            "ok",
+            $"Set dictionary entry '{key}' on '{normalizedPath}' ({FormatType(effectiveValueType)}).");
+        return true;
+    }
+
+    private bool TrySetIl2CppIndexedEntry(
+        object collection,
+        Type collectionType,
+        string key,
+        string value,
+        string normalizedPath,
+        out StatusResponse response)
+    {
+        response = null!;
+        var indexer = FindSingleParameterIndexer(collectionType, typeof(int));
+        var count = ReadOptionalCount(collection, collectionType);
+        if (indexer is null || !indexer.CanWrite || !count.HasValue)
+        {
+            return false;
+        }
+
+        var index = ParseCollectionIndex(key, count.Value);
+        var genericArgs = collectionType.GetGenericArguments();
+        var elementType = genericArgs.Length >= 1 ? genericArgs[0] : indexer.PropertyType;
+        EnsureEditableCollectionElementType(elementType);
+        var convertedValue = ValueConverter.ConvertString(value, elementType);
+        indexer.SetValue(collection, convertedValue, new object[] { index });
+        response = new StatusResponse(
+            "ok",
+            $"Set collection index [{index}] on '{normalizedPath}' ({FormatType(elementType)}).");
+        return true;
+    }
+
+    private static PropertyInfo? FindSingleParameterIndexer(Type collectionType, Type? keyParamType)
+    {
+        PropertyInfo? fallback = null;
+        foreach (var prop in collectionType.GetProperties(InstanceMembers))
+        {
+            var indexParams = prop.GetIndexParameters();
+            if (indexParams.Length != 1)
+            {
+                continue;
+            }
+
+            if (keyParamType is null || indexParams[0].ParameterType == keyParamType)
+            {
+                return prop;
+            }
+
+            fallback ??= prop;
+        }
+
+        return keyParamType is null ? fallback : null;
+    }
+
+    private static object? ReadKeyValueMember(
+        object current,
+        Type currentType,
+        string pascalName,
+        string camelName)
+    {
+        var prop = currentType.GetProperty(pascalName, InstanceMembers | BindingFlags.IgnoreCase);
+        if (prop is not null && prop.CanRead && prop.GetIndexParameters().Length == 0)
+        {
+            return prop.GetValue(current);
+        }
+
+        var field = currentType.GetField(pascalName, InstanceMembers | BindingFlags.IgnoreCase)
+                    ?? currentType.GetField(camelName, InstanceMembers | BindingFlags.IgnoreCase);
+        return field?.GetValue(current);
+    }
+
+    private static int ParseCollectionIndex(string key, int count)
+    {
+        if (!int.TryParse(key.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
+        {
+            throw new ArgumentException($"Collection key '{key}' must be an integer index.");
+        }
+
+        if (index < 0 || index >= count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(key),
+                $"Collection index {index} is out of range [0, {count}).");
+        }
+
+        return index;
+    }
+
+    private static object ConvertDictionaryKey(IDictionary dict, Type keyType, string rawKey)
+    {
+        if (keyType != typeof(object))
+        {
+            return ValueConverter.ConvertString(rawKey, keyType)!;
+        }
+
+        foreach (var existingKey in dict.Keys)
+        {
+            if (existingKey is not null &&
+                string.Equals(
+                    ValueConverter.SafeToString(existingKey),
+                    rawKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return existingKey;
+            }
+        }
+
+        return rawKey;
+    }
+
+    private static void EnsureEditableCollectionElementType(Type elementType)
+    {
+        var unwrapped = Nullable.GetUnderlyingType(elementType) ?? elementType;
+        if (unwrapped.IsPrimitive ||
+            unwrapped.IsEnum ||
+            unwrapped == typeof(string) ||
+            unwrapped == typeof(decimal) ||
+            unwrapped == typeof(Guid) ||
+            unwrapped == typeof(Vector2) ||
+            unwrapped == typeof(Vector3) ||
+            unwrapped == typeof(Vector4) ||
+            unwrapped == typeof(Quaternion) ||
+            unwrapped == typeof(Color) ||
+            unwrapped == typeof(object))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Collection element type '{FormatType(elementType)}' is a non-primitive reference/struct type and cannot be set directly.");
     }
 
     private static string FormatType(Type type) => type.FullName ?? type.Name;

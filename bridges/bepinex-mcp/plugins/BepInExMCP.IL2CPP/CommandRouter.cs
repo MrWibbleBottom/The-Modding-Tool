@@ -165,6 +165,11 @@ internal sealed class CommandRouter
                     () => backend.FindObjectsWithComponent(
                         GetRequired(request, "componentName")),
                     timeout.Token),
+                "scene/list_scriptable_objects" or "list_scriptable_objects" => await OnMainThread(
+                    () => backend.ListScriptableObjects(
+                        GetOptional(request, "filter", string.Empty),
+                        GetOptionalInt(request, "limit", 100, 1, 500)),
+                    timeout.Token),
                 "type/search" => await OnMainThread(
                     () => backend.SearchTypes(
                         GetOptional(request, "query", string.Empty),
@@ -176,6 +181,23 @@ internal sealed class CommandRouter
                         GetRequired(request, "typeName"),
                         GetOptionalInt(request, "offset", 0, 0, int.MaxValue),
                         GetOptionalInt(request, "limit", 200, 1, 500)),
+                    timeout.Token),
+                "type/inspect_static" or "inspect_static_type" => await OnMainThread(
+                    () => backend.InspectStaticType(
+                        GetRequiredAny(request, "typeName", "type_name")),
+                    timeout.Token),
+                "object/expand_collection" or "expand_collection" => await OnMainThread(
+                    () => backend.ExpandCollection(
+                        GetRequiredAny(request, "objectId", "object_id", "id"),
+                        GetOptionalAny(request, string.Empty, "fieldPath", "field_path"),
+                        GetOptionalInt(request, "limit", 50, 1, 500)),
+                    timeout.Token),
+                "object/set_collection_entry" or "set_collection_entry" => await OnMainThread(
+                    () => backend.SetCollectionEntry(
+                        GetRequiredAny(request, "objectId", "object_id", "id"),
+                        GetRequiredAny(request, "fieldPath", "field_path"),
+                        GetRequired(request, "key"),
+                        GetRequired(request, "value", allowEmpty: true)),
                     timeout.Token),
                 "network/diagnostics" => await OnMainThread(
                     () => backend.GetNetworkDiagnostics(GetId(request)),
@@ -323,6 +345,49 @@ internal sealed class CommandRouter
         }
 
         return value;
+    }
+
+    private static string GetRequiredAny(HttpListenerRequest request, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = request.QueryString[name];
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                if (value.Length > DefaultValueLimit)
+                {
+                    throw new ArgumentException(
+                        $"Query parameter '{name}' exceeds the {DefaultValueLimit}-character limit.");
+                }
+
+                return value;
+            }
+        }
+
+        throw new ArgumentException($"Missing required query parameter '{names[0]}'.");
+    }
+
+    private static string GetOptionalAny(
+        HttpListenerRequest request,
+        string defaultValue,
+        params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = request.QueryString[name];
+            if (value is not null)
+            {
+                if (value.Length > DefaultValueLimit)
+                {
+                    throw new ArgumentException(
+                        $"Query parameter '{name}' exceeds the {DefaultValueLimit}-character limit.");
+                }
+
+                return value;
+            }
+        }
+
+        return defaultValue;
     }
 
     private ObjectSelector GetSelector(HttpListenerRequest request)
@@ -480,6 +545,20 @@ internal sealed class CommandRouter
                         BatchString(operation, "typeName"),
                         BatchInt(operation, "offset", 0, 0, 100_000),
                         BatchInt(operation, "limit", 100, 1, 1_000)),
+                    "scene/list_scriptable_objects" or "list_scriptable_objects" => backend.ListScriptableObjects(
+                        BatchString(operation, "filter", false),
+                        BatchInt(operation, "limit", 100, 1, 500)),
+                    "type/inspect_static" or "inspect_static_type" => backend.InspectStaticType(
+                        BatchStringAny(operation, true, "", "typeName", "type_name")),
+                    "object/expand_collection" or "expand_collection" => backend.ExpandCollection(
+                        BatchStringAny(operation, true, "", "objectId", "object_id", "id"),
+                        BatchStringAny(operation, false, "", "fieldPath", "field_path"),
+                        BatchInt(operation, "limit", 50, 1, 500)),
+                    "object/set_collection_entry" or "set_collection_entry" => backend.SetCollectionEntry(
+                        BatchStringAny(operation, true, "", "objectId", "object_id", "id"),
+                        BatchStringAny(operation, true, "", "fieldPath", "field_path"),
+                        BatchString(operation, "key"),
+                        BatchString(operation, "value", false)),
                     "network/diagnostics" => backend.GetNetworkDiagnostics(
                         BatchInt(operation, "id")),
                     "watch/list" => watchers.List(),
@@ -540,6 +619,34 @@ internal sealed class CommandRouter
         return value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
             : value.GetRawText();
+    }
+
+    private static string BatchStringAny(
+        BatchOperation operation,
+        bool required,
+        string defaultValue,
+        params string[] names)
+    {
+        if (operation.Parameters is not null)
+        {
+            foreach (var name in names)
+            {
+                if (operation.Parameters.TryGetValue(name, out var value))
+                {
+                    return value.ValueKind == JsonValueKind.String
+                        ? value.GetString() ?? string.Empty
+                        : value.GetRawText();
+                }
+            }
+        }
+
+        if (!required)
+        {
+            return defaultValue;
+        }
+
+        throw new ArgumentException(
+            $"Batch operation '{operation.Id}' is missing parameter '{names[0]}'.");
     }
 
     private static int BatchInt(

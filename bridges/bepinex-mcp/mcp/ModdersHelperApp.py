@@ -764,6 +764,75 @@ async def describe_runtime_type(
     )
 
 
+async def _run_bridge_call(coro: Any) -> str:
+    """Await a BridgeClient coroutine and format BridgeError responses consistently."""
+    try:
+        return await coro
+    except BridgeError as exception:
+        logger.error("%s", exception)
+        return f"❌ Error: {exception}"
+
+
+@mcp.tool()
+async def list_scriptable_objects(filter: str = "", limit: int = 100) -> str:
+    """Lists loaded ScriptableObject assets matching an optional name/type filter."""
+    if not 1 <= limit <= 500:
+        return "❌ Error: 'limit' must be between 1 and 500."
+    return await _run_bridge_call(
+        bridge_client.list_scriptable_objects(filter=filter, limit=limit)
+    )
+
+
+@mcp.tool()
+async def inspect_static_type(type_name: str = "") -> str:
+    """Enumerates static fields and properties on an IL2CPP runtime type."""
+    if not type_name.strip():
+        return "❌ Error: 'type_name' is required."
+    return await _run_bridge_call(
+        bridge_client.inspect_static_type(type_name=type_name)
+    )
+
+
+@mcp.tool()
+async def expand_collection(
+    object_id: str = "",
+    field_path: str = "",
+    limit: int = 50,
+) -> str:
+    """Expands a list, array, or dictionary member on a registered object or GameObject."""
+    if not object_id.strip():
+        return "❌ Error: 'object_id' is required."
+    if not 1 <= limit <= 500:
+        return "❌ Error: 'limit' must be between 1 and 500."
+    return await _run_bridge_call(
+        bridge_client.expand_collection(
+            object_id=object_id,
+            field_path=field_path,
+            limit=limit,
+        )
+    )
+
+
+@mcp.tool()
+async def set_collection_entry(
+    object_id: str = "",
+    field_path: str = "",
+    key: str = "",
+    value: str = "",
+) -> str:
+    """Updates a primitive/enum/string entry in a collection by index or key."""
+    if not object_id.strip() or not field_path.strip() or not key.strip():
+        return "❌ Error: 'object_id', 'field_path', and 'key' are required."
+    return await _run_bridge_call(
+        bridge_client.set_collection_entry(
+            object_id=object_id,
+            field_path=field_path,
+            key=key,
+            value=value,
+        )
+    )
+
+
 @mcp.tool()
 async def run_bridge_batch(
     operations_json: str = "",

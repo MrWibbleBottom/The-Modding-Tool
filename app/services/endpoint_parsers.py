@@ -65,9 +65,16 @@ _CATEGORY_WEIGHTED_KEYWORDS: dict[str, dict[str, float]] = {
         "hero": 2.4,
         "player": 2.0,
         "character": 2.2,
+        "champion": 2.2,
+        "party": 2.0,
         "health": 2.6,
+        "maxhealth": 2.8,
         "hp": 2.5,
+        "armor": 2.8,
+        "shield": 2.8,
+        "block": 2.4,
         "mana": 2.6,
+        "energy": 2.5,
         "stamina": 2.6,
         "stat": 2.0,
         "stats": 2.2,
@@ -80,7 +87,12 @@ _CATEGORY_WEIGHTED_KEYWORDS: dict[str, dict[str, float]] = {
         "exp": 2.2,
         "experience": 2.5,
         "level": 2.2,
-        "actionpoints": 2.5,
+        "actionpoint": 2.8,
+        "actionpoints": 2.8,
+        "ap": 2.2,
+        "movement": 2.4,
+        "move": 1.8,
+        "initiative": 2.4,
         "playerpiece": 2.5,
     },
     "game_systems": {
@@ -95,11 +107,20 @@ _CATEGORY_WEIGHTED_KEYWORDS: dict[str, dict[str, float]] = {
         "spawnrate": 2.8,
         "enemy": 2.4,
         "enemies": 2.4,
+        "unit": 1.8,
         "inventory": 2.6,
         "day": 1.8,
         "night": 1.8,
         "timeofday": 2.8,
-        "cooldown": 2.5,
+        "cooldown": 2.6,
+        "range": 2.2,
+        "crit": 2.6,
+        "critical": 2.6,
+        "card": 2.5,
+        "cards": 2.5,
+        "hand": 2.3,
+        "deck": 2.5,
+        "turn": 2.2,
         "combat": 2.5,
         "weapon": 2.4,
         "weapons": 2.4,
@@ -616,25 +637,52 @@ def scan_unreal_datatable_assets(game_dir: Path, *, limit: int = 30) -> list[dic
     return found
 
 
+_EXCLUDED_UNITY_NAMESPACE_PREFIXES: tuple[str, ...] = (
+    "unityengine",
+    "unity.",
+    "system",
+    "tmpro",
+    "il2cppinterop",
+    "bepinex",
+    "mono.",
+    "microsoft.",
+)
+
+
+def is_excluded_unity_namespace(type_or_namespace: str) -> bool:
+    low = str(type_or_namespace or "").strip().lower()
+    if not low:
+        return False
+    return any(low == pref.rstrip(".") or low.startswith(pref + ".") or low.startswith(pref) for pref in _EXCLUDED_UNITY_NAMESPACE_PREFIXES)
+
+
 def parse_unity_dump_metadata(
     game_dir: Path,
     *,
     tools_root: Path | None = None,
-    max_entries: int = 40,
+    max_entries: int = 60,
 ) -> list[dict[str, Any]]:
-    """Parse `dump.cs` (`[Header]`, `[Tooltip]`, `[Range]`, fields) and `script.json` from Il2CppDumper."""
+    """Parse `dump.cs` (`[Header]`, `[Tooltip]`, `[Range]`, fields) and `script.json` across game interop and tools dirs."""
     records: list[dict[str, Any]] = []
     seen_sigs: set[str] = set()
 
     dump_candidates = [
         game_dir / "dump.cs",
+        game_dir / "BepInEx" / "interop" / "dump.cs",
         game_dir / "Il2CppDumper" / "dump.cs",
     ]
     if tools_root is not None:
-        dump_candidates.append(Path(tools_root) / "Il2CppDumper" / "dump.cs")
+        tr = Path(tools_root)
+        dump_candidates.extend([
+            tr / "Il2CppDumper" / "dump.cs",
+            tr / "dump.cs",
+        ])
 
     interesting_tok_re = re.compile(
-        r"\b(Health|MaxAmmo|Damage|Currency|Gold|Experience|Level|RevealMap|SpawnRate|Multiplier|Stamina|Loot|Cooldown)\b"
+        r"(Health|MaxHealth|Armor|Shield|Block|ActionPoint|Mana|Energy|Stamina|Cooldown|Movement|Crit|"
+        r"MaxAmmo|Damage|Currency|Gold|Coin|Experience|XP|Level|Card|Hand|Deck|Initiative|Turn|"
+        r"RevealMap|SpawnRate|Multiplier|Loot|Stats)",
+        re.IGNORECASE,
     )
 
     for dump_file in dump_candidates:
@@ -662,12 +710,15 @@ def parse_unity_dump_metadata(
                 pending_range = (None, None)
                 continue
 
-            m_cls = re.match(r"^(?:public|internal|private|protected|sealed|abstract|\s)*class\s+([A-Za-z0-9_`]+)", line)
+            m_cls = re.match(r"^(?:public|internal|private|protected|sealed|abstract|\s)*(?:class|struct)\s+([A-Za-z0-9_`]+)", line)
             if m_cls:
                 cur_cls = m_cls.group(1).split("`", 1)[0].strip()
                 pending_header = ""
                 pending_tooltip = ""
                 pending_range = (None, None)
+                continue
+
+            if is_excluded_unity_namespace(cur_ns):
                 continue
 
             if line.startswith("["):
@@ -743,10 +794,15 @@ def parse_unity_dump_metadata(
     # Also check Il2CppDumper script.json metadata if present
     script_candidates = [
         game_dir / "script.json",
+        game_dir / "BepInEx" / "interop" / "script.json",
         game_dir / "Il2CppDumper" / "script.json",
     ]
     if tools_root is not None:
-        script_candidates.append(Path(tools_root) / "Il2CppDumper" / "script.json")
+        tr = Path(tools_root)
+        script_candidates.extend([
+            tr / "Il2CppDumper" / "script.json",
+            tr / "script.json",
+        ])
 
     for s_file in script_candidates:
         if len(records) >= max_entries or not s_file.is_file():
@@ -768,6 +824,8 @@ def parse_unity_dump_metadata(
             if "$$" not in raw_name:
                 continue
             cls_part, meth_part = raw_name.split("$$", 1)
+            if is_excluded_unity_namespace(cls_part):
+                continue
             if not interesting_tok_re.search(meth_part):
                 continue
             sig = f"{cls_part}.{meth_part}"

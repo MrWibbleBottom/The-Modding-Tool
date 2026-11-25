@@ -1235,3 +1235,34 @@ body.compact td, body.compact th { padding: 5px 8px; }
   flex-wrap: wrap;
   gap: 8px 14px;
 }
+.action-diff-bar {
+  background: linear-gradient(180deg, rgba(16, 28, 48, 0.92) 0%, rgba(13, 19, 30, 0.95) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.42);
+}
+.action-diff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.action-diff-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.action-diff-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.action-diff-step-prompt {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+}

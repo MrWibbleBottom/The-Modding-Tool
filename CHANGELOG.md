@@ -2,6 +2,59 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 18:35 — v0.1.40
+
+- **Prompt**: Add a live two-snapshot Action Diff finder so players can perform an in-game action and isolate/promote changed fields to categorized modding endpoints
+- **AG Feedback**: Implemented `app/services/bridge_diff.py` (`capture_bridge_baseline`, `compare_bridge_snapshot`, `promote_bridge_diffs`), exposed `/api/games/{slug}/bridge-diff/{baseline,compare,promote}` routes in `app/routers/library.py`, added the **Live Action Diff Finder** bar and promotion table in the Modding tab (`app/templates/partials/active_game.html`, `app/static/js/active_game.js`, `app/static/js/library.js`, `app/static/app.css`), and verified all 53 tests pass in `pytest`.
+- **Version Changes**:
+  - Added `app/services/bridge_diff.py` capturing bounded numeric/boolean maps across static singletons, expanded collections, ScriptableObjects, and active scene entities with UI/camera/timer noise filtering, ranked deltas, enum decoding, and persistence to `imported_endpoints/<slug>.json`, `game_defaults/<slug>.json` (`before_value` baseline default), and `endpoint_knowledge.json`.
+  - Exposed `POST /api/games/{slug}/bridge-diff/baseline`, `POST /api/games/{slug}/bridge-diff/compare`, and `POST /api/games/{slug}/bridge-diff/promote` plus `bridge_connected` status on `/endpoints` in `app/routers/library.py`.
+  - Added the **Live Action Diff Finder** 3-step bar (`1. Capture Before`, step prompt, `3. Find Changed Values`) and results table with category selector & **Pin to Modding** action in `app/templates/partials/active_game.html`, `app/static/js/active_game.js`, `app/static/js/library.js`, and `app/static/app.css`.
+  - Added `test_bridge_action_diff_capture_compare_and_promote_flow` in `tests/test_mcp.py` (`53 passed`).
+
+## 2026-11-25 18:26 — v0.1.40
+
+- **Prompt**: Wire IL2CPP dump index, live bridge singleton/ScriptableObject/collection commands, patchable method hooks, and StreamingAssets/LocalLow data inspection into endpoints discovery and contextual applier
+- **AG Feedback**: Wired indexed static singletons + depth 1-2 collections with enum integer-key decoding, loaded `ScriptableObject` gameplay templates, numeric multiplier / boolean override `patchable_methods`, and `StreamingAssets`/`LocalLow` `.json`/`.xml`/`.cfg` discovery in `app/services/endpoints.py`; implemented `set_collection_entry`/`expand_collection` validation, live `mod_patch_method` + `remove_mod_patch` unpatching, offline Harmony multiplier/bool DLL codegen (`app/services/mod_builder.py`), and JSON/XML config write/readback in `app/services/endpoint_applier.py`; all 52 `pytest` tests passed.
+- **Version Changes**:
+  - Extended `app/services/endpoints.py` (`discover_live_bepinex_via_reflection`, `_probe_live_bepinex_bridge`, `_scan_unity_endpoints`, `_scan_unity_streaming_and_locallow_files`, `_sync_game_defaults`) with static singleton depth 1-2 traversal, enum-decoded dictionary keys from `il2cpp_index.json`, `ScriptableObject` gameplay categorization, `1.0` / `"vanilla"` Harmony method modifier endpoints, and `StreamingAssets` / `LocalLow` config discovery.
+  - Updated `_generate_il2cpp_plugin_cs` in `app/services/mod_builder.py` with typed Harmony postfix multiplier (`DynamicMultiplierPostfix_*`) and boolean override (`DynamicBoolPostfix_*`) code generation.
+  - Updated `app/services/endpoint_applier.py` with `set_collection_entry` + `expand_collection` verification, `DynamicPatcher` `mod_patch_method` + `remove_mod_patch` rollback, offline Harmony DLL fallback, and `.json`/`.xml` data file write/readback validation.
+  - Added `test_il2cpp_deep_discovery_collection_apply_method_hooks_and_data_files` in `tests/test_mcp.py` (`52 passed`).
+
+## 2026-11-25 18:15 — v0.1.40
+
+- **Prompt**: Extend the vendored IL2CPP bridge plugin and Python MCP server to enumerate ScriptableObjects, inspect static types, and expand/modify collections
+- **AG Feedback**: Extended the IL2CPP bridge (`RegistrationIdStore.cs`, `Protocol.cs`, `Il2CppGameBackend.cs`, `Plugin.cs`, `CommandRouter.cs`), exposed the matching methods in `bridges/bepinex-mcp/mcp/bridge_client.py` and `ModdersHelperApp.py`, rebuilt `BepInExMCP.IL2CPP.dll` in Release configuration (0 errors), and verified all 51 tests pass in `pytest`.
+- **Version Changes**:
+  - Updated `bridges/bepinex-mcp/plugins/BepInExMCP.IL2CPP/RegistrationIdStore.cs` with deduplicated runtime reference registration (`RegisterObject`, `TryGetObject`, pointer/reference tracking) and shared it via `Plugin.cs` with `Il2CppGameBackend`.
+  - Added `ScriptableObjectSummary`, `StaticMemberInfo`, `StaticTypeInspection`, `CollectionEntry`, and `CollectionExpansionResponse` DTOs to `bridges/bepinex-mcp/plugins/BepInExMCP.IL2CPP/Protocol.cs`.
+  - Implemented `ListScriptableObjects`, `InspectStaticType`, `ExpandCollection`, and `SetCollectionEntry` in `bridges/bepinex-mcp/plugins/BepInExMCP.IL2CPP/Il2CppGameBackend.cs` (supporting `Array`, `IList`, `IDictionary`, and IL2CPP generic `List<T>` / `Dictionary<K, V>` / `Il2CppArrayBase<T>`) and exposed HTTP/batch routes in `CommandRouter.cs`.
+  - Added `list_scriptable_objects`, `inspect_static_type`, `expand_collection`, and `set_collection_entry` methods to `bridges/bepinex-mcp/mcp/bridge_client.py` and registered corresponding `@mcp.tool()` handlers in `bridges/bepinex-mcp/mcp/ModdersHelperApp.py`.
+  - Added `test_il2cpp_bridge_scriptable_static_and_collection_contracts` in `tests/test_mcp.py` (`51 passed`).
+
+## 2026-11-25 18:02 — v0.1.40
+
+- **Prompt**: Automate Il2CppDumper execution for Unity IL2CPP games and build a structured symbol/enum/method indexer for endpoint discovery
+- **AG Feedback**: Created app/services/il2cpp_indexer.py, exposed /il2cpp/dump and /il2cpp/index routes, wired indexed symbol/enum/method discovery into endpoints.py, added Generate & Index IL2CPP Dump UI button + readiness count badge in Setup tab, and added unit/API tests; full pytest suite passed (50 passed).
+- **Version Changes**:
+  - Added app/services/il2cpp_indexer.py with run_il2cpp_dumper() (headless execution of Il2CppDumper.exe into dumps/<slug>/) and build_il2cpp_index() (extracting non-engine enums, static_roots, classes, and patchable_methods into dumps/<slug>/il2cpp_index.json).
+  - Integrated cached il2cpp_index.json fields, enum option lists, and patchable Harmony method endpoints into app/services/endpoints.py.
+  - Exposed POST /api/games/{slug}/il2cpp/dump and GET /api/games/{slug}/il2cpp/index in app/routers/library.py.
+  - Added Generate & Index IL2CPP Dump button (#btn-generate-il2cpp-dump) and symbol/enum count badge (#il2cpp-index-count-badge) in app/templates/partials/active_game.html, app/static/js/active_game.js, and app/static/js/library.js.
+  - Added test_il2cpp_dumper_runner_and_structured_index in tests/test_mcp.py (50/50 passed).
+
+## 2026-11-25 17:54 — v0.1.40
+
+- **Prompt**: Upgrade Unity IL2CPP bridge & metadata endpoint discovery for multi-instance characters, nested stats containers, RPG vocabulary, and boilerplate filtering
+- **AG Feedback**: Upgraded engine_endpoints_reference.json, endpoint_parsers.py, endpoint_applier.py, endpoints.py, and tests/test_mcp.py; full pytest suite passed (49 passed).
+- **Version Changes**:
+  - Added RPG/tactical stat patterns (*.Armor, *.Shield, *.Block, *.ActionPoints, *.Mana, *.Energy, *.Stamina, *.Movement, *.Initiative, *.Cooldown*, *.Crit*, *.Gold, *.Currency, *.XP, *.HandSize*, *.Deck*) to app/data/engine_endpoints_reference.json.
+  - Expanded RPG keyword weights and dump.cs/script.json discovery across BepInEx/interop and tools/ (filtering UnityEngine.*, System.*, TMPro.*, Il2CppInterop.*, BepInEx.*) in app/services/endpoint_parsers.py.
+  - Added dotted nested member path traversal (_traverse_nested_payload, _read_bridge_member_with_dotted_fallback, instance-aware _resolve_bridge_go_id) in app/services/endpoint_applier.py.
+  - Added multi-instance character enumeration, depth-2 container inspection, runtime type reflection (discover_live_bepinex_via_reflection), BepInEx.cfg/BepInExMCP.IL2CPP.cfg filtering, and diagnostic exclusion from gameplay total_count in app/services/endpoints.py.
+  - Added test_unity_multi_instance_nested_stats_reflection_and_boilerplate_filter in tests/test_mcp.py (49/49 passed).
+
 ## 2026-11-25 17:36 — v0.1.40
 
 - **Prompt**: Fix 404 Not Found error for unity_explorer_il2cpp and replace hardcoded GitHub release URLs with dynamic GitHub Releases API resolution and resilient batch install
