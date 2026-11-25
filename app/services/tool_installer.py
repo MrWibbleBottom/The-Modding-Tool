@@ -25,6 +25,7 @@ from app.core.config import (
     atomic_write_json,
     get_app_data_root,
     get_bepinex_bridge_roots,
+    load_json_sanitized,
     load_managed_games,
     save_managed_games,
     sha256_file,
@@ -301,7 +302,8 @@ async def install_modding_tool_impl(
 def _load_tool_versions() -> dict[str, Any]:
     if TOOL_VERSIONS_PATH.is_file():
         try:
-            return json.loads(TOOL_VERSIONS_PATH.read_text(encoding="utf-8"))
+            data = load_json_sanitized(TOOL_VERSIONS_PATH, persist=True)
+            return data if isinstance(data, dict) else {}
         except Exception:
             pass
     return {}

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -68,12 +69,58 @@ DEFAULT_BEPINEX_ZIP = _resolve_default_bepinex_zip()
 DEFAULT_BEPINEX_SHA256 = "5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4"
 
 
-def migrate_legacy_appdata(new_root: Path, legacy_root: Path) -> bool:
+_LEGACY_UNPREFIXED_MCP_RE = re.compile(r"The-Modding-Tool([\\/])bepinex-mcp(?![\\/]?bridges)")
+_LEGACY_MCP_VENV_RE = re.compile(r"bridges[\\/]bepinex-mcp[\\/]\.venv")
+
+
+def _sanitize_legacy_string(value: str) -> str:
+    cleaned = value.replace("Battleground", "The-Modding-Tool")
+    cleaned = cleaned.replace("ModToolPoC", "TheModdingTool")
+    cleaned = _LEGACY_UNPREFIXED_MCP_RE.sub(r"The-Modding-Tool\1bridges\1bepinex-mcp", cleaned)
+    cleaned = _LEGACY_MCP_VENV_RE.sub(".venv", cleaned)
+    return cleaned
+
+
+def sanitize_legacy_paths(obj: Any) -> Any:
+    """Recursively normalize legacy workspace/AppData/bridge paths inside loaded JSON structures."""
+    if isinstance(obj, str):
+        return _sanitize_legacy_string(obj)
+    if isinstance(obj, list):
+        return [sanitize_legacy_paths(item) for item in obj]
+    if isinstance(obj, dict):
+        return {k: sanitize_legacy_paths(v) for k, v in obj.items()}
+    return obj
+
+
+def load_json_sanitized(path: Path, default: Any = None, *, persist: bool = True) -> Any:
+    """Load JSON from *path*, normalize legacy paths via `sanitize_legacy_paths`, and save atomically if changed."""
+    target = Path(path)
+    if not target.is_file():
+        return default
+    raw = json.loads(target.read_text(encoding="utf-8"))
+    cleaned = sanitize_legacy_paths(raw)
+    if persist and cleaned != raw:
+        try:
+            atomic_write_json(target, cleaned)
+        except OSError:
+            pass
+    return cleaned
+
+
+def migrate_legacy_appdata(new_root: Path, legacy_root: Path | None = None) -> bool:
     """One-time migration copying `%LOCALAPPDATA%\\ModToolPoC\\` to `new_root` when `new_root` does not yet exist."""
+    if legacy_root is None:
+        local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        legacy_root = Path(local_app_data) / "ModToolPoC"
     if new_root.exists() or not legacy_root.is_dir():
         return False
     try:
         shutil.copytree(legacy_root, new_root, dirs_exist_ok=True)
+        for json_file in new_root.rglob("*.json"):
+            try:
+                load_json_sanitized(json_file, persist=True)
+            except Exception:
+                continue
         return True
     except OSError:
         return False
@@ -87,9 +134,8 @@ def get_app_data_root() -> Path:
         return root
     local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     root = Path(local_app_data) / "TheModdingTool"
-    legacy_root = Path(local_app_data) / "ModToolPoC"
     try:
-        migrate_legacy_appdata(root, legacy_root)
+        migrate_legacy_appdata(root)
         root.mkdir(parents=True, exist_ok=True)
         # Verify directory is actually accessible/writable
         (root / "manifests").mkdir(parents=True, exist_ok=True)
@@ -152,9 +198,10 @@ def _resolve_default_mcp_app() -> str:
 
 
 def _resolve_default_venv_python() -> str:
-    candidates = [WORKSPACE_DIR / ".venv" / "Scripts" / "python.exe"]
-    for root in get_bepinex_bridge_roots():
-        candidates.append(root / ".venv" / "Scripts" / "python.exe")
+    candidates = [
+        WORKSPACE_DIR / ".venv" / "Scripts" / "python.exe",
+        RESOURCE_ROOT / ".venv" / "Scripts" / "python.exe",
+    ]
     for c in candidates:
         if _safe_is_file(c):
             return str(c)
@@ -273,9 +320,13 @@ def load_managed_games() -> dict[str, Any]:
         save_managed_games(data)
         return data
     try:
-        data = json.loads(GAMES_STORE_PATH.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or not isinstance(data.get("games"), list):
+        raw = json.loads(GAMES_STORE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or not isinstance(raw.get("games"), list):
             raise ValueError("Invalid managed_games.json structure")
+        data = sanitize_legacy_paths(raw)
+        if data != raw:
+            atomic_write_json(GAMES_STORE_PATH, data)
+            invalidate_games_cache()
         for g in data["games"]:
             g.setdefault("pinned", False)
             g.setdefault("hidden", False)

@@ -66,6 +66,7 @@ from app.core.config import (
     default_managed_games,
     get_app_data_root,
     invalidate_games_cache,
+    load_json_sanitized,
     load_managed_games,
     manifest_path_for_game,
     save_managed_games,
@@ -251,7 +252,7 @@ def load_repo_config() -> dict[str, Any]:
     changed = not file_existed
     if file_existed:
         try:
-            raw = json.loads(REPO_CONFIG_PATH.read_text(encoding="utf-8"))
+            raw = load_json_sanitized(REPO_CONFIG_PATH, persist=True)
             if isinstance(raw, dict):
                 for k in defaults:
                     if raw.get(k) is not None and str(raw.get(k)).strip() != "":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import unittest
@@ -208,6 +209,55 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("unreal-settings-section", (js_dir / "unreal_panel.js").read_text(encoding="utf-8"))
         self.assertIn("card-provision-restore", active_txt)
         self.assertIn("card-live-mcp", active_txt)
+
+    def test_no_legacy_workspace_names_or_paths(self) -> None:
+        scan_files: list[Path] = []
+        for folder in (ROOT / "app", ROOT / "tests"):
+            for p in folder.rglob("*"):
+                if p.is_file() and "__pycache__" not in p.parts and p.suffix.lower() in (".py", ".html", ".js", ".css", ".bat"):
+                    scan_files.append(p)
+        for root_file in ("package_windows.py", "backup_manager.py", "version_manager.py", "run_server.py", "start_app.bat"):
+            fp = ROOT / root_file
+            if fp.is_file():
+                scan_files.append(fp)
+
+        legacy_poc_rx = re.compile(r"poc[-_]ui|POC_DIR", re.IGNORECASE)
+        legacy_venv_rx = re.compile(r"bepinex-mcp[/\\]\.venv", re.IGNORECASE)
+        unprefixed_ws_mcp_rx = re.compile(r"(?:The-Modding-Tool|Battleground)[/\\]bepinex-mcp(?![/\\]?bridges)", re.IGNORECASE)
+
+        cfg_allowed_lines: set[int] = set()
+        cfg_tree = ast.parse((ROOT / "app" / "core" / "config.py").read_text(encoding="utf-8"))
+        for node in cfg_tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in ("_sanitize_legacy_string", "migrate_legacy_appdata"):
+                cfg_allowed_lines.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+            elif isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name) and tgt.id in ("_LEGACY_UNPREFIXED_MCP_RE", "_LEGACY_MCP_VENV_RE"):
+                        cfg_allowed_lines.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+
+        for fpath in sorted(set(scan_files)):
+            rel = fpath.relative_to(ROOT).as_posix()
+            if rel in ("tests/test_frontend_contracts.py", "tests/test_security.py"):
+                continue
+            txt = fpath.read_text(encoding="utf-8", errors="ignore")
+            self.assertIsNone(legacy_poc_rx.search(txt), f"Legacy poc-ui/POC_DIR reference found in {rel}")
+
+            for lineno, line in enumerate(txt.splitlines(), 1):
+                if rel == "app/core/config.py" and lineno in cfg_allowed_lines:
+                    continue
+                if rel == "app/static/js/state.js" and "replace" in line:
+                    continue
+                if "Battleground" in line:
+                    self.fail(f"Legacy 'Battleground' reference found at {rel}:{lineno}: {line.strip()}")
+                if "ModToolPoC" in line and not (rel == "tests/test_discovery.py" and "ModToolPoC" in line):
+                    self.fail(f"Legacy 'ModToolPoC' reference found at {rel}:{lineno}: {line.strip()}")
+                if legacy_venv_rx.search(line):
+                    self.fail(f"Legacy bridges/bepinex-mcp/.venv reference found at {rel}:{lineno}: {line.strip()}")
+                if unprefixed_ws_mcp_rx.search(line):
+                    self.fail(f"Un-prefixed workspace bepinex-mcp path found at {rel}:{lineno}: {line.strip()}")
+
+        main_js = (ROOT / "app" / "static" / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertIn("sanitizeBrowserLocalStorage()", main_js)
 
 
 if __name__ == "__main__":

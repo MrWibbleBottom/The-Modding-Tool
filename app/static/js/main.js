@@ -5,6 +5,7 @@ import * as library from "./library.js";
 import * as analyzer from "./analyzer.js";
 import * as mcp from "./mcp.js";
 import * as appMgmt from "./app_mgmt.js";
+import { sanitizeBrowserLocalStorage, sanitizeLegacyPaths } from "./state.js";
 
 // Expose handlers globally for inline HTML event attributes (onclick/onchange/oninput)
 Object.assign(
@@ -14,7 +15,10 @@ Object.assign(
   analyzer,
   mcp,
   appMgmt,
+  { sanitizeBrowserLocalStorage, sanitizeLegacyPaths },
 );
+
+sanitizeBrowserLocalStorage();
 
 api.appHooks.onTabSwitch = (tabName) => {
   if (tabName === "logs") appMgmt.loadLogs();

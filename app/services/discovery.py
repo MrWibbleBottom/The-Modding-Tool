@@ -25,6 +25,7 @@ from app.core.config import (
     STEAM_ASSETS_CACHE,
     STEAM_ASSETS_CACHE_PATH,
     atomic_write_json,
+    load_json_sanitized,
 )
 from app.core.constants import (
     ANTI_CHEAT_BINARIES,
@@ -83,7 +84,7 @@ def lookup_sheet_reference(product_name: str, folder_name: str) -> dict[str, str
 def load_scan_exclusions() -> set[str]:
     if SCAN_EXCLUSIONS_PATH.is_file():
         try:
-            data = json.loads(SCAN_EXCLUSIONS_PATH.read_text(encoding="utf-8"))
+            data = load_json_sanitized(SCAN_EXCLUSIONS_PATH, persist=True)
             if isinstance(data, list):
                 return {str(x).strip().lower() for x in data if str(x).strip()}
         except Exception:
@@ -142,7 +143,9 @@ def _find_steam_appid_and_assets(game_dir: Path) -> tuple[str | None, dict[str, 
     cache_key = str(game_dir).lower()
     if not STEAM_ASSETS_CACHE and STEAM_ASSETS_CACHE_PATH.is_file():
         try:
-            STEAM_ASSETS_CACHE.update(json.loads(STEAM_ASSETS_CACHE_PATH.read_text(encoding="utf-8")))
+            loaded_assets = load_json_sanitized(STEAM_ASSETS_CACHE_PATH, persist=True)
+            if isinstance(loaded_assets, dict):
+                STEAM_ASSETS_CACHE.update(loaded_assets)
         except Exception:
             pass
     if cache_key in STEAM_ASSETS_CACHE:
@@ -615,7 +618,7 @@ def load_library_cache() -> dict[str, Any]:
     }
     if LIBRARY_CACHE_PATH.is_file():
         try:
-            raw = json.loads(LIBRARY_CACHE_PATH.read_text(encoding="utf-8"))
+            raw = load_json_sanitized(LIBRARY_CACHE_PATH, persist=True)
             if isinstance(raw, dict):
                 default_data["entries"] = raw.get("entries", []) if isinstance(raw.get("entries"), list) else []
                 default_data["custom_roots"] = raw.get("custom_roots", []) if isinstance(raw.get("custom_roots"), list) else []

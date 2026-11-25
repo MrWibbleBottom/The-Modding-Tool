@@ -72,3 +72,63 @@ export function getUiVisibility() {
   }
   return {};
 }
+
+export function sanitizeLegacyPaths(value) {
+  if (typeof value === "string") {
+    return value
+      .replaceAll("Battleground", "The-Modding-Tool")
+      .replaceAll("ModToolPoC", "TheModdingTool")
+      .replace(/The-Modding-Tool([\\/])bepinex-mcp(?![\\/]?bridges)/g, "The-Modding-Tool$1bridges$1bepinex-mcp")
+      .replace(/bridges[\\/]bepinex-mcp[\\/]\.venv/g, ".venv");
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeLegacyPaths(item));
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = sanitizeLegacyPaths(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+export function sanitizeBrowserLocalStorage() {
+  if (typeof localStorage === "undefined") return 0;
+  let updated = 0;
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      if (typeof raw !== "string" || !raw) continue;
+      let nextVal = raw;
+      const trimmed = raw.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(raw);
+          const cleaned = sanitizeLegacyPaths(parsed);
+          const serialized = JSON.stringify(cleaned);
+          if (serialized !== JSON.stringify(parsed)) {
+            nextVal = serialized;
+          }
+        } catch {
+          nextVal = sanitizeLegacyPaths(raw);
+        }
+      } else {
+        nextVal = sanitizeLegacyPaths(raw);
+      }
+      if (nextVal !== raw) {
+        localStorage.setItem(key, nextVal);
+        updated += 1;
+      }
+    }
+  } catch {
+    // Ignore storage access errors in restricted browser modes
+  }
+  return updated;
+}

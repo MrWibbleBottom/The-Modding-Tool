@@ -43,6 +43,7 @@ from app.core.config import (
     clear_pc_specs_cache,
     get_app_data_root,
     invalidate_games_cache,
+    load_json_sanitized,
     load_managed_games,
     sha256_text,
 )
@@ -497,7 +498,8 @@ async def health_check() -> JSONResponse:
 def _load_dev_mode() -> bool:
     if DEV_MODE_PATH.is_file():
         try:
-            return bool(json.loads(DEV_MODE_PATH.read_text(encoding="utf-8")).get("enabled", False))
+            data = load_json_sanitized(DEV_MODE_PATH, persist=True)
+            return bool((data or {}).get("enabled", False)) if isinstance(data, dict) else False
         except Exception:
             return False
     return False

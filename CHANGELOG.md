@@ -2,6 +2,17 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 15:12 — v0.1.40
+
+- **Prompt**: Perform full-stack audit and automatic migration for legacy names and paths (Battleground, ModToolPoC, poc-ui, un-prefixed bepinex-mcp, bepinex-mcp/.venv)
+- **AG Feedback**: Completed repo-wide audit removing legacy bridges/bepinex-mcp/.venv fallbacks in start_app.bat and app/core/config.py, implemented recursive sanitize_legacy_paths() and load_json_sanitized() across AppData config loaders and migrate_legacy_appdata(), added browser localStorage sanitization on startup in state.js/main.js, and added regression tests in test_frontend_contracts.py and test_security.py; all 36 pytest tests pass.
+- **Version Changes**:
+  - Removed bridges/bepinex-mcp/.venv fallbacks from start_app.bat and app/core/config.py
+  - Added sanitize_legacy_paths() and load_json_sanitized() to app/core/config.py; wired into migrate_legacy_appdata() and load_managed_games()
+  - Updated AppData JSON loaders in app/routers/{branding.py,git_sync.py,system.py} and app/services/{discovery.py,pc_specs.py,tool_installer.py} to auto-sanitize and atomically persist cleaned configs
+  - Added sanitizeLegacyPaths() and sanitizeBrowserLocalStorage() in app/static/js/state.js and invoked at startup in app/static/js/main.js
+  - Added regression tests in tests/test_frontend_contracts.py and tests/test_security.py
+
 ## 2026-11-25 14:57 — v0.1.40
 
 - **Prompt**: Implement remaining Phase 3B modding workflow features using dedicated service modules (jobs, unreal_ini, log_tail, ai-context, BDL loop)

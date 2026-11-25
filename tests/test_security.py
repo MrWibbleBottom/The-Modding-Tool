@@ -256,6 +256,64 @@ class SecurityTests(unittest.TestCase):
             )
             self.assertEqual(r_bad_snap.status_code, 400)
 
+    def test_sanitize_legacy_paths_and_appdata_sanitization(self) -> None:
+        raw_plugin = r"D:\Downloads\Battleground\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0"
+        expected_plugin = r"D:\Downloads\The-Modding-Tool\bridges\bepinex-mcp\plugins\BepInExMCP.IL2CPP\bin\Release\net6.0"
+        self.assertEqual(core_config.sanitize_legacy_paths(raw_plugin), expected_plugin)
+
+        sample_obj = {
+            "mcp_app": "D:/Downloads/Battleground/bepinex-mcp/mcp/ModdersHelperApp.py",
+            "venv_python": r"D:\Downloads\Battleground\bepinex-mcp\.venv\Scripts\python.exe",
+            "app_data": r"C:\Users\demo\AppData\Local\ModToolPoC\managed_games.json",
+            "tools_dir": r"C:\Users\demo\AppData\Local\TheModdingTool\tools\bepinex-mcp",
+            "release_url": "https://github.com/rkuhn153/bepinex-mcp",
+            "nested": [raw_plugin],
+        }
+        cleaned = core_config.sanitize_legacy_paths(sample_obj)
+        self.assertEqual(
+            cleaned["mcp_app"],
+            "D:/Downloads/The-Modding-Tool/bridges/bepinex-mcp/mcp/ModdersHelperApp.py",
+        )
+        self.assertEqual(cleaned["venv_python"], r"D:\Downloads\The-Modding-Tool\.venv\Scripts\python.exe")
+        self.assertEqual(cleaned["app_data"], r"C:\Users\demo\AppData\Local\TheModdingTool\managed_games.json")
+        self.assertEqual(cleaned["tools_dir"], r"C:\Users\demo\AppData\Local\TheModdingTool\tools\bepinex-mcp")
+        self.assertEqual(cleaned["release_url"], "https://github.com/rkuhn153/bepinex-mcp")
+        self.assertEqual(cleaned["nested"], [expected_plugin])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            legacy_dir = tmp_dir / "ModToolPoC"
+            new_dir = tmp_dir / "TheModdingTool"
+            legacy_dir.mkdir(parents=True, exist_ok=True)
+            stale_cfg = {
+                "active_game_id": "battleground",
+                "games": [
+                    {
+                        "id": "battleground",
+                        "plugin_build_dir": raw_plugin,
+                        "venv_python": r"D:\Downloads\Battleground\bepinex-mcp\.venv\Scripts\python.exe",
+                    }
+                ],
+            }
+            (legacy_dir / "managed_games.json").write_text(json.dumps(stale_cfg), encoding="utf-8")
+            migrated = core_config.migrate_legacy_appdata(new_dir, legacy_dir)
+            self.assertTrue(migrated)
+            migrated_data = json.loads((new_dir / "managed_games.json").read_text(encoding="utf-8"))
+            self.assertEqual(migrated_data["games"][0]["plugin_build_dir"], expected_plugin)
+            self.assertEqual(
+                migrated_data["games"][0]["venv_python"],
+                r"D:\Downloads\The-Modding-Tool\.venv\Scripts\python.exe",
+            )
+
+            # Also verify load_managed_games() auto-cleans and atomically persists stale JSON on disk
+            store_file = new_dir / "managed_games.json"
+            store_file.write_text(json.dumps(stale_cfg), encoding="utf-8")
+            with patch.object(core_config, "GAMES_STORE_PATH", store_file):
+                loaded = core_config.load_managed_games()
+            self.assertEqual(loaded["games"][0]["plugin_build_dir"], expected_plugin)
+            persisted = json.loads(store_file.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["games"][0]["plugin_build_dir"], expected_plugin)
+
 
 if __name__ == "__main__":
     unittest.main()

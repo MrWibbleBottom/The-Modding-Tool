@@ -16,9 +16,6 @@ set "PY_ARGS="
 if exist "%~dp0.venv\Scripts\python.exe" (
     set "PY_EXE=%~dp0.venv\Scripts\python.exe"
     if exist "%~dp0.venv\Scripts\pythonw.exe" set "PYW_EXE=%~dp0.venv\Scripts\pythonw.exe"
-) else if exist "%~dp0bridges\bepinex-mcp\.venv\Scripts\python.exe" (
-    set "PY_EXE=%~dp0bridges\bepinex-mcp\.venv\Scripts\python.exe"
-    if exist "%~dp0bridges\bepinex-mcp\.venv\Scripts\pythonw.exe" set "PYW_EXE=%~dp0bridges\bepinex-mcp\.venv\Scripts\pythonw.exe"
 ) else (
     for /f "delims=" %%i in ('where python 2^>nul') do (
         if not defined PY_EXE set "PY_EXE=%%i"

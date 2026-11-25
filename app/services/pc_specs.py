@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.core.config import PC_SPECS_CACHE_PATH, atomic_write_json
+from app.core.config import PC_SPECS_CACHE_PATH, atomic_write_json, load_json_sanitized
 
 _PC_SPECS_MEM_CACHE: dict[str, Any] | None = None
 
@@ -26,7 +26,7 @@ def scrape_pc_specs(force_refresh: bool = False) -> dict[str, Any]:
         return _PC_SPECS_MEM_CACHE
     if not force_refresh and PC_SPECS_CACHE_PATH.is_file():
         try:
-            cached = json.loads(PC_SPECS_CACHE_PATH.read_text(encoding="utf-8"))
+            cached = load_json_sanitized(PC_SPECS_CACHE_PATH, persist=True)
             if isinstance(cached, dict) and cached.get("cpu") and cached.get("gpu"):
                 _PC_SPECS_MEM_CACHE = cached
                 return cached

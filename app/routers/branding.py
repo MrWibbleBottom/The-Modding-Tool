@@ -66,6 +66,7 @@ from app.core.config import (
     default_managed_games,
     get_app_data_root,
     invalidate_games_cache,
+    load_json_sanitized,
     load_managed_games,
     manifest_path_for_game,
     save_managed_games,
@@ -131,7 +132,7 @@ async def get_app_ui_config() -> dict[str, Any]:
     cfg = default_app_ui_config()
     if APP_UI_CONFIG_PATH.is_file():
         try:
-            saved = json.loads(APP_UI_CONFIG_PATH.read_text(encoding="utf-8"))
+            saved = load_json_sanitized(APP_UI_CONFIG_PATH, persist=True)
             if isinstance(saved, dict):
                 for k in ("app_name", "app_subtitle", "accent_color", "compact_mode", "startup_tab", "banner_image_url", "banner_height_px", "favicon_url"):
                     if k in saved:
@@ -366,7 +367,7 @@ def load_ui_settings() -> dict[str, Any]:
     }
     if UI_SETTINGS_PATH.is_file():
         try:
-            raw = json.loads(UI_SETTINGS_PATH.read_text(encoding="utf-8"))
+            raw = load_json_sanitized(UI_SETTINGS_PATH, persist=True)
             if isinstance(raw, dict):
                 defaults.update(raw)
         except Exception:
