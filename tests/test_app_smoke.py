@@ -1334,6 +1334,51 @@ class AppSmokeTests(unittest.TestCase):
         self.assertIn("export async function confirmPushAppToGitHub()", js)
         self.assertIn("`Push to ${branch}`", js)
 
+    def test_refactored_architecture_and_packaging_bundles(self) -> None:
+        import package_windows
+        from app.core import constants
+        from app.engines import (
+            GENERIC_ADAPTER,
+            UNITY_ADAPTER,
+            UNREAL_ADAPTER,
+            EngineAdapter,
+            detect_engine_for_dir,
+        )
+        from app.services import discovery, game_store, mod_builder, pc_specs, tool_installer
+
+        for const_name in (
+            "_UE_QUALITY_LABELS",
+            "NON_GAME_STEAM_APPIDS",
+            "NON_GAME_NAME_PATTERNS",
+            "NON_GAME_LOCALAPPDATA_FOLDERS",
+            "ENGINE_TOOL_MATRIX",
+            "PLUGIN_DEPLOY_FILES",
+        ):
+            self.assertTrue(hasattr(constants, const_name), f"Missing shared constant {const_name}")
+
+        for adapter in (UNITY_ADAPTER, UNREAL_ADAPTER, GENERIC_ADAPTER):
+            self.assertIsInstance(adapter, EngineAdapter)
+            for method_name in ("detect", "fingerprint", "discover_configs", "check_readiness", "get_log_paths"):
+                self.assertTrue(callable(getattr(adapter, method_name)))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = Path(tmp)
+            self.assertEqual(detect_engine_for_dir(tdir).engine_id, "generic")
+
+        for mod in (discovery, game_store, mod_builder, pc_specs, tool_installer):
+            self.assertIsNotNone(mod)
+
+        # Ensure zero cross-router imports exist inside app/routers/
+        for rfile in (ROOT / "app" / "routers").glob("*.py"):
+            src = rfile.read_text(encoding="utf-8")
+            self.assertNotIn("app.routers", src, f"{rfile.name} should not cross-import another router")
+
+        cmd = package_windows.build_pyinstaller_command()
+        self.assertTrue(any("app/engines" in arg for arg in cmd))
+        self.assertTrue(any("app/services" in arg for arg in cmd))
+        self.assertIn("app.engines", cmd)
+        self.assertIn("app.services", cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

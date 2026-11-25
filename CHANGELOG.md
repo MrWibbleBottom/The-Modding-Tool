@@ -2,6 +2,18 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 11:52 — v0.1.40
+
+- **Prompt**: Refactor oversized backend routers (`app/routers/library.py`, `system.py`, `mcp_bridge.py`) into `app/core/constants.py`, `app/engines/`, and `app/services/` while preserving all API routes, schemas, and packaging, and run an AST undefined-name scan + full test suite.
+- **AG Feedback**: Extracted shared constants into `app/core/constants.py` (eliminating all cross-router imports), built the `EngineAdapter` interface and Unity/Unreal/Generic adapters under `app/engines/`, moved discovery/store/installer/mod-builder/PC-specs logic into `app/services/`, slimmed all routers while preserving backwards-compatible re-exports, fixed a latent Mono `NameError` caught by the AST scan (`req.mod_id`, `req.mod_name`, `req.mod_version`, `req.apply_interval_sec`), verified `package_windows.py` bundles `app/engines/` and `app/services/`, and verified all 28 tests plus `/api/health` pass.
+- **Version Changes**:
+  - Added `app/core/constants.py` (`_UE_QUALITY_LABELS`, `NON_GAME_STEAM_APPIDS`, `NON_GAME_NAME_PATTERNS`, `NON_GAME_LOCALAPPDATA_FOLDERS`, `ENGINE_TOOL_MATRIX`, `PLUGIN_DEPLOY_FILES`, `UNREAL_HARDWARE_REFERENCE_ARRAY`, `ANTI_CHEAT_BINARIES`) and re-exported cleanly from `app/core/config.py`.
+  - Added `app/engines/` (`__init__.py`, `base.py`, `unity.py`, `unreal.py`, `generic.py`) implementing `EngineAdapter` (`detect`, `fingerprint`, `discover_configs`, `check_readiness`, `get_log_paths`).
+  - Added `app/services/` (`__init__.py`, `discovery.py`, `game_store.py`, `tool_installer.py`, `mod_builder.py`, `pc_specs.py`) and fixed undefined Mono C# generator variable references in `mod_builder.py`.
+  - Refactored `app/routers/library.py` (4,480 → ~695 lines), `app/routers/system.py` (1,650 → ~390 lines), `app/routers/mcp_bridge.py` (1,469 → ~420 lines), and `app/routers/asset_audit.py` with zero cross-router imports.
+  - Updated `package_windows.py` (`build_pyinstaller_command`) to bundle and collect submodules for `app/engines/` and `app/services/`.
+  - Added `test_refactored_architecture_and_packaging_bundles` in `tests/test_app_smoke.py`.
+
 ## 2026-11-25 11:31 — v0.1.40
 
 - **Prompt**: In the GitHub Manager, add an option to pull available branches, add the available branches to the push option as a prepopulated pulldown menu, and add a pop-up warning before pushing stating which branch is being pushed to with `"Push to [branch]"` and `"Cancel Push"`.

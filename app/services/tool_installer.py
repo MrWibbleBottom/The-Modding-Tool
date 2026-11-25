@@ -1,0 +1,471 @@
+"""Tool/loader installation, status reporting, and checksum-verified upgrade helpers."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import urllib.request
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+from fastapi import HTTPException
+
+from app.core.audit import append_audit_log
+from app.core.config import (
+    DEFAULT_BEPINEX_SHA256,
+    DEFAULT_BEPINEX_ZIP,
+    DEFAULT_GAME_DIR,
+    DEFAULT_PLUGIN_BUILD_DIR,
+    TOOL_VERSIONS_PATH,
+    TOOLS_ROOT,
+    WORKSPACE_DIR,
+    atomic_write_json,
+    get_app_data_root,
+    get_bepinex_bridge_roots,
+    load_managed_games,
+    save_managed_games,
+    sha256_file,
+    sha256_text,
+)
+from app.core.constants import PLUGIN_DEPLOY_FILES
+from app.services.game_store import enrich_game_status, inspect_game_modding_info
+
+
+async def _download_and_extract_zip(url: str, target_dir: Path, archive_name: str) -> tuple[Path, str, int]:
+    """Download a zip archive over HTTPS, compute its SHA-256, and extract it into *target_dir*."""
+    import httpx
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = target_dir / archive_name
+    async with httpx.AsyncClient(follow_redirects=True, timeout=90.0) as client:
+        resp = await client.get(url, headers={"User-Agent": "TheModdingTool/1.0"})
+        resp.raise_for_status()
+        archive_path.write_bytes(resp.content)
+
+    file_hash = sha256_file(archive_path)
+    extracted_count = 0
+    if archive_name.lower().endswith(".zip") and zipfile.is_zipfile(archive_path):
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            zf.extractall(target_dir)
+            extracted_count = len(zf.namelist())
+    return (archive_path, file_hash, extracted_count)
+
+
+async def _install_github_release_tool(
+    repo: str,
+    target_dir: Path,
+    asset_keyword: str = ".zip",
+) -> tuple[str, str, int]:
+    """Query GitHub latest release API for *repo*, download matching asset, and extract if zip."""
+    import httpx
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        resp = await client.get(api_url, headers={"User-Agent": "TheModdingTool/1.0"})
+        resp.raise_for_status()
+        rel = resp.json()
+
+    tag_name = rel.get("tag_name", "latest")
+    assets = rel.get("assets", []) or []
+    chosen_asset = None
+    for a in assets:
+        aname = str(a.get("name", "")).lower()
+        if asset_keyword.lower() in aname and aname.endswith(".zip"):
+            chosen_asset = a
+            break
+    if chosen_asset is None:
+        for a in assets:
+            aname = str(a.get("name", "")).lower()
+            if aname.endswith(".zip"):
+                chosen_asset = a
+                break
+    if chosen_asset is None and assets:
+        chosen_asset = assets[0]
+
+    if chosen_asset and chosen_asset.get("browser_download_url"):
+        dl_url = chosen_asset["browser_download_url"]
+        aname = chosen_asset.get("name", f"{repo.replace('/', '_')}_{tag_name}.zip")
+        _, file_hash, count = await _download_and_extract_zip(dl_url, target_dir, aname)
+        (target_dir / "release_info.json").write_text(
+            json.dumps({"repo": repo, "tag": tag_name, "asset": aname, "download_url": dl_url}, indent=2),
+            encoding="utf-8",
+        )
+        return (f"{aname} ({tag_name})", file_hash, count)
+
+    info_file = target_dir / "release_info.json"
+    info_text = json.dumps(
+        {"repo": repo, "tag": tag_name, "html_url": rel.get("html_url", f"https://github.com/{repo}/releases")},
+        indent=2,
+    )
+    info_file.write_text(info_text, encoding="utf-8")
+    return (f"{repo} ({tag_name})", sha256_text(info_text), 1)
+
+
+async def install_modding_tool_impl(
+    tool_id_raw: str,
+    game_id: str,
+    game_dir_str: str,
+    *,
+    pc_specs_fn: Callable[[bool], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Install or deploy a modding tool/app for the active game or tools directory."""
+    tool_id = tool_id_raw.strip().lower()
+    game_dir = Path(game_dir_str.strip()) if game_dir_str.strip() else Path(DEFAULT_GAME_DIR)
+    dir_exists = game_dir.is_dir()
+
+    try:
+        if tool_id == "bepinex_il2cpp":
+            zip_path = Path(DEFAULT_BEPINEX_ZIP)
+            if not zip_path.is_file():
+                raise HTTPException(status_code=400, detail=f"Local BepInEx 6 IL2CPP zip not found at {zip_path}")
+            dest_dir = game_dir if dir_exists else (TOOLS_ROOT / "BepInEx6_IL2CPP")
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(dest_dir)
+                count = len(zf.namelist())
+            h = sha256_file(zip_path)
+            msg = f"Extracted BepInEx 6 IL2CPP ({count} files) into {dest_dir}"
+
+        elif tool_id == "bepinex_mcp_il2cpp":
+            build_dir = Path(DEFAULT_PLUGIN_BUILD_DIR)
+            if not build_dir.is_dir():
+                raise HTTPException(status_code=400, detail=f"Plugin build directory not found: {build_dir}")
+            dest_dir = (
+                (game_dir / "BepInEx" / "plugins" / "BepInExMCP.IL2CPP")
+                if dir_exists
+                else (TOOLS_ROOT / "BepInExMCP.IL2CPP")
+            )
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            copied = 0
+            for fname in PLUGIN_DEPLOY_FILES:
+                src = build_dir / fname
+                if src.is_file():
+                    shutil.copy2(src, dest_dir / fname)
+                    copied += 1
+            main_dll = dest_dir / "BepInExMCP.IL2CPP.dll"
+            h = sha256_file(main_dll) if main_dll.is_file() else sha256_text(str(dest_dir))
+            msg = f"Deployed BepInExMCP.IL2CPP + Roslyn ({copied} files) to {dest_dir}"
+
+        elif tool_id == "il2cpp_dumper":
+            dest_dir = TOOLS_ROOT / "Il2CppDumper"
+            url = "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip"
+            _, h, count = await _download_and_extract_zip(url, dest_dir, "Il2CppDumper-net6-v6.7.46.zip")
+            msg = f"Downloaded & extracted Il2CppDumper v6.7.46 ({count} files) to {dest_dir}"
+
+        elif tool_id == "unity_explorer_il2cpp":
+            dest_dir = (
+                (game_dir / "BepInEx")
+                if (dir_exists and (game_dir / "GameAssembly.dll").is_file())
+                else (TOOLS_ROOT / "UnityExplorer_IL2CPP")
+            )
+            url = "https://github.com/sinai-dev/UnityExplorer/releases/download/4.9.0/UnityExplorer.BepInEx6.IL2CPP.zip"
+            _, h, count = await _download_and_extract_zip(url, dest_dir, "UnityExplorer.BepInEx6.IL2CPP.zip")
+            msg = f"Installed UnityExplorer (BepInEx 6 IL2CPP, {count} files) to {dest_dir}"
+
+        elif tool_id == "bepinex_mono":
+            is_mono_game = dir_exists and not (game_dir / "GameAssembly.dll").is_file() and bool(list(game_dir.glob("*_Data")))
+            dest_dir = game_dir if is_mono_game else (TOOLS_ROOT / "BepInEx5_Mono")
+            url = "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.2/BepInEx_win_x64_5.4.23.2.zip"
+            _, h, count = await _download_and_extract_zip(url, dest_dir, "BepInEx_win_x64_5.4.23.2.zip")
+            msg = f"Installed BepInEx 5.4.23.2 (Unity Mono x64, {count} files) to {dest_dir}"
+
+        elif tool_id == "dnspy_ex":
+            dest_dir = TOOLS_ROOT / "dnSpyEx"
+            url = "https://github.com/dnSpyEx/dnSpy/releases/download/v6.5.1/dnSpy-net-win64.zip"
+            _, h, count = await _download_and_extract_zip(url, dest_dir, "dnSpy-net-win64.zip")
+            msg = f"Installed dnSpyEx v6.5.1 Win64 ({count} files) to {dest_dir}"
+
+        elif tool_id == "ue4ss":
+            dest_dir = TOOLS_ROOT / "UE4SS"
+            label, h, count = await _install_github_release_tool("UE4SS-RE/RE-UE4SS", dest_dir, "UE4SS")
+            msg = f"Installed RE-UE4SS [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "fmodel":
+            dest_dir = TOOLS_ROOT / "FModel"
+            label, h, count = await _install_github_release_tool("4sval/FModel", dest_dir, "FModel")
+            msg = f"Installed FModel [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "ghidra_mcp":
+            dest_dir = TOOLS_ROOT / "GhidraMCP"
+            label, h, count = await _install_github_release_tool("LaurieWired/GhidraMCP", dest_dir, "GhidraMCP")
+            msg = f"Installed GhidraMCP [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "x64dbg":
+            dest_dir = TOOLS_ROOT / "x64dbg"
+            label, h, count = await _install_github_release_tool("x64dbg/x64dbg", dest_dir, "snapshot")
+            msg = f"Installed x64dbg [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "gdre_tools":
+            dest_dir = TOOLS_ROOT / "GDRETools"
+            label, h, count = await _install_github_release_tool("GDRETools/gdsdecomp", dest_dir, "windows")
+            msg = f"Installed GDRE Tools [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "mod_engine_2":
+            dest_dir = TOOLS_ROOT / "ModEngine2"
+            label, h, count = await _install_github_release_tool("soulsmods/ModEngine2", dest_dir, "ModEngine")
+            msg = f"Installed Mod Engine 2 [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "reframework":
+            dest_dir = TOOLS_ROOT / "REFramework"
+            label, h, count = await _install_github_release_tool("praydog/REFramework", dest_dir, ".zip")
+            msg = f"Installed REFramework [{label}] ({count} files) to {dest_dir}"
+
+        elif tool_id == "xedit_creation":
+            dest_dir = TOOLS_ROOT / "xEdit"
+            label, h, count = await _install_github_release_tool("TES5Edit/TES5Edit", dest_dir, "Edit")
+            msg = f"Installed xEdit [{label}] ({count} files) to {dest_dir}"
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown modding tool_id: '{tool_id}'")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        append_audit_log(
+            action=f"tools.install.{tool_id}",
+            status="error",
+            summary=f"Failed to install modding tool '{tool_id}': {exc}",
+            details={"tool_id": tool_id, "game_id": game_id, "game_dir": str(game_dir)},
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to install '{tool_id}': {exc}") from exc
+
+    append_audit_log(
+        action=f"tools.install.{tool_id}",
+        status="ok",
+        summary=msg,
+        sha256=h,
+        details={"tool_id": tool_id, "install_dir": str(dest_dir), "game_id": game_id},
+    )
+
+    store = load_managed_games()
+    target = next((g for g in store.get("games", []) if g.get("id") == game_id), None)
+    if target and dir_exists:
+        scraped_info = inspect_game_modding_info(game_dir, str(target.get("name", "")), pc_specs_fn=pc_specs_fn)
+        scraped_info["metadata_scraped"] = True
+        target["cached_modding_info"] = scraped_info
+        target["metadata_scraped"] = True
+        save_managed_games(store)
+
+    return {
+        "status": "ok",
+        "tool_id": tool_id,
+        "install_dir": str(dest_dir),
+        "sha256": h,
+        "message": msg,
+        "game": enrich_game_status(target, pc_specs_fn=pc_specs_fn) if target else None,
+    }
+
+
+def _load_tool_versions() -> dict[str, Any]:
+    if TOOL_VERSIONS_PATH.is_file():
+        try:
+            return json.loads(TOOL_VERSIONS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_tool_versions(data: dict[str, Any]) -> None:
+    atomic_write_json(TOOL_VERSIONS_PATH, data)
+
+
+def get_modding_tools_status_impl() -> dict[str, Any]:
+    """Return local versions and SHA-256 checksums for deployed modding tools."""
+    saved = _load_tool_versions()
+    bep_zip = Path(DEFAULT_BEPINEX_ZIP)
+    bep_sha = sha256_file(bep_zip) if bep_zip.is_file() else None
+
+    plugin_dll = Path(DEFAULT_PLUGIN_BUILD_DIR) / "BepInExMCP.IL2CPP.dll"
+    plugin_sha = sha256_file(plugin_dll) if plugin_dll.is_file() else None
+
+    ue4ss_dir = get_app_data_root() / "tools" / "ue4ss"
+    melon_dir = get_app_data_root() / "tools" / "melonloader"
+
+    return {
+        "status": "ok",
+        "tools": [
+            {
+                "id": "bepinex6_il2cpp",
+                "name": "BepInEx 6 Unity.IL2CPP (x64)",
+                "present": bep_zip.is_file(),
+                "version": saved.get("bepinex6_il2cpp", {}).get("version", "6.0.0-be.793" if bep_zip.is_file() else "Not Cached"),
+                "path": str(bep_zip),
+                "sha256": bep_sha,
+                "expected_sha256": saved.get("bepinex6_il2cpp", {}).get("expected_sha256", DEFAULT_BEPINEX_SHA256),
+                "checksum_match": (bep_sha == saved.get("bepinex6_il2cpp", {}).get("expected_sha256", DEFAULT_BEPINEX_SHA256)) if bep_sha else False,
+            },
+            {
+                "id": "bepinex_mcp_plugin",
+                "name": "BepInExMCP.IL2CPP Bridge Plugin",
+                "present": plugin_dll.is_file(),
+                "version": saved.get("bepinex_mcp_plugin", {}).get("version", "Local Release Build" if plugin_dll.is_file() else "Not Built"),
+                "path": str(plugin_dll),
+                "sha256": plugin_sha,
+                "checksum_match": plugin_dll.is_file(),
+            },
+            {
+                "id": "ue4ss",
+                "name": "RE-UE4SS (Unreal Engine 4/5)",
+                "present": ue4ss_dir.is_dir() and any(ue4ss_dir.iterdir()),
+                "version": saved.get("ue4ss", {}).get("version", "Not Downloaded"),
+                "path": str(ue4ss_dir),
+                "sha256": saved.get("ue4ss", {}).get("sha256"),
+                "checksum_match": bool(saved.get("ue4ss", {}).get("sha256")),
+            },
+            {
+                "id": "melonloader",
+                "name": "MelonLoader (Unity Mono/IL2CPP)",
+                "present": melon_dir.is_dir() and any(melon_dir.iterdir()),
+                "version": saved.get("melonloader", {}).get("version", "Not Downloaded"),
+                "path": str(melon_dir),
+                "sha256": saved.get("melonloader", {}).get("sha256"),
+                "checksum_match": bool(saved.get("melonloader", {}).get("sha256")),
+            },
+        ],
+    }
+
+
+def upgrade_modding_tool_impl(
+    tool_id: str,
+    *,
+    require_https: bool = True,
+    require_checksum: bool = True,
+    expected_sha256: str = "",
+    custom_url: str = "",
+    keep_backup: bool = True,
+) -> dict[str, Any]:
+    """Upgrade a modding deployment tool with HTTPS, SHA-256 checksum, and backup options."""
+    tool_id = tool_id.strip()
+    saved = _load_tool_versions()
+    expected = expected_sha256.strip().lower()
+
+    if tool_id == "bepinex_mcp_plugin":
+        csproj = next(
+            (
+                root / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj"
+                for root in get_bepinex_bridge_roots()
+                if (root / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj").is_file()
+            ),
+            WORKSPACE_DIR / "bridges" / "bepinex-mcp" / "plugins" / "BepInExMCP.IL2CPP" / "BepInExMCP.IL2CPP.csproj",
+        )
+        if not csproj.is_file():
+            raise HTTPException(status_code=404, detail=f"Plugin project not found: {csproj}")
+        plugin_dll = Path(DEFAULT_PLUGIN_BUILD_DIR) / "BepInExMCP.IL2CPP.dll"
+        if keep_backup and plugin_dll.is_file():
+            bak = plugin_dll.with_suffix(f".dll.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            shutil.copy2(plugin_dll, bak)
+        proc = subprocess.run(
+            ["dotnet", "build", str(csproj), "-c", "Release", "--nologo"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if proc.returncode != 0 or not plugin_dll.is_file():
+            raise HTTPException(status_code=500, detail=f"dotnet build failed:\n{proc.stdout}\n{proc.stderr}")
+        new_sha = sha256_file(plugin_dll)
+        if require_checksum and expected and new_sha != expected:
+            raise HTTPException(status_code=400, detail=f"Checksum mismatch: expected {expected}, got {new_sha}")
+        saved["bepinex_mcp_plugin"] = {
+            "version": f"Release ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+            "sha256": new_sha,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _save_tool_versions(saved)
+        summary = f"Rebuilt BepInExMCP.IL2CPP Release plugin (SHA-256: {new_sha[:16]}...)"
+        append_audit_log(action="app.tools.upgrade", status="ok", summary=summary, sha256=new_sha, details={"tool_id": tool_id})
+        return {"status": "ok", "summary": summary, "sha256": new_sha, "build_output": proc.stdout[-1500:]}
+
+    repo_map = {
+        "bepinex6_il2cpp": ("BepInEx/BepInEx", "BepInEx-Unity.IL2CPP-win-x64"),
+        "ue4ss": ("UE4SS-RE/RE-UE4SS", "UE4SS"),
+        "melonloader": ("LavaGang/MelonLoader", "MelonLoader.x64"),
+    }
+    if tool_id not in repo_map:
+        raise HTTPException(status_code=400, detail=f"Unknown tool_id: {tool_id}")
+
+    repo, asset_prefix = repo_map[tool_id]
+    download_url = custom_url.strip()
+    release_tag = "custom"
+    github_digest = ""
+
+    if not download_url:
+        api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+        gh_req = urllib.request.Request(api_url, headers={"User-Agent": "TheModdingTool/1.0"})
+        try:
+            with urllib.request.urlopen(gh_req, timeout=20) as resp:
+                rel_data = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to query GitHub release for {repo}: {exc}")
+        release_tag = rel_data.get("tag_name") or "latest"
+        for asset in rel_data.get("assets", []):
+            name = asset.get("name", "")
+            if asset_prefix.lower() in name.lower() and name.lower().endswith(".zip"):
+                download_url = asset.get("browser_download_url", "")
+                digest = asset.get("digest") or ""
+                if digest.startswith("sha256:"):
+                    github_digest = digest.split(":", 1)[1].strip().lower()
+                break
+        if not download_url:
+            raise HTTPException(status_code=404, detail=f"No matching .zip asset ({asset_prefix}) found in {repo} {release_tag}.")
+
+    if require_https and not download_url.lower().startswith("https://"):
+        raise HTTPException(status_code=400, detail=f"Blocked insecure non-HTTPS download URL: {download_url}")
+
+    effective_expected = expected or github_digest
+    if require_checksum and not effective_expected:
+        raise HTTPException(
+            status_code=400,
+            detail="Checksum verification is required, but no Expected SHA-256 was provided and the GitHub release asset did not publish a SHA-256 digest.",
+        )
+
+    dl_dir = get_app_data_root() / "tools" / tool_id
+    dl_dir.mkdir(parents=True, exist_ok=True)
+    tmp_zip = dl_dir / f"{tool_id}_{release_tag}.zip.tmp"
+    dl_req = urllib.request.Request(download_url, headers={"User-Agent": "TheModdingTool/1.0"})
+    try:
+        with urllib.request.urlopen(dl_req, timeout=60) as resp, tmp_zip.open("wb") as out_f:
+            shutil.copyfileobj(resp, out_f)
+    except Exception as exc:
+        if tmp_zip.exists():
+            tmp_zip.unlink()
+        raise HTTPException(status_code=502, detail=f"Download failed: {exc}")
+
+    actual_sha = sha256_file(tmp_zip)
+    if require_checksum and effective_expected and actual_sha != effective_expected:
+        tmp_zip.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Security Check Failed: SHA-256 mismatch! Expected {effective_expected}, got {actual_sha}. Download discarded.",
+        )
+
+    if tool_id == "bepinex6_il2cpp":
+        assets_dir = WORKSPACE_DIR / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        target_zip = assets_dir / "BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793+dbc82f0.zip"
+        if keep_backup and target_zip.is_file():
+            shutil.copy2(target_zip, target_zip.with_suffix(f".zip.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"))
+        shutil.move(str(tmp_zip), str(target_zip))
+        final_path = target_zip
+    else:
+        final_path = dl_dir / f"{tool_id}_{release_tag}.zip"
+        if keep_backup and final_path.is_file():
+            shutil.copy2(final_path, final_path.with_suffix(f".zip.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"))
+        shutil.move(str(tmp_zip), str(final_path))
+        with zipfile.ZipFile(final_path, "r") as zf:
+            zf.extractall(dl_dir / "extracted")
+
+    saved[tool_id] = {
+        "version": release_tag,
+        "sha256": actual_sha,
+        "expected_sha256": effective_expected or actual_sha,
+        "source_url": download_url,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_tool_versions(saved)
+    summary = f"Upgraded {tool_id} to {release_tag} (SHA-256 verified: {actual_sha[:16]}...)"
+    append_audit_log(action="app.tools.upgrade", status="ok", summary=summary, sha256=actual_sha, details=saved[tool_id])
+    return {"status": "ok", "summary": summary, "version": release_tag, "sha256": actual_sha, "path": str(final_path)}

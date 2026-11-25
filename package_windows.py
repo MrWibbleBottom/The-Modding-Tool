@@ -300,7 +300,7 @@ def build_package() -> dict[str, object]:
 
 
 def build_pyinstaller_command(onefile: bool = False) -> list[str]:
-    """Return a PyInstaller command bundling `app/static`, `app/templates`, and `app/data`."""
+    """Return a PyInstaller command bundling `app/static`, `app/templates`, `app/data`, `app/engines`, and `app/services`."""
     cmd = [
         "pyinstaller",
         "--noconfirm",
@@ -319,6 +319,14 @@ def build_pyinstaller_command(onefile: bool = False) -> list[str]:
         f"{PROJECT_ROOT / 'app' / 'templates'};app/templates",
         "--add-data",
         f"{PROJECT_ROOT / 'app' / 'data' / 'steam_games_reference.csv'};app/data",
+        "--add-data",
+        f"{PROJECT_ROOT / 'app' / 'engines'};app/engines",
+        "--add-data",
+        f"{PROJECT_ROOT / 'app' / 'services'};app/services",
+        "--collect-submodules",
+        "app.engines",
+        "--collect-submodules",
+        "app.services",
         str(PROJECT_ROOT / "app" / "main.py"),
     ])
     return cmd

@@ -14,6 +14,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.core.constants import ANTI_CHEAT_BINARIES, PLUGIN_DEPLOY_FILES
+
 
 def get_resource_root() -> Path:
     """Return the root directory for bundled read-only resources (PyInstaller-safe)."""
@@ -64,21 +66,6 @@ def _resolve_default_bepinex_zip() -> str:
 DEFAULT_GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\Battlemarked"
 DEFAULT_BEPINEX_ZIP = _resolve_default_bepinex_zip()
 DEFAULT_BEPINEX_SHA256 = "5b63d7d0e92a2448ccd13b738ff95ff1cc1026c6d718555d4df8e6c824953ac4"
-
-ANTI_CHEAT_BINARIES = {
-    "easyanticheat.exe": "EasyAntiCheat.exe",
-    "beservice.exe": "BEService.exe",
-    "vgk.sys": "vgk.sys",
-    "gameguard.des": "GameGuard.des",
-}
-
-PLUGIN_DEPLOY_FILES = [
-    "BepInExMCP.IL2CPP.dll",
-    "BepInExMCP.IL2CPP.deps.json",
-    "Microsoft.CodeAnalysis.dll",
-    "Microsoft.CodeAnalysis.CSharp.dll",
-    "BepInExMCP.IL2CPP.pdb",
-]
 
 
 def migrate_legacy_appdata(new_root: Path, legacy_root: Path) -> bool:

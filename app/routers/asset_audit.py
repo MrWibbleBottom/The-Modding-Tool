@@ -19,7 +19,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.audit import append_audit_log, clear_audit_log_cache, read_audit_logs
-from app.routers.library import fingerprint_library_entry
+from app.core.constants import ENGINE_TOOL_MATRIX
+from app.engines.generic import detect_normalized_engine, fingerprint_library_entry
+from app.engines.unity import check_unity_loaders
+from app.engines.unreal import check_unreal_loaders
 from app.core.config import (
     ANTI_CHEAT_BINARIES,
     APP_DATA_ROOT,
@@ -75,33 +78,6 @@ from app.core.config import (
 
 
 router = APIRouter()
-
-ENGINE_TOOL_MATRIX: dict[str, dict[str, list[str]]] = {
-    "unity_il2cpp": {
-        "allowed_mcp_bridges": ["bepinex-mcp", "filesystem-mcp"],
-        "allowed_loaders_and_cli": ["BepInEx (IL2CPP)", "Il2CppDumper", "AssetRipper"],
-    },
-    "unity_mono": {
-        "allowed_mcp_bridges": ["bepinex-mcp", "filesystem-mcp"],
-        "allowed_loaders_and_cli": ["BepInEx (Mono)", "ILSpy", "AssetRipper"],
-    },
-    "unreal": {
-        "allowed_mcp_bridges": ["ue4ss-mcp", "filesystem-mcp"],
-        "allowed_loaders_and_cli": ["UE4SS", "FModel", "UnrealPak"],
-    },
-    "godot": {
-        "allowed_mcp_bridges": ["godot-mcp", "filesystem-mcp"],
-        "allowed_loaders_and_cli": ["GDRE Tools"],
-    },
-    "creation_engine": {
-        "allowed_mcp_bridges": ["creation-kit-mcp", "filesystem-mcp"],
-        "allowed_loaders_and_cli": ["xEdit", "BAE"],
-    },
-    "generic": {
-        "allowed_mcp_bridges": ["filesystem-mcp"],
-        "allowed_loaders_and_cli": [],
-    },
-}
 
 ASSET_AUDITS_DIR = get_app_data_root() / "asset_audits"
 ASSET_AUDITS_DIR.mkdir(parents=True, exist_ok=True)
@@ -167,86 +143,18 @@ MODDABILITY_GUIDE: dict[str, dict[str, str]] = {
 
 
 def _detect_normalized_engine(root_path: Path, fp_engine: str = "") -> str:
-    """Detect engine key prioritizing Unreal markers before generic DLL/Mono checks."""
-    if root_path.is_dir():
-        has_ue_dir = (root_path / "Engine" / "Binaries" / "Win64").is_dir()
-        has_ue_pak = (
-            any(root_path.rglob("*.pak"))
-            or any(root_path.rglob("*.utoc"))
-            or any(root_path.rglob("*.ucas"))
-        )
-        has_ue_shipping = any(root_path.rglob("*-Win64-Shipping.exe"))
-        if has_ue_dir or has_ue_pak or has_ue_shipping:
-            return "unreal"
-        if (root_path / "GameAssembly.dll").is_file() or any(root_path.rglob("global-metadata.dat")):
-            return "unity_il2cpp"
-        if any(root_path.glob("*_Data/Managed/Assembly-CSharp.dll")):
-            return "unity_mono"
-        if any(root_path.glob("*.pck")) and any(root_path.glob("*.exe")):
-            return "godot"
-        if any(root_path.glob("Data/*.esm")) or any(root_path.glob("Data/*.esp")):
-            return "creation_engine"
-
-    low = (fp_engine or "").strip().lower()
-    if "unreal" in low:
-        return "unreal"
-    if "il2cpp" in low:
-        return "unity_il2cpp"
-    if "mono" in low:
-        return "unity_mono"
-    if "godot" in low:
-        return "godot"
-    if "creation" in low:
-        return "creation_engine"
-    return "generic"
+    """Delegate engine key detection to shared engine adapters."""
+    return detect_normalized_engine(root_path, fp_engine)
 
 
 def _check_per_game_loaders(root_path: Path, detected_engine: str) -> dict[str, bool]:
-    """Check whether engine-specific loaders are actually installed inside the game root."""
+    """Check whether engine-specific loaders are installed inside the game root."""
     if not root_path.is_dir():
         return {"unity_bepinex": False, "unity_mcp_plugin": False, "unreal_ue4ss": False}
-
     if detected_engine in ("unity_il2cpp", "unity_mono"):
-        core_ok = (root_path / "BepInEx" / "core").is_dir()
-        proxy_ok = (root_path / "winhttp.dll").is_file() or (root_path / "version.dll").is_file()
-        plugin_ok = (
-            (root_path / "BepInEx" / "plugins" / "BepInExMCP.IL2CPP.dll").is_file()
-            or any((root_path / "BepInEx" / "plugins").glob("*.dll"))
-            if (root_path / "BepInEx" / "plugins").is_dir()
-            else False
-        )
-        return {
-            "unity_bepinex": core_ok and proxy_ok,
-            "unity_mcp_plugin": core_ok and proxy_ok and plugin_ok,
-            "unreal_ue4ss": False,
-        }
-
+        return {**check_unity_loaders(root_path), "unreal_ue4ss": False}
     if detected_engine == "unreal":
-        shipping_dirs = {p.parent for p in root_path.rglob("*-Win64-Shipping.exe")}
-        win64_dirs = shipping_dirs or {
-            p for p in root_path.rglob("Win64") if p.is_dir() and p.parent.name.lower() == "binaries"
-        }
-        ue4ss_found = False
-        for wdir in win64_dirs:
-            has_proxy = any((wdir / px).is_file() for px in ("dwmapi.dll", "dxgi.dll"))
-            if not has_proxy:
-                has_proxy = any(
-                    f.is_file() and f.name.lower() in ("dwmapi.dll", "dxgi.dll")
-                    for f in wdir.iterdir()
-                )
-            has_ue4ss = any(
-                c.is_file() and c.name.lower() == "ue4ss.dll"
-                for c in (wdir / "ue4ss" / "UE4SS.dll", wdir / "UE4SS.dll")
-            ) or any(f.is_file() and f.name.lower() == "ue4ss.dll" for f in wdir.rglob("*.dll"))
-            if has_proxy and has_ue4ss:
-                ue4ss_found = True
-                break
-        return {
-            "unity_bepinex": False,
-            "unity_mcp_plugin": False,
-            "unreal_ue4ss": ue4ss_found,
-        }
-
+        return {"unity_bepinex": False, "unity_mcp_plugin": False, "unreal_ue4ss": check_unreal_loaders(root_path)}
     return {"unity_bepinex": False, "unity_mcp_plugin": False, "unreal_ue4ss": False}
 
 
