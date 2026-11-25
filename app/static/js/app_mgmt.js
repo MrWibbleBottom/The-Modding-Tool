@@ -796,6 +796,37 @@ export async function loadAppVersion() {
   } catch {}
 }
 
+let _pendingGitPushBranch = "";
+
+function _populatePushBranches(branches, preferredBranch = "") {
+  const sel = document.getElementById("gh-push-branch");
+  if (!sel) return;
+  const previous = sel.value || "";
+  const cfgBranch = (document.getElementById("gh-branch")?.value || "main").trim() || "main";
+  const ordered = [];
+  const seen = new Set();
+  for (const item of [...(Array.isArray(branches) ? branches : []), preferredBranch, previous, cfgBranch, "main"]) {
+    const b = String(item || "").trim();
+    if (b && b !== "HEAD" && !seen.has(b)) {
+      seen.add(b);
+      ordered.push(b);
+    }
+  }
+  sel.innerHTML = "";
+  for (const b of ordered) {
+    const opt = document.createElement("option");
+    opt.value = b;
+    opt.textContent = b;
+    sel.appendChild(opt);
+  }
+  const target = (preferredBranch && seen.has(preferredBranch))
+    ? preferredBranch
+    : (previous && seen.has(previous))
+      ? previous
+      : (seen.has(cfgBranch) ? cfgBranch : ordered[0] || "main");
+  sel.value = target;
+}
+
 export async function loadGitHubRepoConfig() {
   try {
     const res = await apiGet("/api/app/repo-config");
@@ -811,6 +842,7 @@ export async function loadGitHubRepoConfig() {
       if (ownerEl) ownerEl.value = d.owner || "";
       if (repoEl) repoEl.value = d.repo || "";
       if (branchEl) branchEl.value = d.branch || "main";
+      _populatePushBranches([d.branch || "main"], d.branch || "main");
       if (tokEl) tokEl.value = d.token_set ? (d.token_masked || "******") : "";
       APP_INSTALLED_SHORT_SHA = d.installed_short_sha || "";
       if (shaEl) shaEl.textContent = d.installed_short_sha ? `${d.installed_short_sha} (${d.installed_sha})` : "Unset";
@@ -966,6 +998,55 @@ export async function rollbackToSnapshot() {
   }
 }
 
+export async function pullGitHubBranches() {
+  const btn = _resolveAppMgmtBtn("btn-gh-pull-branches");
+  const logEl = document.getElementById("gh-sync-log");
+  let ownerVal = (document.getElementById("gh-owner")?.value || "").trim();
+  let repoVal = (document.getElementById("gh-repo")?.value || "").trim();
+  for (const cand of [ownerVal, repoVal]) {
+    const m = cand.match(/github\.com[:/]([^/\s]+)\/([^/\s?#]+)/i);
+    if (m) {
+      ownerVal = m[1];
+      repoVal = m[2].replace(/\.git$/i, "");
+      break;
+    }
+  }
+  try {
+    await runTrackedAction(
+      btn,
+      async () => {
+        const d = await apiPost("/api/app/git-branches", { owner: ownerVal, repo: repoVal });
+        const branches = Array.isArray(d?.branches) ? d.branches : [];
+        const preferred = document.getElementById("gh-push-branch")?.value
+          || d?.current_branch
+          || d?.configured_branch
+          || document.getElementById("gh-branch")?.value
+          || "main";
+        _populatePushBranches(branches, preferred);
+        if (d?.status !== "ok") {
+          const msg = d?.message || "Failed to pull branches from GitHub.";
+          if (logEl) logEl.textContent = `${msg}${branches.length ? ` (Showing local branches: ${branches.join(", ")})` : ""}`;
+          throw new Error(msg);
+        }
+        const remCount = Array.isArray(d.remote_branches) ? d.remote_branches.length : 0;
+        const locCount = Array.isArray(d.local_branches) ? d.local_branches.length : 0;
+        if (logEl) {
+          logEl.textContent = branches.length
+            ? `Pulled ${branches.length} branch(es) (${remCount} remote, ${locCount} local): ${branches.join(", ")}`
+            : "No branches returned from GitHub.";
+        }
+        return d;
+      },
+      {
+        pendingText: "Pulling available branches from GitHub...",
+        successText: (d) => `Pulled ${(d?.branches || []).length} available branch(es)`,
+      },
+    );
+  } catch (err) {
+    if (logEl && !logEl.textContent) logEl.textContent = `Branch pull failed: ${err?.message || err}`;
+  }
+}
+
 export async function loadGitStatus() {
   const initBadge = document.getElementById("git-init-badge");
   const brBadge = document.getElementById("git-branch-badge");
@@ -976,6 +1057,8 @@ export async function loadGitStatus() {
     const res = await apiGet("/api/app/git-status");
     if (!res.ok || !res.data) return;
     const d = res.data;
+    const cfgBranch = (document.getElementById("gh-branch")?.value || "main").trim() || "main";
+    _populatePushBranches(d.branches || [], d.branch || cfgBranch);
     if (!d.git_available) {
       if (initBadge) { initBadge.className = "pill no"; initBadge.textContent = "Git CLI Not Found"; }
       if (listEl) listEl.textContent = "Install Git for Windows to enable local commits and Push to GitHub.";
@@ -1022,16 +1105,47 @@ export async function copyGitPushError() {
   }
 }
 
-export async function pushAppToGitHub() {
+export function closeGitPushConfirmModal() {
+  const ov = document.getElementById("gh-push-confirm-overlay");
+  if (ov) ov.style.display = "none";
+  _pendingGitPushBranch = "";
+}
+
+export function pushAppToGitHub() {
+  const pushSel = document.getElementById("gh-push-branch");
+  const branch = (pushSel?.value || document.getElementById("gh-branch")?.value || "main").trim() || "main";
+  _pendingGitPushBranch = branch;
+
+  const ov = document.getElementById("gh-push-confirm-overlay");
+  const branchEl = document.getElementById("gh-push-confirm-branch");
+  const confirmBtn = document.getElementById("btn-gh-push-confirm");
+  if (branchEl) branchEl.textContent = branch;
+  if (confirmBtn) confirmBtn.textContent = `Push to ${branch}`;
+  if (ov) {
+    ov.style.display = "flex";
+    const cancelBtn = document.getElementById("btn-gh-push-cancel");
+    if (cancelBtn) cancelBtn.focus();
+  }
+}
+
+export async function confirmPushAppToGitHub() {
+  const pushSel = document.getElementById("gh-push-branch");
+  const branch = (
+    _pendingGitPushBranch
+    || pushSel?.value
+    || document.getElementById("gh-branch")?.value
+    || "main"
+  ).trim() || "main";
+  closeGitPushConfirmModal();
+
   const btn = _resolveAppMgmtBtn("btn-gh-push");
   const logEl = document.getElementById("gh-sync-log");
   const errBox = document.getElementById("gh-push-error-box");
   const errSum = document.getElementById("gh-push-error-summary");
   const errPre = document.getElementById("gh-push-error-pre");
   const msg = (document.getElementById("gh-commit-msg")?.value || "").trim();
-  const branch = (document.getElementById("gh-branch")?.value || "main").trim() || "main";
   if (errBox) errBox.style.display = "none";
-  if (logEl) logEl.textContent = "Staging changes, committing, and pushing to GitHub...";
+  if (logEl) logEl.textContent = `Staging changes, committing, and pushing to '${branch}'...`;
   try {
     await runTrackedAction(
       btn,

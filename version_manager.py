@@ -17,6 +17,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 VERSION_FILE = PROJECT_ROOT / "version.json"
+CHANGELOG_FILE = PROJECT_ROOT / "CHANGELOG.md"
 
 
 def format_semver(major: int, minor: int, patch: int, prerelease: str = "") -> str:
@@ -116,16 +117,92 @@ def bump_version(bump_type: str = "patch", note: str = "Incremental project chan
     return data
 
 
+def append_changelog_entry(
+    prompt: str,
+    feedback: str,
+    changes: list[str] | str,
+    *,
+    version: str | None = None,
+    timestamp: str | None = None,
+    changelog_path: Path | None = None,
+) -> Path:
+    """Prepend a dated, versioned entry recording Prompt, AG Feedback, and Version Changes to CHANGELOG.md."""
+    target = changelog_path or CHANGELOG_FILE
+    ver = (version or load_version_data().get("version") or "0.1.0").strip().lstrip("v")
+    stamp = (timestamp or datetime.now().strftime("%Y-%m-%d %H:%M")).strip()
+
+    if isinstance(changes, str):
+        change_lines = [ln.strip() for ln in changes.splitlines() if ln.strip()]
+    else:
+        change_lines = [str(item).strip() for item in changes if str(item).strip()]
+    if not change_lines:
+        change_lines = ["No code or file changes recorded."]
+
+    bullets = "\n".join(
+        line if line.startswith("- ") else f"- {line}"
+        for line in change_lines
+    )
+    entry = (
+        f"## {stamp} — v{ver}\n\n"
+        f"- **Prompt**: {str(prompt or '').strip()}\n"
+        f"- **AG Feedback**: {str(feedback or '').strip()}\n"
+        f"- **Version Changes**:\n"
+        + "\n".join(f"  {b}" for b in bullets.splitlines())
+        + "\n"
+    )
+
+    header = (
+        "# Changelog\n\n"
+        "Chronological record of user prompts, AG feedback, and version changes "
+        "(filed newest-first with date stamp followed by version number).\n\n"
+    )
+    if target.is_file():
+        existing = target.read_text(encoding="utf-8")
+        marker = "\n## "
+        idx = existing.find(marker)
+        if idx != -1:
+            body = existing[: idx + 1] + entry + "\n" + existing[idx + 1 :]
+        elif existing.startswith("## "):
+            body = header + entry + "\n" + existing
+        else:
+            body = existing.rstrip() + "\n\n" + entry
+    else:
+        body = header + entry
+
+    target.write_text(body, encoding="utf-8", newline="\n")
+    return target
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Manage SemVer version.json for The Modding Tool.")
+    parser = argparse.ArgumentParser(description="Manage SemVer version.json and CHANGELOG.md for The Modding Tool.")
     parser.add_argument("--show", action="store_true", help="Print current version info.")
     parser.add_argument("--bump", choices=["patch", "minor", "major", "launch"], help="Advance version.")
     parser.add_argument("--note", type=str, default="Manual version bump", help="Change note.")
+    parser.add_argument("--changelog", action="store_true", help="Append an entry to CHANGELOG.md.")
+    parser.add_argument("--prompt", type=str, default="", help="User prompt text for CHANGELOG.md.")
+    parser.add_argument("--feedback", type=str, default="", help="AG feedback summary for CHANGELOG.md.")
+    parser.add_argument("--changes", nargs="*", default=[], help="Version change items for CHANGELOG.md.")
     args = parser.parse_args()
 
     if args.bump:
         res = bump_version(args.bump, args.note)
         print(f"Version advanced to {res['version']} ({res['channel']})")
+        if args.changelog:
+            append_changelog_entry(
+                prompt=args.prompt or args.note,
+                feedback=args.feedback or f"Version bumped to v{res['version']} ({res['channel']}).",
+                changes=args.changes or [args.note],
+                version=res["version"],
+            )
+        return
+
+    if args.changelog:
+        out = append_changelog_entry(
+            prompt=args.prompt or args.note,
+            feedback=args.feedback or "Logged entry.",
+            changes=args.changes or [args.note],
+        )
+        print(f"Updated {out}")
         return
 
     print(json.dumps(load_version_data(), indent=2))

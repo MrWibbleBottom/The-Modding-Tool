@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.audit import append_audit_log, log_action_error, sanitize_audit_text, sanitize_audit_value
-from app.core.config import STATIC_DIR, TEMPLATES_DIR
+from app.core.config import RESOURCE_ROOT, STATIC_DIR, TEMPLATES_DIR, WORKSPACE_DIR
 from app.core.security import SessionTokenMiddleware, get_session_token
 from app.routers import asset_audit, branding, git_sync, library, mcp_bridge, system
 
@@ -270,11 +270,38 @@ app.include_router(git_sync.router)
 app.include_router(branding.router)
 
 
+def get_asset_version() -> str:
+    """Compute lightweight cache-busting token from version.json + latest mtime in app/static/."""
+    ver = "0.1.0"
+    for candidate in (WORKSPACE_DIR / "version.json", RESOURCE_ROOT / "version.json"):
+        if candidate.is_file():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data.get("version"):
+                    ver = str(data["version"]).strip()
+                    break
+            except Exception:
+                pass
+    latest_mtime = 0
+    if STATIC_DIR.is_dir():
+        for item in STATIC_DIR.rglob("*"):
+            if item.is_file():
+                try:
+                    mtime = int(item.stat().st_mtime)
+                    if mtime > latest_mtime:
+                        latest_mtime = mtime
+                except OSError:
+                    pass
+    return f"{ver}-{latest_mtime}"
+
+
 @app.get("/")
 async def serve_index() -> HTMLResponse:
     template_path = TEMPLATES_DIR / "index.html"
+    asset_version = get_asset_version()
     html = template_path.read_text(encoding="utf-8")
     html = html.replace("__SESSION_TOKEN__", get_session_token())
+    html = html.replace("{{ asset_version }}", asset_version).replace("__ASSET_VERSION__", asset_version)
     return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
 

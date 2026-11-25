@@ -60,6 +60,7 @@ from app.core.config import (
     UI_SETTINGS_PATH,
     UNREAL_INI_BACKUP_DIR,
     WORKSPACE_DIR,
+    atomic_write_json,
     backup_dir_for_game,
     clear_pc_specs_cache,
     default_managed_games,
@@ -166,8 +167,7 @@ async def save_app_ui_config(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(incoming.get("in_progress"), dict):
             cfg["in_progress"].update(incoming["in_progress"])
 
-    APP_UI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    APP_UI_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    atomic_write_json(APP_UI_CONFIG_PATH, cfg)
     cfg_hash = sha256_text(json.dumps(cfg, sort_keys=True))
     append_audit_log(
         action="app_ui.save",
@@ -270,8 +270,7 @@ async def upload_app_asset(req: UploadAppAssetRequest) -> dict[str, Any]:
         cfg["banner_image_url"] = url
     else:
         cfg["favicon_url"] = url
-    APP_UI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    APP_UI_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    atomic_write_json(APP_UI_CONFIG_PATH, cfg)
 
     append_audit_log(action="app_ui.upload_asset", status="ok", summary=f"Uploaded custom {kind} ({dest})")
     return {"status": "ok", "kind": kind, "url": url, "path": str(dest), "config": cfg}
@@ -327,8 +326,7 @@ async def remove_app_asset(req: RemoveAppAssetRequest) -> dict[str, Any]:
         cfg["banner_image_url"] = ""
     else:
         cfg["favicon_url"] = ""
-    APP_UI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    APP_UI_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    atomic_write_json(APP_UI_CONFIG_PATH, cfg)
 
     summary = f"Removed custom {kind}" + (f" ({len(removed_files)} file(s))" if removed_files else "")
     append_audit_log(action="app_ui.remove_asset", status="ok", summary=summary)
@@ -381,8 +379,7 @@ def load_ui_settings() -> dict[str, Any]:
 
 
 def save_ui_settings(settings: dict[str, Any]) -> None:
-    UI_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    UI_SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    atomic_write_json(UI_SETTINGS_PATH, settings)
 
 
 class BannerSettingsRequest(BaseModel):

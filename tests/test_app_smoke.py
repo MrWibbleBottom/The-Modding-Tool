@@ -1099,6 +1099,241 @@ class AppSmokeTests(unittest.TestCase):
                 self.assertEqual(r_list.json().get("active_game_id"), "game_b")
                 core_config.invalidate_games_cache()
 
+    def test_js_dom_ids_es_module_contracts_and_cache_busting(self) -> None:
+        import re
+        from app.main import get_asset_version
+
+        expected_ver = get_asset_version()
+        r_idx = self.client.get("/")
+        self.assertEqual(r_idx.status_code, 200)
+        html = r_idx.text
+        self.assertNotIn("{{ asset_version }}", html)
+        self.assertIn(f"/static/app.css?v={expected_ver}", html)
+        self.assertIn(f"/static/js/main.js?v={expected_ver}", html)
+
+        r_sw = self.client.get("/sw.js")
+        self.assertEqual(r_sw.status_code, 200)
+        self.assertIn("modtool-offline-v2", r_sw.text)
+        self.assertIn('url.pathname.startsWith("/static/")', r_sw.text)
+
+        raw_template = (ROOT / "app" / "templates" / "index.html").read_text(encoding="utf-8")
+        html_ids = set(re.findall(r"""\bid=["']([^"']+)["']""", raw_template))
+
+        js_dir = ROOT / "app" / "static" / "js"
+        for js_path in sorted(js_dir.glob("*.js")):
+            txt = js_path.read_text(encoding="utf-8")
+            for m in re.finditer(r"""getElementById\(\s*["']([^"']+)["']\s*\)""", txt):
+                el_id = m.group(1)
+                self.assertIn(el_id, html_ids, f"{js_path.name} references missing DOM id '{el_id}'")
+
+            for m in re.finditer(r"""import\s+\{([^}]+)\}\s+from\s+["']\./([^"']+)["']""", txt):
+                target_file = js_dir / m.group(2)
+                self.assertTrue(target_file.is_file(), f"{js_path.name} imports missing module '{m.group(2)}'")
+                target_txt = target_file.read_text(encoding="utf-8")
+                exports = set(
+                    re.findall(r"export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z0-9_$]+)", target_txt)
+                )
+                for raw_sym in m.group(1).split(","):
+                    sym = raw_sym.strip().split(" as ")[0].strip()
+                    if sym:
+                        self.assertIn(sym, exports, f"{js_path.name} imports missing export '{sym}' from '{m.group(2)}'")
+
+        lib_txt = (js_dir / "library.js").read_text(encoding="utf-8")
+        self.assertIn("function _classifyGameEngine(game)", lib_txt)
+        self.assertIn("unreal-settings-section", lib_txt)
+        self.assertIn("card-provision-restore", lib_txt)
+        self.assertIn("card-live-mcp", lib_txt)
+
+    def test_atomic_write_json_no_orphan_temp_files(self) -> None:
+        import os
+        from unittest.mock import patch
+        from app.core import config as core_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            target = tmp_dir / "managed_games.json"
+
+            payload_v1 = {"active_game_id": "g1", "games": [{"id": "g1", "name": "Game One"}]}
+            core_config.atomic_write_json(target, payload_v1)
+            self.assertTrue(target.is_file())
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), payload_v1)
+            self.assertEqual(list(tmp_dir.iterdir()), [target])
+
+            payload_v2 = {"active_game_id": "g2", "games": [{"id": "g2", "name": "Game Two"}]}
+            core_config.atomic_write_json(target, payload_v2)
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), payload_v2)
+            self.assertEqual(list(tmp_dir.iterdir()), [target])
+
+            with patch.object(os, "replace", side_effect=OSError("simulated swap failure")):
+                with self.assertRaises(OSError):
+                    core_config.atomic_write_json(target, {"corrupt": True})
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), payload_v2)
+            self.assertEqual(list(tmp_dir.iterdir()), [target])
+
+    def test_changelog_exists_and_append_helper(self) -> None:
+        import re
+
+        cl_path = ROOT / "CHANGELOG.md"
+        self.assertTrue(cl_path.is_file())
+        cl_text = cl_path.read_text(encoding="utf-8")
+        self.assertRegex(cl_text, r"(?m)^## \d{4}-\d{2}-\d{2} \d{2}:\d{2} — v\d+\.\d+\.\d+")
+        self.assertIn("**Prompt**:", cl_text)
+        self.assertIn("**AG Feedback**:", cl_text)
+        self.assertIn("**Version Changes**:", cl_text)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_cl = Path(tmp) / "CHANGELOG.md"
+            version_manager.append_changelog_entry(
+                prompt="Test prompt one",
+                feedback="AG verified change one",
+                changes=["Updated file_a.py"],
+                version="0.1.40",
+                timestamp="2026-11-25 11:00",
+                changelog_path=tmp_cl,
+            )
+            version_manager.append_changelog_entry(
+                prompt="Test prompt two",
+                feedback="AG verified change two",
+                changes=["Updated file_b.py"],
+                version="0.1.41",
+                timestamp="2026-11-25 11:25",
+                changelog_path=tmp_cl,
+            )
+            out = tmp_cl.read_text(encoding="utf-8")
+            idx_new = out.find("## 2026-11-25 11:25 — v0.1.41")
+            idx_old = out.find("## 2026-11-25 11:00 — v0.1.40")
+            self.assertNotEqual(idx_new, -1)
+            self.assertNotEqual(idx_old, -1)
+            self.assertLess(idx_new, idx_old)
+            self.assertIn("**Prompt**: Test prompt two", out)
+            self.assertIn("**AG Feedback**: AG verified change two", out)
+            self.assertIn("- Updated file_b.py", out)
+
+    def test_github_branch_pull_and_push_confirm_flow(self) -> None:
+        import urllib.request
+        from unittest.mock import MagicMock, patch
+        from app.core import audit as core_audit
+        from app.routers import git_sync
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp)
+            (repo_dir / ".git").mkdir()
+            (repo_dir / ".gitignore").write_text(".venv/\n__pycache__/\n*.pyc\n.env\n*.log\n", encoding="utf-8")
+
+            fake_cfg = {
+                "owner": "octocat",
+                "repo": "modtool",
+                "branch": "main",
+                "token": "ghp_secret123",
+                "installed_sha": "",
+                "last_checked": "",
+            }
+
+            class _FakeResp:
+                def __init__(self, payload: object) -> None:
+                    self._raw = json.dumps(payload).encode("utf-8")
+
+                def read(self) -> bytes:
+                    return self._raw
+
+                def __enter__(self) -> "_FakeResp":
+                    return self
+
+                def __exit__(self, *args: object) -> bool:
+                    return False
+
+            def fake_run_git(git_bin, args, cwd, **kwargs):
+                joined = " ".join(args)
+                if "rev-parse --abbrev-ref HEAD" in joined:
+                    return (0, "main\n", "")
+                if "refs/heads/" in joined:
+                    return (0, "main\nlocal-exp\n", "")
+                if "refs/remotes/origin/" in joined:
+                    return (0, "origin/HEAD\norigin/main\n", "")
+                return (0, "", "")
+
+            temp_audit = repo_dir / "audit.jsonl"
+            temp_app_audit = repo_dir / "audit_app.jsonl"
+            temp_game_audit = repo_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(git_sync, "load_repo_config", return_value=dict(fake_cfg)),
+                patch.object(git_sync, "save_repo_config", MagicMock()),
+                patch.object(git_sync, "_resolve_git_app_root", return_value=repo_dir),
+                patch.object(git_sync, "_run_git_cmd", side_effect=fake_run_git),
+                patch.object(
+                    urllib.request,
+                    "urlopen",
+                    return_value=_FakeResp([{"name": "main"}, {"name": "feature/ui"}, {"name": "release"}]),
+                ),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                r_st = self.client.get("/api/app/git-status")
+                self.assertEqual(r_st.status_code, 200)
+                st = r_st.json()
+                self.assertIn("main", st.get("branches", []))
+                self.assertIn("local-exp", st.get("branches", []))
+
+                r_br = self.client.post(
+                    "/api/app/git-branches",
+                    json={"owner": "octocat", "repo": "modtool"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_br.status_code, 200)
+                br = r_br.json()
+                self.assertEqual(br.get("status"), "ok")
+                self.assertEqual(br.get("remote_branches"), ["main", "feature/ui", "release"])
+                self.assertEqual(br.get("branches"), ["main", "feature/ui", "release", "local-exp"])
+
+            captured_push_args: list[list[str]] = []
+
+            def fake_push_step(step_name, args, cwd, **kwargs):
+                if step_name == "remote":
+                    return {"step": step_name, "returncode": 0, "stdout": "https://github.com/octocat/modtool.git\n", "stderr": ""}
+                if step_name == "rev_parse_branch":
+                    return {"step": step_name, "returncode": 0, "stdout": "main\n", "stderr": ""}
+                if step_name == "diff_cached":
+                    return {"step": step_name, "returncode": 1, "stdout": "", "stderr": ""}
+                if step_name == "rev_parse":
+                    return {"step": step_name, "returncode": 0, "stdout": "abc1234def5678\n", "stderr": ""}
+                if step_name == "push":
+                    captured_push_args.append(list(args))
+                return {"step": step_name, "returncode": 0, "stdout": "", "stderr": ""}
+
+            with (
+                patch.object(git_sync, "load_repo_config", return_value=dict(fake_cfg)),
+                patch.object(git_sync, "save_repo_config", MagicMock()),
+                patch.object(git_sync, "_resolve_git_app_root", return_value=repo_dir),
+                patch.object(git_sync, "run_git_step", side_effect=fake_push_step),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                r_push = self.client.post(
+                    "/api/app/git-push",
+                    json={"commit_message": "push branch test", "branch": "feature/ui"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_push.status_code, 200)
+                self.assertEqual(r_push.json().get("branch"), "feature/ui")
+                self.assertEqual(captured_push_args, [["push", "-u", "origin", "HEAD:feature/ui"]])
+
+        html = (ROOT / "app" / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="btn-gh-pull-branches"', html)
+        self.assertIn('id="gh-push-branch"', html)
+        self.assertIn('id="gh-push-confirm-overlay"', html)
+        self.assertIn('id="btn-gh-push-cancel"', html)
+        self.assertIn("Cancel Push", html)
+        self.assertIn('id="btn-gh-push-confirm"', html)
+
+        js = (ROOT / "app" / "static" / "js" / "app_mgmt.js").read_text(encoding="utf-8")
+        self.assertIn("export async function pullGitHubBranches()", js)
+        self.assertIn("export function closeGitPushConfirmModal()", js)
+        self.assertIn("export async function confirmPushAppToGitHub()", js)
+        self.assertIn("`Push to ${branch}`", js)
+
 
 if __name__ == "__main__":
     unittest.main()

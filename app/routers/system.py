@@ -61,6 +61,7 @@ from app.core.config import (
     UNREAL_INI_BACKUP_DIR,
     WORKSPACE_DIR,
     _load_workspace_module,
+    atomic_write_json,
     backup_dir_for_game,
     clear_pc_specs_cache,
     default_managed_games,
@@ -773,7 +774,7 @@ def scrape_pc_specs(force_refresh: bool = False) -> dict[str, Any]:
     }
     _PC_SPECS_MEM_CACHE = specs
     try:
-        PC_SPECS_CACHE_PATH.write_text(json.dumps(specs, indent=2), encoding="utf-8")
+        atomic_write_json(PC_SPECS_CACHE_PATH, specs)
     except Exception:
         pass
     return specs
@@ -1132,8 +1133,7 @@ def _load_tool_versions() -> dict[str, Any]:
 
 
 def _save_tool_versions(data: dict[str, Any]) -> None:
-    TOOL_VERSIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOOL_VERSIONS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    atomic_write_json(TOOL_VERSIONS_PATH, data)
 
 
 @router.get("/api/app/tools/status")
@@ -1555,7 +1555,7 @@ async def get_dev_mode() -> dict[str, Any]:
 
 @router.post("/api/app/dev-mode")
 async def set_dev_mode(req: DevModeRequest) -> dict[str, Any]:
-    DEV_MODE_PATH.write_text(json.dumps({"enabled": bool(req.enabled)}, indent=2), encoding="utf-8")
+    atomic_write_json(DEV_MODE_PATH, {"enabled": bool(req.enabled)})
     append_audit_log(
         action="app.dev_mode",
         status="ok",

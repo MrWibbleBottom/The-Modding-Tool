@@ -6,7 +6,7 @@
   <meta name="modtool-session-token" content="__SESSION_TOKEN__" />
   <title>The Modding Tool</title>
   <link id="app-favicon" rel="icon" href="/api/app-ui-config/asset/favicon" />
-  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}" />
 </head>
 <body>
   <div id="app-loading-overlay" class="app-splash-overlay">
@@ -37,6 +37,19 @@
       </div>
       <input id="cmd-palette-input" type="text" placeholder="Type a game name, tab, or action (e.g. Days Gone, Fingerprint, Export)..." oninput="renderCommandPalette()" />
       <div id="cmd-palette-list" style="margin-top:10px; max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+    </div>
+  </div>
+
+  <div id="gh-push-confirm-overlay" class="app-splash-overlay" style="display:none; background:rgba(11,15,23,0.82);" onclick="if(event.target===this) closeGitPushConfirmModal()">
+    <div class="app-splash-card" style="max-width:480px; text-align:left; padding:18px 20px; border:1px solid #f59e0b;">
+      <h2 style="margin:0 0 8px 0; font-size:1.02rem; color:#fcd34d;">Push Branch Warning</h2>
+      <p id="gh-push-confirm-message" style="margin:0 0 14px 0; font-size:0.86rem; color:#e2e8f0; line-height:1.5;">
+        Warning: You are about to stage, commit, and push changes to branch <strong id="gh-push-confirm-branch">main</strong>.
+      </p>
+      <div class="btn-group" style="justify-content:flex-end; margin-top:12px;">
+        <button class="secondary btn-sm" id="btn-gh-push-cancel" onclick="closeGitPushConfirmModal()">Cancel Push</button>
+        <button class="success btn-sm" id="btn-gh-push-confirm" onclick="confirmPushAppToGitHub()">Push to main</button>
+      </div>
     </div>
   </div>
   <header>
@@ -1320,6 +1333,7 @@
         <div class="btn-group" style="margin-bottom:10px;">
           <button class="secondary btn-sm" onclick="saveGitHubRepoConfig()">Save Repo Settings</button>
           <button class="btn-sm" id="btn-gh-check" onclick="checkGitHubUpdates()">Check GitHub</button>
+          <button class="secondary btn-sm" id="btn-gh-pull-branches" onclick="pullGitHubBranches()">Pull Available Branches</button>
           <button class="success btn-sm" id="btn-gh-sync" onclick="pullGitHubSync()">Pull / Restore Latest from GitHub</button>
           <button class="secondary btn-sm" onclick="restartAppServer()">Reload Server</button>
         </div>
@@ -1347,9 +1361,15 @@
             Checking local Git working tree...
           </div>
           <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
-            <div style="flex:1; min-width:240px;">
+            <div style="flex:1; min-width:220px;">
               <label for="gh-commit-msg">Commit Message</label>
               <input id="gh-commit-msg" type="text" placeholder="Describe changes (leave blank for timestamped auto message)" />
+            </div>
+            <div style="flex:0 1 200px; min-width:150px;">
+              <label for="gh-push-branch">Push Branch</label>
+              <select id="gh-push-branch" aria-label="Push Branch">
+                <option value="main">main</option>
+              </select>
             </div>
             <button class="success btn-sm" id="btn-gh-push" onclick="pushAppToGitHub()">Push to GitHub</button>
           </div>
@@ -1795,6 +1815,6 @@
     </div>
   </div>
 
-  <script type="module" src="/static/js/main.js?v=2"></script>
+  <script type="module" src="/static/js/main.js?v={{ asset_version }}"></script>
 </body>
 </html>

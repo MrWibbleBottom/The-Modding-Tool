@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -301,8 +302,39 @@ def load_managed_games() -> dict[str, Any]:
         return data
 
 
+def atomic_write_json(
+    path: Path,
+    payload: Any,
+    *,
+    indent: int = 2,
+    ensure_ascii: bool = False,
+) -> None:
+    """Write JSON atomically via temp file in the same directory, flush + fsync, and os.replace."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, indent=indent, ensure_ascii=ensure_ascii)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.stem}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(tmp_path), str(target))
+    except BaseException:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
 def save_managed_games(data: dict[str, Any]) -> None:
-    GAMES_STORE_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_json(GAMES_STORE_PATH, data)
     invalidate_games_cache()
 
 

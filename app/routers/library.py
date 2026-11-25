@@ -60,6 +60,7 @@ from app.core.config import (
     UI_SETTINGS_PATH,
     UNREAL_INI_BACKUP_DIR,
     WORKSPACE_DIR,
+    atomic_write_json,
     backup_dir_for_game,
     clear_pc_specs_cache,
     default_managed_games,
@@ -3394,7 +3395,7 @@ def _find_steam_appid_and_assets(game_dir: Path) -> tuple[str | None, dict[str, 
         "assets": {k: str(v) for k, v in assets.items()},
     }
     try:
-        STEAM_ASSETS_CACHE_PATH.write_text(json.dumps(STEAM_ASSETS_CACHE, indent=2), encoding="utf-8")
+        atomic_write_json(STEAM_ASSETS_CACHE_PATH, STEAM_ASSETS_CACHE)
     except Exception:
         pass
     return (appid, assets)
@@ -3666,8 +3667,7 @@ def load_scan_exclusions() -> set[str]:
 
 
 def save_scan_exclusions(paths: set[str]) -> None:
-    SCAN_EXCLUSIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SCAN_EXCLUSIONS_PATH.write_text(json.dumps(sorted(paths), indent=2), encoding="utf-8")
+    atomic_write_json(SCAN_EXCLUSIONS_PATH, sorted(paths))
 
 
 @router.post("/api/games/prune-non-games")
@@ -3759,8 +3759,7 @@ def load_library_cache() -> dict[str, Any]:
 
 
 def save_library_cache(cache: dict[str, Any]) -> None:
-    LIBRARY_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LIBRARY_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+    atomic_write_json(LIBRARY_CACHE_PATH, cache)
 
 
 def fingerprint_library_entry(root_path: Path) -> dict[str, Any]:

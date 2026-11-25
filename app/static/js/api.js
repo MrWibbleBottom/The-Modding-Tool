@@ -66,7 +66,7 @@ export async function apiPost(url, body) {
 }
 
 export function setOutput(data) {
-  const el = document.getElementById("output-pre");
+  const el = document.getElementById("fp-output");
   if (!el) return;
   el.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
 }
@@ -143,6 +143,8 @@ export function registerGlobalListeners() {
       openCommandPalette();
     } else if (e.key === "Escape") {
       closeCommandPalette();
+      const ghOv = document.getElementById("gh-push-confirm-overlay");
+      if (ghOv) ghOv.style.display = "none";
     }
   });
   window.addEventListener("resize", applyResponsiveResolutionLayout);

@@ -55,6 +55,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     await Promise.all([
       appMgmt.loadAppVersion(),
       appMgmt.loadGitHubRepoConfig(),
+      appMgmt.loadGitStatus(),
       appMgmt.loadAppUiConfig(),
       appMgmt.loadPersistentBanner(),
       analyzer.loadPcSpecs(false),

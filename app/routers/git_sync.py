@@ -60,6 +60,7 @@ from app.core.config import (
     UI_SETTINGS_PATH,
     UNREAL_INI_BACKUP_DIR,
     WORKSPACE_DIR,
+    atomic_write_json,
     backup_dir_for_game,
     clear_pc_specs_cache,
     default_managed_games,
@@ -276,11 +277,10 @@ def load_repo_config() -> dict[str, Any]:
 
 
 def save_repo_config(cfg: dict[str, Any]) -> None:
-    REPO_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     to_save = dict(cfg)
     if to_save.get("token"):
         to_save["token"] = dpapi_encrypt(str(to_save["token"]))
-    REPO_CONFIG_PATH.write_text(json.dumps(to_save, indent=2), encoding="utf-8")
+    atomic_write_json(REPO_CONFIG_PATH, to_save)
 
 
 def _mask_token(tok: str) -> str:
@@ -723,11 +723,60 @@ def _run_git_cmd(
     return res["returncode"], res["stdout"], res["stderr"]
 
 
+def _collect_git_branches(app_root: Path, git_bin: str | None) -> tuple[list[str], list[str]]:
+    """Return deduplicated (local_branches, cached_remote_branches) for app_root."""
+    local_branches: list[str] = []
+    remote_branches: list[str] = []
+    if not git_bin or not (app_root / ".git").is_dir():
+        return local_branches, remote_branches
+
+    rc_loc, out_loc, _ = _run_git_cmd(
+        git_bin,
+        ["for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        app_root,
+    )
+    if rc_loc == 0:
+        for line in out_loc.splitlines():
+            name = line.strip()
+            if name and name not in local_branches:
+                local_branches.append(name)
+
+    rc_rem, out_rem, _ = _run_git_cmd(
+        git_bin,
+        ["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/"],
+        app_root,
+    )
+    if rc_rem == 0:
+        for line in out_rem.splitlines():
+            raw = line.strip()
+            if not raw or raw == "origin/HEAD" or raw.endswith("/HEAD"):
+                continue
+            name = raw[len("origin/"):] if raw.startswith("origin/") else raw
+            if name and name not in remote_branches:
+                remote_branches.append(name)
+
+    return local_branches, remote_branches
+
+
+def _merge_branch_lists(*lists: list[str] | tuple[str, ...]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in lists:
+        for item in group:
+            b = str(item or "").strip()
+            if b and b != "HEAD" and b not in seen:
+                seen.add(b)
+                merged.append(b)
+    return merged
+
+
 @router.get("/api/app/git-status")
 async def get_app_git_status() -> dict[str, Any]:
     git_bin = shutil.which("git")
     app_root = _resolve_git_app_root()
     is_repo = (app_root / ".git").is_dir()
+    cfg = load_repo_config()
+    cfg_branch = cfg.get("branch", "main").strip() or "main"
     resp: dict[str, Any] = {
         "status": "ok",
         "git_available": bool(git_bin),
@@ -737,13 +786,24 @@ async def get_app_git_status() -> dict[str, Any]:
         "remote_url": "",
         "changed_files": [],
         "latest_local_commit": None,
+        "local_branches": [],
+        "remote_branches": [],
+        "branches": [cfg_branch],
     }
     if not git_bin or not is_repo:
         return resp
 
     rc_br, out_br, _ = _run_git_cmd(git_bin, ["rev-parse", "--abbrev-ref", "HEAD"], app_root)
     if rc_br == 0:
-        resp["branch"] = out_br.strip()
+        cur = out_br.strip()
+        if cur and cur != "HEAD":
+            resp["branch"] = cur
+
+    local_branches, remote_branches = _collect_git_branches(app_root, git_bin)
+    resp["local_branches"] = local_branches
+    resp["remote_branches"] = remote_branches
+    current_first = [resp["branch"]] if resp["branch"] else []
+    resp["branches"] = _merge_branch_lists(current_first, [cfg_branch], local_branches, remote_branches)
 
     rc_rem, out_rem, _ = _run_git_cmd(git_bin, ["remote", "get-url", "origin"], app_root)
     if rc_rem == 0:
@@ -768,6 +828,154 @@ async def get_app_git_status() -> dict[str, Any]:
                 "date": parts[3],
             }
     return resp
+
+
+class GitBranchesRequest(BaseModel):
+    owner: str = ""
+    repo: str = ""
+
+
+@router.post("/api/app/git-branches")
+async def pull_available_git_branches(req: GitBranchesRequest | None = None) -> dict[str, Any]:
+    """Pull remote branch names from GitHub (or git ls-remote) and merge with local branches."""
+    import base64
+    import urllib.error
+    import urllib.request
+
+    cfg = load_repo_config()
+    raw_owner = req.owner if req else ""
+    raw_repo = req.repo if req else ""
+    if raw_owner.strip() or raw_repo.strip():
+        parsed_owner, parsed_repo = _parse_github_owner_repo(raw_owner, raw_repo)
+        owner = parsed_owner or cfg.get("owner", "").strip()
+        repo = parsed_repo or cfg.get("repo", "").strip()
+    else:
+        owner = cfg.get("owner", "").strip()
+        repo = cfg.get("repo", "").strip()
+
+    cfg_branch = cfg.get("branch", "main").strip() or "main"
+    token = cfg.get("token", "").strip()
+    git_bin = shutil.which("git")
+    app_root = _resolve_git_app_root()
+
+    local_branches, cached_remote = _collect_git_branches(app_root, git_bin)
+    current_branch = ""
+    if git_bin and (app_root / ".git").is_dir():
+        rc_br, out_br, _ = _run_git_cmd(git_bin, ["rev-parse", "--abbrev-ref", "HEAD"], app_root)
+        if rc_br == 0 and out_br.strip() and out_br.strip() != "HEAD":
+            current_branch = out_br.strip()
+
+    if not owner or not repo:
+        fallback = _merge_branch_lists([current_branch, cfg_branch], local_branches, cached_remote)
+        return {
+            "status": "unconfigured",
+            "message": "GitHub owner and repository name are not configured.",
+            "owner": owner,
+            "repo": repo,
+            "current_branch": current_branch,
+            "configured_branch": cfg_branch,
+            "local_branches": local_branches,
+            "remote_branches": cached_remote,
+            "branches": fallback,
+            "source": "local_only",
+        }
+
+    remote_branches: list[str] = []
+    source = "github_api"
+    remote_error = ""
+
+    # 1. Try GitHub REST API first (supports private repos via saved token and works without local git remote)
+    try:
+        page = 1
+        while page <= 5:
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100&page={page}"
+            api_req = urllib.request.Request(api_url, headers=_github_headers(token))
+            with urllib.request.urlopen(api_req, timeout=10) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+            if not isinstance(payload, list) or not payload:
+                break
+            for item in payload:
+                if isinstance(item, dict):
+                    bname = str(item.get("name") or "").strip()
+                    if bname and bname not in remote_branches:
+                        remote_branches.append(bname)
+            if len(payload) < 100:
+                break
+            page += 1
+    except urllib.error.HTTPError as he:
+        if he.code == 401:
+            remote_error = "GitHub authentication failed (401). Check your Private Repo Token."
+        elif he.code == 403:
+            remote_error = "GitHub API rate limit exceeded or access forbidden (403)."
+        elif he.code == 404:
+            remote_error = f"Repository '{owner}/{repo}' not found (404)."
+        else:
+            remote_error = f"GitHub API error ({he.code})."
+    except Exception as exc:
+        remote_error = f"Unable to reach GitHub ({exc})."
+
+    # 2. Fallback to git ls-remote if API failed and git CLI + .git exist
+    if remote_error and git_bin and (app_root / ".git").is_dir():
+        clean_remote_url = f"https://github.com/{owner}/{repo}.git"
+        extra_header = ""
+        if token:
+            auth_b64 = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+            extra_header = f"AUTHORIZATION: basic {auth_b64}"
+        res_ls = run_git_step(
+            "ls_remote",
+            ["ls-remote", "--heads", clean_remote_url],
+            app_root,
+            timeout=20,
+            extra_header=extra_header,
+        )
+        if res_ls["returncode"] == 0:
+            for line in res_ls["stdout"].splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
+                    bname = parts[1][len("refs/heads/"):].strip()
+                    if bname and bname not in remote_branches:
+                        remote_branches.append(bname)
+            remote_error = ""
+            source = "git_ls_remote"
+
+    merged = _merge_branch_lists([current_branch, cfg_branch], remote_branches, local_branches, cached_remote)
+    if remote_error:
+        return {
+            "status": "error",
+            "message": remote_error,
+            "owner": owner,
+            "repo": repo,
+            "current_branch": current_branch,
+            "configured_branch": cfg_branch,
+            "local_branches": local_branches,
+            "remote_branches": cached_remote,
+            "branches": merged,
+            "source": "local_only",
+        }
+
+    append_audit_log(
+        action="app.github_branches.pull",
+        status="ok",
+        summary=f"Pulled {len(remote_branches)} remote branch(es) from {owner}/{repo}",
+        details={
+            "owner": owner,
+            "repo": repo,
+            "source": source,
+            "remote_branches": remote_branches,
+            "local_branches": local_branches,
+        },
+    )
+    return {
+        "status": "ok",
+        "owner": owner,
+        "repo": repo,
+        "current_branch": current_branch,
+        "configured_branch": cfg_branch,
+        "local_branches": local_branches,
+        "remote_branches": remote_branches,
+        "branches": merged,
+        "source": source,
+    }
 
 
 class GitPushRequest(BaseModel):
@@ -833,6 +1041,12 @@ async def push_app_to_github(req: GitPushRequest) -> dict[str, Any]:
     res_st = run_git_step("status", ["status", "--porcelain"], app_root)
     changed_count = len([ln for ln in res_st["stdout"].splitlines() if ln.strip()]) if res_st["returncode"] == 0 else 0
 
+    res_curr_br = run_git_step("rev_parse_branch", ["rev-parse", "--abbrev-ref", "HEAD"], app_root)
+    curr_branch = res_curr_br["stdout"].strip() if res_curr_br["returncode"] == 0 else ""
+    if curr_branch == "HEAD":
+        curr_branch = ""
+    push_refspec = branch if (not curr_branch or curr_branch == branch) else f"HEAD:{branch}"
+
     res_diff = run_git_step("diff_cached", ["diff", "--cached", "--quiet"], app_root)
     commit_created = False
     if res_diff["returncode"] != 0:
@@ -843,7 +1057,8 @@ async def push_app_to_github(req: GitPushRequest) -> dict[str, Any]:
             return _fail_git_step("commit", res_cm["returncode"], res_cm["stdout"], res_cm["stderr"], token=token)
         commit_created = True
     else:
-        res_rev = run_git_step("rev_list", ["rev-list", "--count", "@{u}..HEAD"], app_root)
+        compare_ref = "@{u}..HEAD" if (not curr_branch or curr_branch == branch) else f"origin/{branch}..HEAD"
+        res_rev = run_git_step("rev_list", ["rev-list", "--count", compare_ref], app_root)
         ahead_count = int(res_rev["stdout"].strip()) if (res_rev["returncode"] == 0 and res_rev["stdout"].strip().isdigit()) else 1
         if ahead_count == 0:
             return {
@@ -864,7 +1079,7 @@ async def push_app_to_github(req: GitPushRequest) -> dict[str, Any]:
 
     res_push = run_git_step(
         "push",
-        ["push", "-u", "origin", branch],
+        ["push", "-u", "origin", push_refspec],
         app_root,
         extra_header=extra_header,
         timeout=60,

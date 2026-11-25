@@ -446,6 +446,38 @@ export async function rescanActiveGameMetadata() {
   }
 }
 
+function _classifyGameEngine(game) {
+  const info = game?.modding_info || {};
+  const detected = String(game?.detected_engine || "").toLowerCase();
+  const cat = String(info.mcp_category || "").toLowerCase();
+  const tech = String(info.sheet_engine_tech || "").toLowerCase();
+  const backend = String(info.scripting_backend || "").toLowerCase();
+  const runtime = String(game?.runtime || "").toLowerCase();
+  const unityVer = String(info.unity_version || "").trim();
+  const hasRealUnityVer = Boolean(unityVer && unityVer !== "Unknown" && unityVer !== "Not scraped yet");
+
+  const isUnreal = Boolean(
+    info.is_unreal_engine ||
+    info.unreal_settings ||
+    detected === "unreal" ||
+    cat.includes("unreal") ||
+    tech.includes("unreal") ||
+    backend.includes("unreal") ||
+    runtime.includes("unreal")
+  );
+
+  const isUnity = !isUnreal && Boolean(
+    detected.startsWith("unity") ||
+    cat === "unity" ||
+    hasRealUnityVer ||
+    backend.includes("il2cpp") ||
+    backend.includes("mono") ||
+    runtime.startsWith("unity")
+  );
+
+  return { isUnity, isUnreal };
+}
+
 export function renderTopGameInfoPanel(game) {
   if (!game) return;
   const info = game.modding_info || {};
@@ -462,17 +494,7 @@ export function renderTopGameInfoPanel(game) {
   const engineBadge = document.getElementById("info-engine-badge");
   if (engineBadge) engineBadge.textContent = info.mcp_category || game.runtime || "PC";
 
-  const isUnity = Boolean(
-    info.mcp_category === "Unity" ||
-    (info.unity_version && info.unity_version !== "Unknown") ||
-    (info.scripting_backend || "").includes("IL2CPP") ||
-    (info.scripting_backend || "").includes("Mono")
-  );
-  const isUnreal = Boolean(
-    info.is_unreal_engine ||
-    info.mcp_category === "Unreal Engine 4/5" ||
-    (info.scripting_backend || "").includes("Unreal")
-  );
+  const { isUnity, isUnreal } = _classifyGameEngine(game);
 
   const devPrefix = (info.developer && info.developer !== "Unknown") ? `${info.developer} — ` : "";
   document.getElementById("info-product").textContent =
@@ -628,8 +650,10 @@ export function renderTopGameInfoPanel(game) {
     setPill("ind-reshade-installed", "na", "ReShade: Not Installed");
   }
 
-  // 5. Game Settings Optimised for PC Specs
+  // 5. Game Settings Optimised for PC Specs (Unreal INI)
   const ueSettings = info.unreal_settings || null;
+  const optPillEl = document.getElementById("ind-settings-optimised");
+  if (optPillEl) optPillEl.style.display = isUnreal ? "inline-flex" : "none";
   if (isUnreal && ueSettings) {
     const tlSum = ueSettings.traffic_light_summary || {};
     const overall = tlSum.overall_light || ueSettings.spec_comparison?.overall_light || "";
@@ -746,14 +770,7 @@ export function renderUnrealSettingsSection(game) {
   const section = document.getElementById("unreal-settings-section");
   if (!section || !game) return;
   const info = game.modding_info || {};
-  const isUnreal = Boolean(
-    info.is_unreal_engine ||
-    info.mcp_category === "Unreal Engine 4/5" ||
-    (info.sheet_engine_tech || "").includes("Unreal") ||
-    (info.scripting_backend || "").includes("Unreal") ||
-    (game.runtime || "").includes("Unreal") ||
-    info.unreal_settings
-  );
+  const { isUnreal } = _classifyGameEngine(game);
 
   if (!isUnreal) {
     section.style.display = "none";
@@ -1177,9 +1194,19 @@ export function renderActiveGamePanel(game, { allowAutoFetch = true } = {}) {
     if (provOut) {
       provOut.textContent = "Ready to validate SHA-256, back up collisions, extract BepInEx + BepInExMCP.IL2CPP.dll, or restore cleanly.";
     }
+    const notice = document.getElementById("adapter-status-notice");
+    if (notice) notice.style.display = "none";
   }
 
   renderTopGameInfoPanel(game);
+  const { isUnity, isUnreal } = _classifyGameEngine(game);
+  const provCard = document.getElementById("card-provision-restore");
+  const mcpCard = document.getElementById("card-live-mcp");
+  const ueSection = document.getElementById("unreal-settings-section");
+  const uiVis = (typeof APP_UI_CONFIG !== "undefined" && APP_UI_CONFIG.visibility) ? APP_UI_CONFIG.visibility : {};
+  if (provCard) provCard.style.display = (isUnity && uiVis.sec_provision_restore !== false) ? "flex" : "none";
+  if (mcpCard) mcpCard.style.display = (isUnity && uiVis.sec_live_mcp !== false) ? "flex" : "none";
+  if (ueSection && !isUnreal) ueSection.style.display = "none";
 
   const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   // Populate Fingerprint / Provision / MCP inputs

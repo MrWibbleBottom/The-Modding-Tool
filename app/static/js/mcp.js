@@ -830,7 +830,7 @@ export function updateModRuleField(index, field, value) {
 }
 
 export function addCurrentMcpEditToMod() {
-  const entitySel = document.getElementById("mcp-entity-select");
+  const entitySel = document.getElementById("mcp-target-entity");
   const entityLabel = entitySel && entitySel.selectedOptions.length
     ? entitySel.selectedOptions[0].textContent.split("(")[0].trim()
     : "CameraHolder(Clone)";

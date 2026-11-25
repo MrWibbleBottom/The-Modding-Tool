@@ -1,4 +1,4 @@
-const CACHE_NAME = "modtool-offline-v1";
+const CACHE_NAME = "modtool-offline-v2";
 const PRECACHE_URLS = ["/offline", "/static/app.css"];
 
 self.addEventListener("install", (event) => {
@@ -28,17 +28,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
 
-  if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req).catch(async () => {
-        const cached = await caches.match("/offline");
-        return cached || Response.error();
-      })
-    );
-    return;
-  }
-
-  if (PRECACHE_URLS.includes(url.pathname)) {
+  if (url.pathname === "/" || url.pathname.startsWith("/static/")) {
     event.respondWith(
       fetch(req)
         .then((resp) => {
@@ -48,7 +38,25 @@ self.addEventListener("fetch", (event) => {
           }
           return resp;
         })
-        .catch(() => caches.match(req))
+        .catch(async () => {
+          const cached = await caches.match(req, { ignoreSearch: true });
+          if (cached) return cached;
+          if (req.mode === "navigate") {
+            const offline = await caches.match("/offline");
+            if (offline) return offline;
+          }
+          return Response.error();
+        })
+    );
+    return;
+  }
+
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req).catch(async () => {
+        const cached = await caches.match("/offline");
+        return cached || Response.error();
+      })
     );
   }
 });
