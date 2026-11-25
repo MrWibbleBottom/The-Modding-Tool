@@ -82,6 +82,11 @@ from app.services.discovery import (
     scan_manual_folders,
 )
 from app.services.conflict_guard import inspect_conflict_guard
+from app.services.endpoint_applier import (
+    apply_endpoint_change,
+    get_deployed_mod_download_path,
+    validate_endpoint_state,
+)
 from app.services.endpoints import apply_or_reset_endpoint, scan_game_endpoints
 from app.services.game_snapshots import (
     create_game_snapshot,
@@ -216,6 +221,18 @@ class EndpointUpdateRequest(BaseModel):
     endpoint_id: str
     value: str | None = None
     reset_to_default: bool = Field(default=False)
+
+
+class EndpointApplyRequest(BaseModel):
+    endpoint_id: str
+    new_value: str | None = None
+    action: str = Field(default="apply")
+    force: bool = Field(default=False)
+
+
+class EndpointValidateRequest(BaseModel):
+    endpoint_id: str
+    expected_value: str | None = None
 
 
 class LibraryScanRequest(BaseModel):
@@ -1274,6 +1291,53 @@ async def post_update_game_endpoint(slug: str, req: EndpointUpdateRequest) -> di
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/games/{slug}/endpoints/apply")
+async def post_apply_game_endpoint(slug: str, req: EndpointApplyRequest) -> dict[str, Any]:
+    """Contextually apply or rollback an endpoint via Config, Mod File, or live Bridge delivery."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        return await apply_endpoint_change(
+            target,
+            req.endpoint_id,
+            new_value=req.new_value,
+            action=req.action,
+            force=req.force,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/games/{slug}/endpoints/validate")
+async def post_validate_game_endpoint(slug: str, req: EndpointValidateRequest) -> dict[str, Any]:
+    """Validate persistence, mod deployment, or live bridge state for *endpoint_id*."""
+    target = _find_managed_game_for_slug(slug)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Managed game '{slug}' not found.")
+    try:
+        return await validate_endpoint_state(
+            target,
+            req.endpoint_id,
+            expected_value=req.expected_value,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/api/games/{slug}/endpoints/download")
+async def get_download_endpoint_mod(slug: str, endpoint_id: str) -> FileResponse:
+    """Download the generated .zip archive for a deployed Mod File endpoint."""
+    zp = get_deployed_mod_download_path(slug, endpoint_id)
+    if zp is None or not zp.is_file():
+        raise HTTPException(status_code=404, detail=f"No generated mod package found for endpoint '{endpoint_id}'.")
+    return FileResponse(zp, media_type="application/zip", filename=zp.name)
 
 
 @router.post("/api/games/{slug}/snapshots/{snapshot_id}/restore")

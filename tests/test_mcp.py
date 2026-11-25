@@ -21,6 +21,7 @@ from app.routers import asset_audit  # noqa: E402
 from app.routers import branding as branding_router  # noqa: E402
 from app.routers import library as library_router  # noqa: E402
 from app.routers import mcp_bridge as mcp_router  # noqa: E402
+from app.services import endpoint_applier  # noqa: E402
 from app.services import endpoints as endpoints_service  # noqa: E402
 from app.services import game_snapshots  # noqa: E402
 
@@ -369,6 +370,116 @@ class McpTests(unittest.TestCase):
                 self.assertEqual(r_reset.json()["endpoint"]["current_value"], "22")
                 self.assertFalse(r_reset.json()["endpoint"]["is_modified"])
                 self.assertIn("HeroMaxHealth = 22", cfg_file.read_text(encoding="utf-8"))
+                core_config.invalidate_games_cache()
+
+    def test_unity_contextual_bridge_apply_validate_and_failure_surfacing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            unity_dir = tmp_dir / "UnityBridgeApply"
+            (unity_dir / "BepInEx" / "config").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "BepInEx" / "interop").mkdir(parents=True, exist_ok=True)
+            (unity_dir / "GameAssembly.dll").write_bytes(b"MZ")
+            (unity_dir / "BepInEx" / "interop" / "Jade.GameView.dll").write_bytes(b"DLL")
+            log_file = unity_dir / "BepInEx" / "LogOutput.log"
+            log_file.write_text("[Info : BepInEx] Startup complete\n", encoding="utf-8")
+
+            cfg_file = unity_dir / "BepInEx" / "config" / "com.modtool.balance.cfg"
+            cfg_file.write_text("[HeroStats]\nHeroMaxHealth = 22\n", encoding="utf-8")
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unity_bridge_apply",
+                        "name": "Unity Bridge Apply",
+                        "game_dir": str(unity_dir),
+                        "runtime": "Unity_IL2CPP",
+                        "default_go_id": "-269924",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            snaps_root = tmp_dir / "game_snapshots"
+            built_root = tmp_dir / "built_mods"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            live_state = {"val": "22", "fail_mode": False}
+
+            async def fake_bridge(tool_name: str, args: dict, game: dict):
+                if tool_name == "set_component_value":
+                    if live_state["fail_mode"]:
+                        return {"tool": tool_name, "isError": True, "raw": "NullReferenceException in SetValue", "data": {}}
+                    live_state["val"] = str(args.get("value", ""))
+                    return {"tool": tool_name, "isError": False, "raw": "ok", "data": {"ok": True}}
+                if tool_name == "get_component_member":
+                    return {"tool": tool_name, "isError": False, "raw": live_state["val"], "data": {"value": live_state["val"]}}
+                return {"tool": tool_name, "isError": False, "raw": "{}", "data": {}}
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoint_applier, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoint_applier, "BUILT_MODS_DIR", built_root),
+                patch.object(endpoint_applier, "_default_mcp_bridge_call", side_effect=fake_bridge),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                # 1. Config delivery on .cfg
+                cfg_ep = "bep_cfg:com.modtool.balance.cfg:HeroStats:HeroMaxHealth"
+                r_cfg = self.client.post(
+                    "/api/games/unity_bridge_apply/endpoints/apply",
+                    json={"endpoint_id": cfg_ep, "new_value": "35", "action": "apply"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_cfg.status_code, 200)
+                self.assertTrue(r_cfg.json()["ok"])
+                self.assertTrue(r_cfg.json()["restart_required"])
+
+                # 2. Live Bridge push + get_component_member read-back verification
+                bridge_ep = "dump_sig:Jade.GameView.CameraTargetCharacter:targetPiece.stats.Health.maxValue"
+                r_push = self.client.post(
+                    "/api/games/unity_bridge_apply/endpoints/apply",
+                    json={"endpoint_id": bridge_ep, "new_value": "45", "action": "apply"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_push.status_code, 200)
+                pdata = r_push.json()
+                self.assertTrue(pdata["ok"])
+                self.assertEqual(pdata["delivery_type"], "bridge")
+                self.assertTrue(pdata["validated"])
+                self.assertFalse(pdata["restart_required"])
+                self.assertEqual(pdata["readback_value"], "45")
+                self.assertEqual(pdata["validation_badge"], "Bridge Confirmed")
+
+                r_val = self.client.post(
+                    "/api/games/unity_bridge_apply/endpoints/validate",
+                    json={"endpoint_id": bridge_ep, "expected_value": "45"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_val.status_code, 200)
+                self.assertTrue(r_val.json()["validated"])
+
+                # 3. Bridge failure + log surfacing
+                live_state["fail_mode"] = True
+                log_file.write_text("[Error : BepInExMCP] NullReferenceException: CameraTargetCharacter missing\n", encoding="utf-8")
+                r_fail = self.client.post(
+                    "/api/games/unity_bridge_apply/endpoints/apply",
+                    json={"endpoint_id": bridge_ep, "new_value": "99", "action": "apply"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_fail.status_code, 200)
+                fdata = r_fail.json()
+                self.assertFalse(fdata["ok"])
+                self.assertFalse(fdata["validated"])
+                self.assertEqual(fdata["validation_badge"], "Validation Failed")
+                self.assertIn("NullReferenceException", fdata["log_excerpt"])
                 core_config.invalidate_games_cache()
 
 

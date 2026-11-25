@@ -420,6 +420,16 @@
             <button type="button" class="ep-cat-pill" id="ep-cat-btn-qol" onclick="selectEndpointCategory('qol')">QoL</button>
             <button type="button" class="ep-cat-pill" id="ep-cat-btn-error_logs" onclick="selectEndpointCategory('error_logs')">Error Log Capture</button>
           </div>
+          <div id="ep-error-panel" class="snapshot-conflict-notice" style="display:none; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+              <strong id="ep-error-title">Endpoint Validation Error</strong>
+              <div class="btn-group">
+                <button type="button" class="secondary btn-sm" onclick="openGameLogTailDrawer()">Open Full Game Log Tail</button>
+                <button type="button" class="secondary btn-sm" onclick="document.getElementById('ep-error-panel').style.display='none'">Dismiss</button>
+              </div>
+            </div>
+            <pre id="ep-error-pre" style="margin:0; max-height:160px; overflow-y:auto; font-size:0.74rem;"></pre>
+          </div>
           <div id="ep-endpoints-list" class="ep-endpoints-list">
             <div class="hint">Click <strong>Scan Endpoints</strong> to discover and categorize modding endpoints for the active game.</div>
           </div>

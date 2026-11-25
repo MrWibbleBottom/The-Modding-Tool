@@ -2,6 +2,17 @@
 
 Chronological record of user prompts, AG feedback, and version changes (filed newest-first with date stamp followed by version number).
 
+## 2026-11-25 16:18 — v0.1.40
+
+- **Prompt**: Implement contextual endpoint application (config, mod_file, bridge) with automated snapshots, post-change validation, and inline game/bridge error reporting
+- **AG Feedback**: Implemented contextual apply/validate/download/rollback flow across backend, frontend UI, and automated tests; full pytest suite passed (43 passed).
+- **Version Changes**:
+  - Added app/services/endpoint_applier.py supporting Config, Mod File (Unity BepInEx .dll & Unreal UE4SS Lua .zip), and live BepInExMCP Bridge apply/validate/rollback with pre-change snapshots and created-file tracking.
+  - Updated app/services/endpoints.py to enable editable UE4SS, live bridge, dump signature, and custom balance Mod File endpoints.
+  - Added POST /api/games/{slug}/endpoints/apply, POST /api/games/{slug}/endpoints/validate, and GET /api/games/{slug}/endpoints/download in app/routers/library.py.
+  - Updated app/templates/partials/active_game.html and app/static/js/active_game.js with contextual Apply/Deploy Mod/Download Mod/Push Live/Validate/Rollback buttons, validation status badges, and inline error/log drawer surfacing.
+  - Added contextual endpoint tests in tests/test_unreal.py and tests/test_mcp.py.
+
 ## 2026-11-25 16:06 — v0.1.40
 
 - **Prompt**: Build categorized modding endpoint discovery engine with stored baseline defaults and Simple/Advanced UI modes

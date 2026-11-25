@@ -19,6 +19,7 @@ from app.core.security import SESSION_HEADER, get_session_token  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routers import library as library_router  # noqa: E402
 from app.routers import system as system_router  # noqa: E402
+from app.services import endpoint_applier  # noqa: E402
 from app.services import endpoints as endpoints_service  # noqa: E402
 from app.services import game_snapshots  # noqa: E402
 
@@ -365,6 +366,120 @@ class UnrealTests(unittest.TestCase):
                 self.assertEqual(r_reset.json()["endpoint"]["current_value"], "3")
                 self.assertFalse(r_reset.json()["endpoint"]["is_modified"])
                 self.assertIn("sg.ViewDistanceQuality=3", gus_ini.read_text(encoding="utf-8"))
+                core_config.invalidate_games_cache()
+
+    def test_unreal_contextual_apply_validate_mod_file_and_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            ue_dir = tmp_dir / "UnrealApplySample"
+            cfg_dir = ue_dir / "Saved" / "Config" / "WindowsNoEditor"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            gus_ini = cfg_dir / "GameUserSettings.ini"
+            gus_ini.write_text("[ScalabilityGroups]\nsg.ViewDistanceQuality=3\n", encoding="utf-8")
+
+            lua_dir = ue_dir / "Proj" / "Binaries" / "Win64" / "Mods" / "LootBoostMod" / "Scripts"
+            lua_dir.mkdir(parents=True, exist_ok=True)
+            (lua_dir / "main.lua").write_text(
+                'RegisterHook("/Script/Engine.PlayerController:BoostLootDrops", function() end)\n',
+                encoding="utf-8",
+            )
+            logs_dir = ue_dir / "Saved" / "Logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            log_file = logs_dir / "UnrealApplySample.log"
+            log_file.write_text("LogInit: Display: Ready\n", encoding="utf-8")
+
+            store_path = tmp_dir / "managed_games.json"
+            store_path.write_text(
+                json.dumps({
+                    "games": [{
+                        "id": "unreal_apply_sample",
+                        "name": "Unreal Apply Sample",
+                        "game_dir": str(ue_dir),
+                        "runtime": "Unreal Engine 4/5",
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            appdata_root = tmp_dir / "appdata"
+            snaps_root = tmp_dir / "game_snapshots"
+            built_root = tmp_dir / "built_mods"
+            temp_audit = tmp_dir / "audit.jsonl"
+            temp_app_audit = tmp_dir / "audit_app.jsonl"
+            temp_game_audit = tmp_dir / "audit_game.jsonl"
+
+            with (
+                patch.object(core_config, "GAMES_STORE_PATH", store_path),
+                patch.object(library_router, "GAMES_STORE_PATH", store_path),
+                patch.object(endpoints_service, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoint_applier, "APP_DATA_ROOT", appdata_root),
+                patch.object(endpoint_applier, "BUILT_MODS_DIR", built_root),
+                patch.object(game_snapshots, "GAME_SNAPSHOTS_DIR", snaps_root),
+                patch.object(core_audit, "AUDIT_LOG_PATH", temp_audit),
+                patch.object(core_audit, "AUDIT_APP_LOG_PATH", temp_app_audit),
+                patch.object(core_audit, "AUDIT_GAME_LOG_PATH", temp_game_audit),
+            ):
+                core_config.invalidate_games_cache()
+                # 1. Config delivery + persistence validation
+                cfg_ep_id = "ue_ini:GameUserSettings.ini:ScalabilityGroups:sg.ViewDistanceQuality"
+                r_cfg = self.client.post(
+                    "/api/games/unreal_apply_sample/endpoints/apply",
+                    json={"endpoint_id": cfg_ep_id, "new_value": "2", "action": "apply"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_cfg.status_code, 200)
+                cdata = r_cfg.json()
+                self.assertTrue(cdata["ok"])
+                self.assertEqual(cdata["delivery_type"], "config")
+                self.assertTrue(cdata["validated"])
+                self.assertTrue(cdata["restart_required"])
+                self.assertTrue(cdata["snapshot_id"])
+
+                r_val = self.client.post(
+                    "/api/games/unreal_apply_sample/endpoints/validate",
+                    json={"endpoint_id": cfg_ep_id, "expected_value": "2"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_val.status_code, 200)
+                self.assertTrue(r_val.json()["validated"])
+
+                # 2. Mod File deploy + downloadable zip + per-mod rollback
+                mod_ep_id = "ue4ss_hook:LootBoostMod:1"
+                r_dep = self.client.post(
+                    "/api/games/unreal_apply_sample/endpoints/apply",
+                    json={"endpoint_id": mod_ep_id, "new_value": "Enabled", "action": "deploy_mod"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_dep.status_code, 200)
+                ddata = r_dep.json()
+                self.assertTrue(ddata["ok"])
+                self.assertEqual(ddata["delivery_type"], "mod_file")
+                self.assertTrue(ddata["validated"])
+                self.assertTrue((lua_dir.parent / "enabled.txt").is_file())
+                r_dl = self.client.get(ddata["download_url"])
+                self.assertEqual(r_dl.status_code, 200)
+                self.assertIn("application/zip", r_dl.headers.get("content-type", ""))
+
+                r_rb = self.client.post(
+                    "/api/games/unreal_apply_sample/endpoints/apply",
+                    json={"endpoint_id": mod_ep_id, "action": "rollback_mod"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_rb.status_code, 200)
+                self.assertTrue(r_rb.json()["ok"])
+                self.assertFalse((lua_dir.parent / "enabled.txt").exists())
+
+                # 3. Failure log surfacing when INI error appears in game log
+                log_file.write_text("LogConfig: Error: Invalid GameUserSettings.ini key sg.ViewDistanceQuality\n", encoding="utf-8")
+                r_fail = self.client.post(
+                    "/api/games/unreal_apply_sample/endpoints/apply",
+                    json={"endpoint_id": cfg_ep_id, "new_value": "1", "action": "apply"},
+                    headers={SESSION_HEADER: get_session_token()},
+                )
+                self.assertEqual(r_fail.status_code, 200)
+                fdata = r_fail.json()
+                self.assertFalse(fdata["ok"])
+                self.assertFalse(fdata["validated"])
+                self.assertIn("GameUserSettings.ini", fdata["log_excerpt"])
                 core_config.invalidate_games_cache()
 
 

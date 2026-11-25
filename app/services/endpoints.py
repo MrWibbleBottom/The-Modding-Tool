@@ -378,7 +378,9 @@ def _scan_unreal_endpoints(game_dir: Path, game_name: str, info: dict[str, Any])
                     current_value="Enabled" if enabled else "Disabled",
                     default_value="Disabled",
                     delivery_type="Mod File",
-                    can_edit=False,
+                    can_edit=True,
+                    value_type="select",
+                    options=["Enabled", "Disabled"],
                     advanced_details={
                         "source_kind": "ue4ss_lua_hook",
                         "file_path": str(lua_file),
@@ -531,13 +533,14 @@ def _scan_unity_endpoints(
                 current_value=cur_v,
                 default_value=def_v,
                 delivery_type="Bridge",
-                can_edit=False,
+                can_edit=True,
                 advanced_details={
                     "source_kind": "live_bepinex_mcp",
                     "namespace": ns,
                     "class_name": cls,
                     "member": member,
                     "method_signature": sig,
+                    "game_object_id": str(item.get("game_object_id") or ""),
                 },
             )
         )
@@ -573,7 +576,7 @@ def _scan_unity_endpoints(
                         current_value=d_val,
                         default_value=d_val,
                         delivery_type="Bridge",
-                        can_edit=False,
+                        can_edit=True,
                         advanced_details={
                             "source_kind": "il2cpp_dump_signature",
                             "namespace": comp.rsplit(".", 1)[0],
@@ -603,7 +606,7 @@ def _scan_unity_endpoints(
                             current_value="Runtime",
                             default_value="Runtime",
                             delivery_type="Bridge",
-                            can_edit=False,
+                            can_edit=True,
                             advanced_details={
                                 "source_kind": "il2cpp_dump_cs",
                                 "file_path": str(dump_cand),
@@ -613,6 +616,28 @@ def _scan_unity_endpoints(
                             },
                         )
                     )
+
+        # Standalone compiled BepInEx Mod File generator endpoint for Unity
+        endpoints.append(
+            _make_endpoint(
+                endpoint_id="unity_mod:bepinex_custom_balance",
+                category="game_systems",
+                name="BepInEx Balance Plugin (.dll)",
+                simple_description="Compiles & deploys a standalone BepInEx C# balance plugin DLL into BepInEx/plugins.",
+                current_value="23",
+                default_value="22",
+                delivery_type="Mod File",
+                can_edit=True,
+                value_type="number",
+                advanced_details={
+                    "source_kind": "bepinex_compiled_dll",
+                    "rule_type": "member_set",
+                    "entity_name": "Piece_DragonbornPaladin(Clone)",
+                    "component": "Jade.GameView.CameraTargetCharacter",
+                    "member": "targetPiece.stats.Health.maxValue",
+                },
+            )
+        )
 
     return endpoints
 

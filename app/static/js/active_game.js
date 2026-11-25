@@ -1577,13 +1577,41 @@ export function renderEndpointsList() {
     return;
   }
 
+  state.endpointValidation = state.endpointValidation || {};
+  const errPanel = document.getElementById("ep-error-panel");
+  const errTitle = document.getElementById("ep-error-title");
+  const errPre = document.getElementById("ep-error-pre");
+
+  const _showEpValidationResult = (ep, resp) => {
+    state.endpointValidation[ep.id] = resp;
+    if (resp && resp.ok === false) {
+      if (errPanel && errTitle && errPre) {
+        errPanel.style.display = "block";
+        errTitle.textContent = `Validation Failed — ${ep.name} (${resp.delivery_type || "config"})`;
+        errPre.textContent = [resp.error_details || "Validation check failed.", resp.log_excerpt ? `\nLog / Bridge Excerpt:\n${resp.log_excerpt}` : ""].join("");
+      }
+      openGameLogTailDrawer();
+    } else if (errPanel && errPanel.style.display === "block" && errTitle?.textContent?.includes(ep.name)) {
+      errPanel.style.display = "none";
+    }
+  };
+
   listEl.innerHTML = visible.map((ep, idx) => {
     const modCls = ep.is_modified ? " is-modified" : "";
     const defPill = `<span class="badge" title="Stored baseline default">Default: ${escHtml(ep.default_value)}</span>`;
     const diffBadge = ep.is_modified
       ? `<span class="pill warn">MODIFIED</span>`
       : `<span class="pill yes">DEFAULT</span>`;
-    const deliveryBadge = `<span class="badge">${escHtml(ep.delivery_type || "Config")}</span>`;
+    const deliveryRaw = String(ep.delivery_type || "Config");
+    const deliveryNorm = deliveryRaw.toLowerCase().replace(/[-\s]+/g, "_");
+    const deliveryBadge = `<span class="badge">${escHtml(deliveryRaw)}</span>`;
+
+    const vState = (state.endpointValidation || {})[ep.id];
+    let valBadgeHtml = "";
+    if (vState && vState.validation_badge) {
+      const vCls = vState.ok === false ? "no" : (vState.validation_badge === "Restart Required" ? "warn" : "yes");
+      valBadgeHtml = `<span class="pill ${vCls}">${escHtml(vState.validation_badge)}</span>`;
+    }
 
     let controlHtml = "";
     if (ep.can_edit) {
@@ -1601,8 +1629,21 @@ export function renderEndpointsList() {
       } else {
         controlHtml = `<input type="text" class="ep-val-input" data-idx="${idx}" value="${escHtml(ep.current_value)}" />`;
       }
-      controlHtml += `<button type="button" class="success btn-sm ep-apply-btn" data-idx="${idx}">Apply</button>`;
-      controlHtml += `<button type="button" class="secondary btn-sm ep-reset-btn" data-idx="${idx}" title="Reset back to stored default">Default</button>`;
+
+      if (deliveryNorm === "mod_file") {
+        controlHtml += `<button type="button" class="success btn-sm ep-apply-btn" data-idx="${idx}" data-action="deploy_mod">Deploy Mod</button>`;
+        if (vState?.download_url) {
+          controlHtml += `<a class="secondary btn-sm" style="text-decoration:none; padding:4px 9px; border-radius:6px; border:1px solid var(--border); color:#93c5fd; font-size:0.74rem; font-weight:600;" href="${escHtml(vState.download_url)}">Download Mod</a>`;
+        }
+        controlHtml += `<button type="button" class="danger btn-sm ep-reset-btn" data-idx="${idx}" data-action="rollback_mod" title="Rollback deployed mod artifact">Rollback</button>`;
+      } else if (deliveryNorm === "bridge") {
+        controlHtml += `<button type="button" class="success btn-sm ep-apply-btn" data-idx="${idx}" data-action="apply">Push Live</button>`;
+        controlHtml += `<button type="button" class="secondary btn-sm ep-validate-btn" data-idx="${idx}">Validate</button>`;
+        controlHtml += `<button type="button" class="secondary btn-sm ep-reset-btn" data-idx="${idx}" data-action="reset_default" title="Reset live value to stored default">Default</button>`;
+      } else {
+        controlHtml += `<button type="button" class="success btn-sm ep-apply-btn" data-idx="${idx}" data-action="apply">Apply</button>`;
+        controlHtml += `<button type="button" class="secondary btn-sm ep-reset-btn" data-idx="${idx}" data-action="reset_default" title="Reset back to stored default">Default</button>`;
+      }
     } else {
       controlHtml = `<span class="pill ${ep.category === "error_logs" && !String(ep.current_value).startsWith("0 ") ? "warn" : "na"}">Value: ${escHtml(ep.current_value)}</span>`;
     }
@@ -1624,6 +1665,10 @@ export function renderEndpointsList() {
       advHtml = `<div class="ep-advanced-meta">${techParts.join("")}</div>`;
     }
 
+    const inlineErrHtml = (vState && vState.ok === false)
+      ? `<div class="snapshot-conflict-notice" style="margin-top:8px;"><strong>${escHtml(vState.error_details || "Validation failed.")}</strong>${vState.log_excerpt ? `<pre style="margin:6px 0 0 0; max-height:110px; font-size:0.72rem;">${escHtml(vState.log_excerpt)}</pre>` : ""}</div>`
+      : "";
+
     return `
       <div class="ep-card${modCls}">
         <div class="ep-card-head">
@@ -1632,13 +1677,14 @@ export function renderEndpointsList() {
             <span class="badge">${escHtml(ep.category_label)}</span>
             ${isAdv ? deliveryBadge : ""}
           </div>
-          <div>${diffBadge}</div>
+          <div class="btn-group">${valBadgeHtml}${diffBadge}</div>
         </div>
         <div style="font-size:0.78rem; color:#cbd5e1; margin-top:4px;">${escHtml(ep.simple_description)}</div>
         <div class="ep-controls-row">
           ${controlHtml}
           ${defPill}
         </div>
+        ${inlineErrHtml}
         ${advHtml}
       </div>
     `;
@@ -1650,28 +1696,60 @@ export function renderEndpointsList() {
       const idx = Number(btn.dataset.idx);
       const ep = visible[idx];
       const inp = listEl.querySelector(`.ep-val-input[data-idx="${idx}"]`);
+      const act = btn.dataset.action || "apply";
       if (!ep || !inp || !slug) return;
       try {
         await runTrackedAction(
           btn,
           async () => {
-            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/update`, {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/apply`, {
               endpoint_id: ep.id,
-              value: String(inp.value),
-              reset_to_default: false,
+              new_value: String(inp.value),
+              action: act,
+              force: true,
             });
+            _showEpValidationResult(ep, resp);
             if (resp?.report) {
               state.endpointsReport = resp.report;
-              renderEndpointsList();
             } else {
               await loadModdingEndpoints(slug);
             }
-            await loadGameSnapshots(slug);
+            renderEndpointsList();
+            await Promise.all([loadGameSnapshots(slug), loadCurrentModsSection(slug)]);
             return resp;
           },
           {
-            pendingText: `Applying '${ep.name}'...`,
-            successText: (r) => r?.summary || "Updated endpoint value",
+            pendingText: `${act === "deploy_mod" ? "Deploying mod" : "Applying"} '${ep.name}'...`,
+            successText: (r) => r?.summary || (r?.ok ? "Applied & verified" : "Completed with validation warning"),
+          },
+        );
+      } catch {
+        // Error handled by runTrackedAction
+      }
+    });
+  });
+
+  listEl.querySelectorAll(".ep-validate-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const ep = visible[idx];
+      const inp = listEl.querySelector(`.ep-val-input[data-idx="${idx}"]`);
+      if (!ep || !slug) return;
+      try {
+        await runTrackedAction(
+          btn,
+          async () => {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/validate`, {
+              endpoint_id: ep.id,
+              expected_value: inp ? String(inp.value) : String(ep.current_value),
+            });
+            _showEpValidationResult(ep, resp);
+            renderEndpointsList();
+            return resp;
+          },
+          {
+            pendingText: `Validating '${ep.name}'...`,
+            successText: (r) => r?.validation_badge || (r?.ok ? "Verified" : "Validation failed"),
           },
         );
       } catch {
@@ -1684,27 +1762,30 @@ export function renderEndpointsList() {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
       const ep = visible[idx];
+      const act = btn.dataset.action || "reset_default";
       if (!ep || !slug) return;
       try {
         await runTrackedAction(
           btn,
           async () => {
-            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/update`, {
+            const resp = await apiPost(`/api/games/${encodeURIComponent(slug)}/endpoints/apply`, {
               endpoint_id: ep.id,
-              reset_to_default: true,
+              action: act,
+              force: true,
             });
+            _showEpValidationResult(ep, resp);
             if (resp?.report) {
               state.endpointsReport = resp.report;
-              renderEndpointsList();
             } else {
               await loadModdingEndpoints(slug);
             }
-            await loadGameSnapshots(slug);
+            renderEndpointsList();
+            await Promise.all([loadGameSnapshots(slug), loadCurrentModsSection(slug)]);
             return resp;
           },
           {
-            pendingText: `Resetting '${ep.name}' to default (${ep.default_value})...`,
-            successText: (r) => r?.summary || "Reset endpoint to stored default",
+            pendingText: `${act === "rollback_mod" ? "Rolling back" : "Resetting"} '${ep.name}'...`,
+            successText: (r) => r?.summary || "Reverted endpoint to baseline",
           },
         );
       } catch {
